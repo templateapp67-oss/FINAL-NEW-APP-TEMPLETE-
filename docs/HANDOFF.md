@@ -1,52 +1,40 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2 — Unified Database Foundation).
+> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2A — Schema Reconciliation + Database Hardening).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
 
-- **PHASE 2 — UNIFIED SUPABASE DATABASE FOUNDATION: COMPLETE.**
-  - The canonical unified database foundation for BOTH repositories (this
-    Template app and the Main Website) on ONE Supabase database is now
-    implemented via an additive, idempotent, fail-closed migration:
-    `supabase/migrations/20260821000501_m32_phase2_canonical_foundation.sql`.
-    M01–M31 are unchanged and re-verified. Details:
-    `docs/phase-2-unified-database-foundation.md`.
-  - **Reconciled, not duplicated**: `auth.users → profiles →
-    organization_members → organizations → salons` is the single canonical
-    tenant chain; `salons` is the single business entity (no parallel
-    `businesses`); roles stay ONE system with two scopes —
-    `profiles.platform_role` (customer/business_user/growth_partner/
-    delivery_partner/admin) + `organization_members.role` (owner/staff). The
-    five M28 themes remain the ONLY theme records (no re-seed, no duplicates).
-  - **M32 closes the remaining canonical gaps**: `themes.slug` (unique +
-    format check), `service_categories.slug` (unique per theme), the
-    authoritative salon theme binding `salons.theme_id` FK + RPC
-    `public.phase2_set_salon_theme` (owner/service_role only, active-theme
-    guard, bumps `updated_at`), `organizations.status`/timestamps,
-    `organization_members.created_at`, `business_locations.created_at`
-    (backfilled from `submitted_at`), `services` timestamps, safe
-    `private.phase2_set_updated_at()` triggers on every canonical mutable
-    table without an existing update trigger, `products_theme_phase2_idx`,
-    and column-limited grants for the new public-safe columns. RLS policy
-    surface unchanged (deep RLS is Phase 3).
-  - **Types**: `src/types/database.ts` regenerated to the Phase 1A + Phase 2
-    canonical subset (OrganizationRow, ThemeRow, ServiceCategoryRow,
-    ProductCategoryRow, SetSalonThemeResult, extended SalonRow/ServiceRow/
-    ProductRow/BusinessLocationRow/OrganizationMemberRow, PlatformRole +
-    delivery_partner). No app code imports the file, so nothing breaks.
-  - **Validation**: `npm run test:phase2` (validate:migrations 27/27 ×2 +
-    21/21; phase1a 11/11 + 3/3; phase2 17/17) — all PASS; with
-    `NEXORA_MAIN_WEBSITE_PATH=/home/user/nexora-main-website` the Phase 2
-    suite runs 19/19: Main Website `PROFILE_COLUMNS` contract verified against
-    the unified schema and 93 Main Website DDL statements applied cleanly on
-    it (24 skipped only on out-of-repo prerequisites such as
-    `growth_partners`; zero canonical conflicts). `validate:main-website`
-    10/10; `npm run lint` 0; `npm run build` green.
-  - NEXT: Phase 3 (authentication, roles, ownership, RLS/security policies)
-    and then Phase 4 (bookings/availability/slots). Do not touch M01–M31;
-    new schema work must be additive migrations after M32.
+- **PHASE 2A — SCHEMA RECONCILIATION + DATABASE HARDENING: COMPLETE.**
+  - Re-inspected every claimed gap against both repositories and fixed the
+    confirmed ones in `supabase/migrations/20260821000601_m33_phase2a_hardening.sql`
+    (additive, idempotent, fail-closed). Details:
+    `docs/phase-2a-schema-reconciliation-hardening.md`.
+  - **Canonical decisions (verified, not assumed)**: `salons`/`salon_id` is the
+    one canonical entity/FK (the `businesses`/`business_id` surface lives only
+    in the never-applied M01–M27 draft layer); roles are ONE two-scope system
+    (`profiles.platform_role` global + `organization_members.role` tenant);
+    five themes stay canonical with `family_full_service` as the stable slug
+    (existing key, not the prompt's example variant).
+  - **M33 fixes**: canonical-naming guard (fails closed on any
+    `business_id` column in the 20 canonical tables); named UNIQUE constraint
+    `organization_members_organization_user_key` + deterministic duplicate
+    repair RPC (`phase2a_repair_membership_duplicates`, ctid-keyed — the join
+    table has no id column); `deleted_at` on `salon_media`,
+    `service_categories`, `product_categories` (salons/services/products
+    already had it); indexes `services_phase2a_salon_active_idx` +
+    `service_categories_phase2a_theme_active_idx` (EXPLAIN-verified);
+    `phase2a_foundation_health()` service_role RPC; RLS surface untouched.
+  - **Types**: `src/types/database.ts` gained `deleted_at` on
+    `SalonMediaRow`, `ServiceCategoryRow`, `ProductCategoryRow`.
+  - **Validation**: `test:phase-2a` = validate:migrations (27/27 ×2 + 21/21) +
+    phase1a (11/11 + 3/3) + phase2 (17/17) + phase2a (15/15, 17/17 with
+    `NEXORA_MAIN_WEBSITE_PATH` — Main Website contract + 93 DDL statements
+    apply on the hardened schema); `validate:main-website` 10/10; lint 0;
+    build green.
+  - NEXT: Phase 3 (auth/RBAC/RLS policy work). Do not touch M01–M33; new
+    schema work must be additive migrations after M33.
 
 - **PHASE 17.3 — UPCOMING APPOINTMENTS: COMPLETE (50 tests).**
   - The Upcoming Appointments section of the Owner Dashboard, over the

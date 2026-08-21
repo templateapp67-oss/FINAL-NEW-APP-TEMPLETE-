@@ -219,3 +219,22 @@ Validation: `npm run test:phase2` (validate:migrations + test:phase1a +
 test:phase2), `npm run validate:main-website` (with
 `NEXORA_MAIN_WEBSITE_PATH` set), `npm run lint`, `npm run build`. Full Phase 2
 report: `docs/phase-2-unified-database-foundation.md`.
+
+---
+
+## Phase 2A addendum (2026-08-21)
+
+| Migration | File | Scope |
+|---|---|---|
+| M33 | `20260821000601_m33_phase2a_hardening.sql` | Phase 2A hardening: canonical-naming guard (fail closed on `business_id` drift), named `organization_members_organization_user_key` UNIQUE constraint + deterministic duplicate-repair RPC (`phase2a_repair_membership_duplicates`), `deleted_at` on `salon_media`/`service_categories`/`product_categories`, composite indexes `services_phase2a_salon_active_idx` + `service_categories_phase2a_theme_active_idx`, service_role-only `phase2a_foundation_health()` verification RPC |
+
+Canonical decisions recorded in `docs/phase-2a-schema-reconciliation-hardening.md`:
+`salons`/`salon_id` is the single canonical entity/FK (the draft M01–M27
+`businesses` model is a separate, never-applied legacy layer, preserved
+unchanged); roles are ONE two-scope system (`profiles.platform_role` global +
+`organization_members.role` tenant); the five themes are authoritative with
+`family_full_service` as the stable slug. M33 is additive and idempotent;
+RLS policy surface unchanged (Phase 3).
+
+Validation: `npm run test:phase-2a`, `npm run validate:main-website` (with
+`NEXORA_MAIN_WEBSITE_PATH` set), `npm run lint`, `npm run build`.

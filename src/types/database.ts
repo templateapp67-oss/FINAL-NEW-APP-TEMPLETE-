@@ -90,6 +90,7 @@ export interface ServiceCategoryRow {
   name: string;
   sort_order: number;
   is_active: boolean;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,6 +120,7 @@ export interface ProductCategoryRow {
   name: string;
   is_active: boolean;
   display_order: number;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -207,6 +209,7 @@ export interface SalonMediaRow {
   status: MediaStatus;
   display_order: number;
   created_by: string;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }

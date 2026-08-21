@@ -5,7 +5,7 @@
  *
  *   auth.users.id
  *     -> public.organization_members.user_id
- *        (role = 'owner', status = 'active')
+ *        (role = 'owner', is_active = true)
  *     -> organization_members.organization_id
  *     -> public.salons.organization_id
  *     -> public.salons.id            (deleted_at is null)
@@ -13,7 +13,7 @@
  * `job_salon_members` is a staff/employee relationship and is deliberately
  * NOT used for ownership.
  *
- * The database already ships the helper `nexora_owner_salon_ids()` (and
+ * The canonical shared backend ships `owner_salon_ids()` (and
  * `private.can_manage_salon_settings(id)` for authorization). We call the
  * existing function rather than duplicating the ownership rule, and only
  * fall back to the equivalent join if the function is not exposed.
@@ -25,7 +25,7 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 /** Existing ownership helper function in the database. */
-export const OWNER_SALON_IDS_FN = 'nexora_owner_salon_ids';
+export const OWNER_SALON_IDS_FN = 'owner_salon_ids';
 /** Existing organization membership table. */
 export const ORG_MEMBERS_TABLE = 'organization_members';
 export const SALON_TABLE_NAME = 'salons';
@@ -103,9 +103,9 @@ async function salonIdsFromMembership(): Promise<string[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from(SALON_TABLE_NAME)
-    .select(`id, organization_id, ${ORG_MEMBERS_TABLE}!inner(user_id, role, status)`)
+    .select(`id, organization_id, ${ORG_MEMBERS_TABLE}!inner(user_id, role, is_active)`)
     .eq(`${ORG_MEMBERS_TABLE}.role`, 'owner')
-    .eq(`${ORG_MEMBERS_TABLE}.status`, 'active')
+    .eq(`${ORG_MEMBERS_TABLE}.is_active`, true)
     .is('deleted_at', null);
 
   if (error) throw error;

@@ -153,6 +153,8 @@ export interface TeamMember {
 export interface GalleryImage {
   id: string;
   url: string;
+  /** Canonical private storage object path when this is a persisted upload. */
+  storagePath?: string;
   alt?: string;
   category?: 'Interior' | 'Details' | 'Hair' | 'Barber' | 'Beauty' | 'General' | string;
   /**
@@ -369,6 +371,8 @@ export interface ReviewedContent {
 export type PublishState = 'draft' | 'publishing' | 'published';
 
 export interface SalonData {
+  /** Canonical backend salon UUID. Required for production booking/media writes. */
+  salonId?: string;
   templateId?:
     | 'hair'
     | 'barber_mens_grooming'

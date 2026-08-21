@@ -19,7 +19,15 @@ const migrationFiles = (await readdir(migrationsDir))
   .filter((name) => name.endsWith('.sql'))
   .sort();
 
-assert.equal(migrationFiles.length, 27, 'expected exactly M01-M27');
+const historicalMigrationFiles = migrationFiles.filter((name) => !name.includes('_phase1a_'));
+const phase1aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase1a_'));
+assert.equal(historicalMigrationFiles.length, 27, 'expected the immutable M01-M27 history');
+assert.deepEqual(phase1aMigrationFiles, [
+  '20260821000101_m28_phase1a_unified_salon_foundation.sql',
+  '20260821000201_m29_phase1a_razorpay_foundation.sql',
+  '20260821000301_m30_phase1a_storage_foundation.sql',
+  '20260821000401_m31_phase1a_authoritative_booking_creation.sql',
+], 'expected the ordered Phase 1A shared-backend migration set');
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 
@@ -71,7 +79,7 @@ await bootstrapSupabaseSchemas();
 
 for (let pass = 1; pass <= 2; pass += 1) {
   let applied = 0;
-  for (const file of migrationFiles) {
+  for (const file of historicalMigrationFiles) {
     const sql = await readFile(join(migrationsDir, file), 'utf8');
     try {
       await db.exec(sql);
@@ -80,7 +88,7 @@ for (let pass = 1; pass <= 2; pass += 1) {
       throw new Error(`migration pass ${pass} failed at ${file}: ${error.message}`, { cause: error });
     }
   }
-  console.log(`Migration pass ${pass}: ${applied}/27 applied cleanly`);
+  console.log(`Historical migration pass ${pass}: ${applied}/${historicalMigrationFiles.length} applied cleanly`);
 }
 
 const ids = {

@@ -1,3 +1,4 @@
+import { authenticatedApiFetch } from '../lib/apiFetch';
 import { 
   ArrowLeft, ArrowRight, Plus, Edit2, Trash2, X, Image as ImageIcon, Monitor, 
   Sparkles, Loader2, RefreshCw, Upload, Check, ChevronUp, ChevronDown, Clock, ShieldCheck, UserCheck
@@ -260,7 +261,7 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
     setIsGeneratingFormBio(true);
     try {
       const effectiveRole = getEffectiveRole(primaryRole, customRole);
-      const res = await fetch('/api/generate-bio', {
+      const res = await authenticatedApiFetch('/api/generate-bio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -285,7 +286,7 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
   const handleGenerateBioForMember = async (member: TeamMember) => {
     setGeneratingIds(prev => ({ ...prev, [member.id]: true }));
     try {
-      const res = await fetch('/api/generate-bio', {
+      const res = await authenticatedApiFetch('/api/generate-bio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

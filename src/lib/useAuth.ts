@@ -115,7 +115,14 @@ export async function signUpWithPassword(
     };
   }
   try {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const emailRedirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent('/dashboard')}`
+      : undefined;
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo },
+    });
     if (error) {
       console.error('Sign-up failed:', error);
       const message = /already registered|already exists/i.test(error.message)
@@ -131,6 +138,35 @@ export async function signUpWithPassword(
       needsConfirmation: false,
     };
   }
+}
+
+export async function signInWithGoogle(next = '/dashboard'): Promise<{ error: string | null }> {
+  if (!supabase || typeof window === 'undefined') {
+    return { error: 'Authentication is not configured.' };
+  }
+  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard';
+  const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo, skipBrowserRedirect: false },
+  });
+  return { error: error?.message || null };
+}
+
+export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
+  if (!supabase || typeof window === 'undefined') {
+    return { error: 'Authentication is not configured.' };
+  }
+  const redirectTo = `${window.location.origin}/reset-password`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  return { error: error?.message || null };
+}
+
+export async function updatePassword(password: string): Promise<{ error: string | null }> {
+  if (!supabase) return { error: 'Authentication is not configured.' };
+  if (password.length < 8) return { error: 'Password must be at least 8 characters.' };
+  const { error } = await supabase.auth.updateUser({ password });
+  return { error: error?.message || null };
 }
 
 export async function signOut(): Promise<void> {

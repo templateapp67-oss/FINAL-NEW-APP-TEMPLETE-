@@ -11,6 +11,9 @@
  */
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
+import { setupPaymentRoutes } from './server/paymentRoutes';
+import { registerBookingRoutes } from './server/bookingRoutes';
+import { requireAuthenticatedUser } from './server/supabaseAdmin';
 
 /* ------------------------------------------------------------------ *
  * Helper utilities (rate limiting, caching, delays)
@@ -241,20 +244,74 @@ async function fetchYoutubeDescription(videoId: string): Promise<string> {
  * ------------------------------------------------------------------ */
 
 export function setupApiRoutes(app: express.Express): void {
-  // JSON body parsing
-  app.use(express.json());
+  // Preserve exact request bytes for provider webhook HMAC verification before
+  // parsing JSON. All other routes continue to receive the parsed body.
+  app.use(express.json({
+    limit: '256kb',
+    verify: (req, _res, buffer) => {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+    },
+  }));
 
-  // CORS enabled for all origins
+  // Same-origin by default, plus an explicit deployment allowlist. Never send
+  // wildcard origin together with credentialed CORS.
+  const configuredOrigins = new Set(
+    (process.env.ALLOWED_API_ORIGINS || process.env.APP_ORIGIN || '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  );
   app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
+    const origin = req.header('origin');
+    let allowed = !origin;
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        allowed = parsed.host === req.header('host') || configuredOrigins.has(parsed.origin);
+      } catch {
+        allowed = false;
+      }
+    }
+    if (origin && allowed) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Requested-With, X-Razorpay-Signature, X-Razorpay-Event-Id',
+    );
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
+      return allowed
+        ? res.sendStatus(204)
+        : res.status(403).json({ error: 'Origin is not allowed.' });
     }
     next();
   });
+
+  registerBookingRoutes(app);
+  setupPaymentRoutes(app);
+
+  // Paid AI calls are owner tools. When a paid key is configured, require a
+  // real Supabase session and enforce a small per-user in-memory burst limit.
+  const aiUsage = new Map<string, number[]>();
+  const requireAiAccess: express.RequestHandler = async (req, res, next) => {
+    if (!process.env.GEMINI_API_KEY) return next();
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const now = Date.now();
+      const recent = (aiUsage.get(user.id) || []).filter((at) => now - at < 60_000);
+      if (recent.length >= 10) {
+        return res.status(429).json({ error: 'AI request limit reached. Please wait a minute and try again.' });
+      }
+      recent.push(now);
+      aiUsage.set(user.id, recent);
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'Please log in to use AI writing tools.' });
+    }
+  };
 
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
@@ -404,7 +461,7 @@ export function setupApiRoutes(app: express.Express): void {
   });
 
   // Generate team member bio using Gemini API with offline fallback
-  app.post('/api/generate-bio', async (req, res) => {
+  app.post('/api/generate-bio', requireAiAccess, async (req, res) => {
     try {
       const { name, role, specialties, salonName } = req.body;
 
@@ -462,7 +519,7 @@ Focus on their passion for craftsmanship, dedication to client satisfaction, and
   });
 
   // Rewrite and improve salon copy using Gemini API with custom settings and offline fallback
-  app.post('/api/improve-text', async (req, res) => {
+  app.post('/api/improve-text', requireAiAccess, async (req, res) => {
     try {
       const { text, field, tone, keywords, instructions } = req.body;
 

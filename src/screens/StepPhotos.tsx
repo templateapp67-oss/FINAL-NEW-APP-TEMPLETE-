@@ -26,6 +26,7 @@ import { isSiteHeaderTheme, type SiteHeaderThemeId } from '../lib/siteNavigation
 import { useAuth } from '../lib/useAuth';
 import { resolveOwnerSalonId } from '../lib/ownerSalon';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { deleteSalonMedia, uploadSalonMedia } from '../lib/salonMediaService';
 
 interface Props {
   data: SalonData;
@@ -128,35 +129,50 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
     setTimeout(() => setFeedback(null), 2500);
   };
 
-  // Helper for logo upload
-  const handleLogoFile = (file: File) => {
+  const persistSinglePhoto = async (file: File, mediaType: 'logo' | 'hero') => {
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const url = e.target?.result as string;
-      if (url) {
-        setData({ ...data, logoUrl: url });
-        showFeedback('Logo updated successfully');
+    if (isSupabaseConfigured) {
+      setUploadError(null);
+      setUploadProgress(20);
+      try {
+        const resolution = await resolveOwnerSalonId();
+        if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
+        const media = await uploadSalonMedia({
+          salonId: resolution.salonId,
+          file,
+          mediaType,
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          status: 'active',
+        });
+        if (!media.signedUrl) throw new Error('The uploaded image preview could not be created.');
+        setData(mediaType === 'logo'
+          ? { ...data, logoUrl: media.signedUrl }
+          : { ...data, heroImageUrl: media.signedUrl });
+        setUploadProgress(100);
+        showFeedback(mediaType === 'logo' ? 'Logo uploaded securely' : 'Main photo uploaded securely');
         if (onSave) onSave();
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : 'Unable to upload this image.');
+      } finally {
+        setUploadProgress(null);
       }
+      return;
+    }
+
+    // Explicit offline/demo fallback only. Configured deployments use Storage.
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const url = event.target?.result as string;
+      if (!url) return;
+      setData(mediaType === 'logo' ? { ...data, logoUrl: url } : { ...data, heroImageUrl: url });
+      showFeedback(mediaType === 'logo' ? 'Logo updated successfully' : 'Main photo updated successfully');
+      if (onSave) onSave();
     };
     reader.readAsDataURL(file);
   };
 
-  // Helper for hero image upload
-  const handleHeroFile = (file: File) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const url = e.target?.result as string;
-      if (url) {
-        setData({ ...data, heroImageUrl: url });
-        showFeedback('Main photo updated successfully');
-        if (onSave) onSave();
-      }
-    };
-    reader.readAsDataURL(file);
-  };
+  const handleLogoFile = (file: File) => { void persistSinglePhoto(file, 'logo'); };
+  const handleHeroFile = (file: File) => { void persistSinglePhoto(file, 'hero'); };
 
   // Helper for gallery upload (validated, with progress + error + retry)
   const handleGalleryFiles = async (files: FileList | File[]) => {
@@ -164,6 +180,52 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
     if (list.length === 0) return;
     setUploadError(null);
     setUploadProgress(0);
+
+    if (isSupabaseConfigured) {
+      const uploaded: Awaited<ReturnType<typeof uploadSalonMedia>>[] = [];
+      try {
+        const resolution = await resolveOwnerSalonId();
+        if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
+        for (let index = 0; index < list.length; index += 1) {
+          const file = list[index];
+          const problem = validateGalleryImageFile(file);
+          if (problem) throw new Error(problem);
+          const media = await uploadSalonMedia({
+            salonId: resolution.salonId,
+            file,
+            mediaType: 'gallery',
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            status: 'pending',
+            displayOrder: nextGalleryDisplayOrder(data.gallery || []) + index,
+          });
+          uploaded.push(media);
+          setUploadProgress(Math.round(((index + 1) / list.length) * 100));
+        }
+        const currentGallery = data.gallery || [];
+        const newItems: GalleryImage[] = uploaded.map((media) => ({
+          id: media.id,
+          storagePath: media.storagePath || undefined,
+          url: media.signedUrl || '',
+          alt: media.title || 'Salon gallery image',
+          category: 'General',
+          title: media.title || undefined,
+          displayOrder: media.displayOrder,
+          status: 'active',
+          moderation: 'pending',
+        }));
+        setData({ ...data, gallery: [...currentGallery, ...newItems] });
+        showFeedback(`Uploaded ${newItems.length} photo(s) for moderation`);
+        if (onSave) onSave();
+      } catch (error) {
+        // Preserve all-or-nothing UI semantics. Best-effort delete any objects
+        // persisted earlier in this batch when a later upload fails.
+        await Promise.all(uploaded.map((media) => deleteSalonMedia(media).catch(() => undefined)));
+        setUploadError(error instanceof Error ? error.message : 'Unable to upload these images.');
+      } finally {
+        setUploadProgress(null);
+      }
+      return;
+    }
 
     const valid: { file: File; url: string }[] = [];
     for (const file of list) {
@@ -242,8 +304,17 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   };
 
   // Remove gallery image
-  const handleDeleteGalleryImage = (id: string) => {
+  const handleDeleteGalleryImage = async (id: string) => {
     const current = data.gallery || [];
+    const image = current.find((item) => item.id === id);
+    if (isSupabaseConfigured && image?.storagePath) {
+      try {
+        await deleteSalonMedia({ id: image.id, storagePath: image.storagePath });
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : 'Unable to delete this image.');
+        return;
+      }
+    }
     const updated = current.filter(img => img.id !== id);
     setData({ ...data, gallery: updated });
     if (onSave) onSave();

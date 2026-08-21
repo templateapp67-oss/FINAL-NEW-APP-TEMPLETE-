@@ -1,17 +1,17 @@
 /**
  * Customer nearby-salon search, against the LIVE existing schema.
  *
- * Reads the SAME canonical columns the owner editor writes on public.salons:
- *   address + latitude + longitude (+ location_confirmed)
- *
- * Only coordinate-bearing, confirmed salons are fetched, and only the columns
- * the salon cards plus the distance calculation actually need. Distance is a
+ * Reads approved coordinates from public.business_locations and joins only the
+ * safe public card fields from public.salons. Pending/rejected coordinates are
+ * never exposed. Distance is a
  * JavaScript Haversine calculation — no routing API, no PostGIS, no RPC, and
  * no per-salon geocoding request.
  */
 
 import { requireSupabase } from './supabaseClient';
-import { SALON_TABLE } from './salonLocationService';
+import { SALON_LOCATION_TABLE } from './salonLocationService';
+
+export const PUBLIC_SALON_CATALOG_VIEW = 'public_salon_catalog';
 import {
   findNearbySalons,
   normalizeCoordinates,
@@ -48,9 +48,6 @@ export class NearbySalonsPermissionError extends Error {
   }
 }
 
-/** Only the fields the cards/search UI and the distance maths require. */
-const NEARBY_COLUMNS = 'id, name, address, city, slug, latitude, longitude';
-
 /**
  * Fetch only salons that can actually take part in a distance search:
  * coordinates present, and location confirmed (the live schema has a
@@ -58,29 +55,58 @@ const NEARBY_COLUMNS = 'id, name, address, city, slug, latitude, longitude';
  */
 export async function fetchLocatableSalons(): Promise<NearbySalonRecord[]> {
   const client = requireSupabase();
-  // Mirrors the existing `salons_anon_catalogue_select` policy conditions
-  // (is_active = true AND deleted_at IS NULL) so the query matches what the
-  // policy already permits. The policy remains the security boundary; this
-  // filter is not a substitute for it.
-  const { data, error } = await client
-    .from(SALON_TABLE)
-    .select(NEARBY_COLUMNS)
-    .eq('is_active', true)
-    .is('deleted_at', null)
-    .eq('location_confirmed', true)
-    .not('latitude', 'is', null)
-    .not('longitude', 'is', null);
 
-  if (error) {
-    // Log technical detail; never surface SQL/keys/DB internals to customers.
-    console.error('Failed to load nearby salons:', error);
-    const code = (error as { code?: string }).code;
-    if (code === '42501' || code === 'PGRST301') {
-      throw new NearbySalonsPermissionError();
-    }
+  // Coordinates come only from the approved public-location table. Pending or
+  // rejected owner submissions never enter the distance calculation.
+  const { data: locations, error: locationError } = await client
+    .from(SALON_LOCATION_TABLE)
+    .select('salon_id,address_label,latitude,longitude,approval_status')
+    .eq('approval_status', 'approved');
+  if (locationError) {
+    console.error('Failed to load approved salon locations:', locationError);
+    const code = (locationError as { code?: string }).code;
+    if (code === '42501' || code === 'PGRST301') throw new NearbySalonsPermissionError();
     throw new Error('Unable to load nearby salons right now. Please try again.');
   }
-  return (data ?? []) as unknown as NearbySalonRecord[];
+
+  const locationRows = (locations ?? []) as Array<{
+    salon_id: string;
+    address_label: string | null;
+    latitude: unknown;
+    longitude: unknown;
+    approval_status: string;
+  }>;
+  const salonIds = Array.from(new Set(locationRows.map((row) => row.salon_id).filter(Boolean)));
+  if (salonIds.length === 0) return [];
+
+  const { data: salons, error: salonError } = await client
+    .from(PUBLIC_SALON_CATALOG_VIEW)
+    .select('id,name,address,city,slug')
+    .in('id', salonIds);
+  if (salonError) {
+    console.error('Failed to load public salon cards:', salonError);
+    const code = (salonError as { code?: string }).code;
+    if (code === '42501' || code === 'PGRST301') throw new NearbySalonsPermissionError();
+    throw new Error('Unable to load nearby salons right now. Please try again.');
+  }
+
+  const locationBySalon = new Map(locationRows.map((row) => [row.salon_id, row]));
+  return ((salons ?? []) as Array<{
+    id: string;
+    name: string | null;
+    address: string | null;
+    city: string | null;
+    slug: string | null;
+  }>).flatMap((salon) => {
+    const location = locationBySalon.get(salon.id);
+    if (!location || location.approval_status !== 'approved') return [];
+    return [{
+      ...salon,
+      address: location.address_label || salon.address,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    } satisfies NearbySalonRecord];
+  });
 }
 
 /**

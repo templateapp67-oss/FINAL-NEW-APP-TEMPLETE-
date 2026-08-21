@@ -29,6 +29,9 @@ import { getBrandConfig } from './config/brandConfig';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
+import { useAuth } from './lib/useAuth';
+import { isSupabaseConfigured } from './lib/supabaseClient';
+import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsiteService';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
@@ -40,6 +43,7 @@ type DashboardTab = 'overview' | 'website' | 'bookings' | 'payments' | 'share' |
 const DASHBOARD_TABS: DashboardTab[] = ['overview', 'website', 'bookings', 'payments', 'share', 'settings', 'referral', 'branding'];
 
 export default function App() {
+  const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<number>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -119,6 +123,30 @@ export default function App() {
   });
 
   const isInitialMount = useRef(true);
+  const backendHydratedFor = useRef<string | null>(null);
+
+  // In configured deployments the published-website row is the draft/content
+  // authority. Local storage remains only an offline/UI cache.
+  useEffect(() => {
+    if (!isSupabaseConfigured || authLoading || !user) return;
+    if (backendHydratedFor.current === user.id) return;
+    backendHydratedFor.current = user.id;
+    let active = true;
+    void loadOwnerWebsiteDraft()
+      .then((draft) => {
+        if (!active || !draft) return;
+        setData((current) => ({
+          ...current,
+          ...draft.config,
+          salonId: draft.salonId,
+          websiteSlug: draft.slug || current.websiteSlug,
+          templateId: (draft.config.templateId || current.templateId) as SalonData['templateId'],
+          publishState: draft.isPublished ? 'published' : 'draft',
+        }));
+      })
+      .catch((error) => console.error('Backend website draft hydration failed:', error));
+    return () => { active = false; };
+  }, [authLoading, user]);
 
   // Persist dashboard tab
   useEffect(() => {
@@ -163,6 +191,25 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [step, data, activeModule, dashboardTab]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !user || backendHydratedFor.current !== user.id || !data.websiteSlug) return;
+    const timer = window.setTimeout(() => {
+      setSaveStatus('saving');
+      void saveOwnerWebsiteDraft(data)
+        .then((saved) => {
+          setData((current) => current.salonId === saved.salonId
+            ? current
+            : { ...current, salonId: saved.salonId, websiteSlug: saved.slug, publishState: saved.isPublished ? 'published' : 'draft' });
+          setSaveStatus('saved');
+        })
+        .catch((error) => {
+          console.error('Backend website draft autosave failed:', error);
+          setSaveStatus('saved');
+        });
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [data, user]);
 
   const handleThemeChange = (nextTheme: ThemeId) => {
     // Never restore an in-memory theme snapshot. StepServices hydrates only the
@@ -556,7 +603,21 @@ export default function App() {
           {step === 11 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 12 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 13 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 14 && <StepPublishSuccess data={data} setData={setData} onNext={() => { setData(prev => ({ ...prev, publishState: 'published' })); setActiveModule('dashboard'); setDashboardTab('overview'); handleSave(); showToast('Website Published — Dashboard Active'); }} onSave={handleSave} />}
+          {step === 14 && <StepPublishSuccess data={data} setData={setData} onNext={() => {
+            if (isSupabaseConfigured) {
+              setData(prev => ({ ...prev, publishState: 'draft' }));
+              handleSave();
+              setActiveModule('dashboard');
+              setDashboardTab('overview');
+              showToast('Draft saved — publication still requires backend approval');
+              return;
+            }
+            setData(prev => ({ ...prev, publishState: 'published' }));
+            setActiveModule('dashboard');
+            setDashboardTab('overview');
+            handleSave();
+            showToast('Website Published — Dashboard Active');
+          }} onSave={handleSave} />}
           {step === 15 && (
             <BookingConfirmation 
               bookingId="NX-10482"

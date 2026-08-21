@@ -1,3 +1,4 @@
+import { authenticatedApiFetch } from '../lib/apiFetch';
 import React, { useState, useEffect, useRef } from 'react';
 import { SalonData } from '../types';
 import { 
@@ -139,7 +140,7 @@ export default function StepPublishSuccess({ data, setData, onNext, onSave }: Pr
     }
 
     try {
-      const res = await fetch('/api/improve-text', {
+      const res = await authenticatedApiFetch('/api/improve-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

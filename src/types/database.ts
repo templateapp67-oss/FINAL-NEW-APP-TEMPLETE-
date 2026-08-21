@@ -48,6 +48,7 @@ export interface OrganizationMemberRow {
   role: OrganizationRole;
   is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface SalonRow {

@@ -1,10 +1,45 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2A — Schema Reconciliation + Database Hardening).
+> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2B — Final Database Schema Hardening & Verification).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
+
+- **PHASE 2B — FINAL DATABASE SCHEMA HARDENING & VERIFICATION: COMPLETE.**
+  - M34 `20260821000701_m34_phase2b_final_hardening.sql` (additive,
+    idempotent, post-M33): replaced every CASCADE FK from business-owned
+    tables to `salons` with RESTRICT (services, staff, offers, salon_hours,
+    salon_public_websites, business_locations, salon_media — discovered via
+    catalog so it works on both the live repo-2 schema and the M28 replay);
+    salon_media service/product composite FKs CASCADE → RESTRICT; canonical
+    TEXT+CHECK role constraints re-asserted; `deleted_at` asserted on
+    `staff` (Main Website marketplace query contract) plus the M33 set;
+    `organization_members.updated_at` added + `trg_phase2_set_updated_at`
+    attached where no existing BEFORE ROW trigger exists; canonical family
+    slug `family_full_service` kept (brief's `full_service_family_salon` is
+    an example name) with `themes.slug` uniqueness re-asserted; safe
+    security-barrier views `active_services`, `active_products`,
+    `active_service_categories` (public-safe columns only); index set
+    verified (services/products/categories/org_members/bookings/locations).
+  - **App-side fix**: `src/lib/salonMediaService.ts` `listPublicSalonMedia`
+    now filters `.is('deleted_at', null)` (public media catalog).
+  - **Validation**: `test:phase-2b` = validate:migrations + phase-2a suite +
+    `test-phase2b-hardening.mjs` (19/19 with `NEXORA_MAIN_WEBSITE_PATH`,
+    including the 8 mandatory final DB tests: duplicate membership FAILS,
+    duplicate theme slug FAILS, invalid FK FAILS, soft-deleted service and
+    product absent from active catalog, `updated_at` auto-refresh, cross-theme
+    category/service pair FAILS, cross-tenant RLS denies); repo 1 lint
+    (tsc --noEmit) green, build green; repo 2 typecheck green, repo 2 build
+    blocked by design (build scripts fail closed without real
+    `qwaehqsmodekbgvnaavz` Supabase credentials), repo 2 lint fails on 3
+    pre-existing errors (SplashOverlay.tsx:63 setState-in-effect;
+    nexora-app.tsx:6162 unescaped entities ×2).
+  - Full report: `docs/phase-2b-final-hardening.md`.
+  - NEXT: apply M34 to the shared project `qwaehqsmodekbgvnaavz` via Supabase
+    CLI/SQL editor (exact manual steps in the report), then Phase 3
+    (auth/RBAC/RLS policy work). Do not touch M01–M33; new schema work must
+    be additive migrations after M34.
 
 - **PHASE 2A — SCHEMA RECONCILIATION + DATABASE HARDENING: COMPLETE.**
   - Re-inspected every claimed gap against both repositories and fixed the

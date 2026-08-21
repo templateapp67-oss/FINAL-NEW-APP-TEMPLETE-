@@ -238,3 +238,26 @@ RLS policy surface unchanged (Phase 3).
 
 Validation: `npm run test:phase-2a`, `npm run validate:main-website` (with
 `NEXORA_MAIN_WEBSITE_PATH` set), `npm run lint`, `npm run build`.
+
+---
+
+## Phase 2B addendum (2026-08-21)
+
+| Migration | File | Scope |
+|---|---|---|
+| M34 | `20260821000701_m34_phase2b_final_hardening.sql` | Phase 2B final hardening: FK delete rules (every CASCADE from business-owned tables to `salons` → RESTRICT, discovered via `pg_constraint` catalog; `salon_media` service/product composite CASCADE → RESTRICT; bookings/growth-partner commissions already RESTRICT); canonical TEXT+CHECK role constraints re-asserted (`profiles_platform_role_check` 5-value, `organization_members_role_check` owner/staff — no enum); `deleted_at` asserted on `staff` (Main Website marketplace query contract) plus the M33 set; `organization_members.updated_at` + `trg_phase2_set_updated_at` (attached where no existing BEFORE ROW trigger exists; profiles/organizations/salons/themes/categories/services/products/locations already covered by M28/M32); theme slug uniqueness re-asserted with canonical `family_full_service` kept; security-barrier views `active_services` / `active_products` / `active_service_categories` (public-safe columns, explicit active filters); index set verified — services `(salon_id, is_active)` WHERE deleted_at IS NULL (M33), products `(salon_id, is_active, display_order)` WHERE deleted_at IS NULL (M28), service_categories `(theme_id, is_active, sort_order, id)` WHERE deleted_at IS NULL (M33), organization_members named UNIQUE (M33), bookings `(salon_id, appointment_start, status)` (M28), business_locations partial `(latitude, longitude)` WHERE approved (M28; client-side Haversine is the real nearby search — a B-tree is not claimed as radius search and PostGIS is not enabled blindly) |
+
+Phase 2B decisions recorded in `docs/phase-2b-final-hardening.md`:
+`salons`/`salon_id` remains the one canonical entity (verified globally in
+both repositories — no `businesses` table or query exists outside the
+never-applied M01–M27 draft layer and legacy external-compat payload
+parsing); the canonical family-theme slug stays `family_full_service` (the
+brief's `full_service_family_salon` is an example name; `themes.slug`
+uniqueness is enforced); soft delete applies to mutable business entities
+only — payments, orders, webhooks, bookings, auth.users stay physically
+immutable; M34 is additive, idempotent, and replays cleanly on the M28–M33
+schema.
+
+Validation: `npm run test:phase-2b` (includes the 8 mandatory Phase 2B final
+database tests), `npm run test:phase2b` with `NEXORA_MAIN_WEBSITE_PATH` set
+(19/19), `npm run lint`, `npm run build`.

@@ -118,6 +118,7 @@ export async function listPublicSalonMedia(
     .select('id,salon_id,media_type,storage_path,external_url,title,description,video_kind,status,display_order')
     .eq('salon_id', salonId)
     .eq('status', 'active')
+    .is('deleted_at', null)
     .order('display_order');
   if (mediaTypes?.length) query = query.in('media_type', mediaTypes);
   const { data, error } = await query;

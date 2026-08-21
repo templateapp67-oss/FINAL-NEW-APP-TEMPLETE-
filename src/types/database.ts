@@ -49,6 +49,14 @@ export interface CanonicalProfileRow {
   role_assigned_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Live-shared-schema-only preference columns (Phase 3A/3B-FIX drift note):
+   * read by the Main Website app but not created by any committed migration.
+   * Optional here so typed reads compile against BOTH the fresh chain (absent)
+   * and the live schema (present). Never dropped, never written by clients. */
+  allow_recently_viewed?: boolean | null;
+  preferred_city?: string | null;
+  preferred_area?: string | null;
+  gender?: string | null;
 }
 
 export interface OrganizationRow {

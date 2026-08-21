@@ -1,0 +1,255 @@
+@import url('https://fonts.googleapis.com/css2?family=Arvo:wght@400;700&family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+}
+
+:root {
+  --brand-primary: #ac0053;
+  --brand-primary-hover: #ba005b;
+  --brand-primary-light: #ffd9e1;
+  --brand-primary-dark: #3f001a;
+  --brand-primary-soft: rgba(172, 0, 83, 0.08);
+  --brand-primary-rgb: 172, 0, 83;
+  --brand-accent-glow: #ff2d8d;
+}
+
+.bg-brand-primary {
+  background-color: var(--brand-primary);
+}
+.text-brand-primary {
+  color: var(--brand-primary);
+}
+.border-brand-primary {
+  border-color: var(--brand-primary);
+}
+.hover\:bg-brand-primary-hover:hover {
+  background-color: var(--brand-primary-hover);
+}
+.bg-brand-primary-light {
+  background-color: var(--brand-primary-light);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #e5e2e1;
+  border-radius: 10px;
+}
+
+/* PHASE 10.3 — keep themed websites inside the viewport */
+.site-scroll {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+.site-section {
+  scroll-margin-top: 5.75rem;
+  min-width: 0;
+}
+.site-section img,
+.site-section video {
+  max-width: 100%;
+}
+.site-touch {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* PHASE 14.3 — gallery viewer safe-area spacing (notch / home indicator). */
+.site-gallery-lightbox-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* PHASE 14.5 — smooth, subtle gallery viewer transition (no excessive motion). */
+@keyframes site-gallery-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.site-gallery-lightbox-anim {
+  animation: site-gallery-fade 180ms ease-out;
+}
+.site-gallery-stage-anim {
+  animation: site-gallery-fade 220ms ease-out;
+}
+
+/* PHASE 14.5 — visible keyboard focus on gallery viewer controls. */
+.site-gallery-lightbox button:focus-visible,
+.site-gallery-cta:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* PHASE 16.9 — booking notices: soft entrance, visible keyboard focus
+   on the dismiss control, and reduced-motion support. */
+@keyframes site-booking-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.site-booking-notice-anim {
+  animation: site-booking-notice-in 180ms ease-out;
+}
+.site-booking-notice button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-booking-notice-anim {
+    animation: none !important;
+  }
+}
+
+/* PHASE 14.5 — reduced-motion support: drop viewer animation entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .site-gallery-lightbox-anim,
+  .site-gallery-stage-anim {
+    animation: none !important;
+  }
+  .site-gallery-lightbox *,
+  .site-gallery-lightbox *::before,
+  .site-gallery-lightbox *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* PHASE 11.5 — hero CTA interaction states.
+   Scoped to the hero only (`.site-hero-cta`) so Phase 10 controls are
+   untouched. Uses the theme's own accent via `currentColor`, so each hero
+   keeps its own look while gaining visible keyboard focus. */
+.site-hero-cta {
+  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+}
+.site-hero-cta:hover {
+  filter: brightness(1.06);
+}
+.site-hero-cta:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.site-hero-cta:active {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.96);
+}
+/* PHASE 11.6 — per-theme CTA motion signatures. Each theme reacts in its own
+   language; all are subtle (<=180ms, no loops, no attention-seeking motion)
+   and every one is disabled under prefers-reduced-motion below. */
+
+/* Barber — a hard, mechanical press. No float, no softness. */
+.site-hero-cta--barber:hover {
+  filter: brightness(1.08);
+  box-shadow: inset 0 -2px 0 0 currentColor;
+}
+.site-hero-cta--barber:active {
+  transform: translateY(1px);
+}
+
+/* Hair Studio — an editorial hairline that extends under the label. */
+.site-hero-cta--hair {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 1px;
+  transition: background-size 180ms ease, filter 140ms ease, transform 140ms ease;
+}
+.site-hero-cta--hair:hover {
+  background-size: 100% 1px;
+}
+
+/* Spa — a slow, calm lift with a soft halo. */
+.site-hero-cta--spa {
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+.site-hero-cta--spa:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px -12px currentColor;
+}
+
+/* Family — a friendly, slightly springy bounce. */
+.site-hero-cta--family {
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 140ms ease;
+}
+.site-hero-cta--family:hover {
+  transform: translateY(-2px);
+}
+.site-hero-cta--family:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Nail & Lash — a glossy neon glow. */
+.site-hero-cta--nail:hover {
+  filter: brightness(1.1) saturate(1.08);
+  box-shadow: 0 0 0 1px currentColor, 0 8px 22px -12px currentColor;
+}
+
+/* One switch turns ALL hero motion off — base states and every theme
+   signature — while keeping focus/hover visible for orientation. */
+@media (prefers-reduced-motion: reduce) {
+  .site-hero-cta,
+  .site-hero-cta--barber,
+  .site-hero-cta--hair,
+  .site-hero-cta--spa,
+  .site-hero-cta--family,
+  .site-hero-cta--nail {
+    transition: none;
+    animation: none;
+  }
+  .site-hero-cta:hover,
+  .site-hero-cta:active,
+  .site-hero-cta--barber:active,
+  .site-hero-cta--spa:hover,
+  .site-hero-cta--family:hover,
+  .site-hero-cta--family:active {
+    transform: none;
+  }
+  .site-hero-cta--hair {
+    background-image: none;
+  }
+}
+
+/* PHASE 10.4 — floating actions + mobile dock must not cover content */
+.site-fab {
+  min-height: 44px;
+  min-width: 44px;
+}
+.site-mobile-dock {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+.site-mobile-dock-spacer {
+  height: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+}
+.site-has-mobile-dock .site-scroll {
+  padding-bottom: 0;
+}
+
+/* PHASE 10.9 — mobile quick-action bar: 4 actions, safe-area, not covering content */
+.site-mobile-action-bar {
+  padding-bottom: max(0.65rem, env(safe-area-inset-bottom, 0px));
+  /* Ensure bar itself respects left/right insets on notched devices */
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
+}
+.site-mobile-action-bar-spacer {
+  height: calc(6.25rem + env(safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+}
+.site-mobile-dock-spacer {
+  /* Keep legacy spacer in sync with new bar height for back-compat */
+  height: calc(6.25rem + env(safe-area-inset-bottom, 0px));
+}
+

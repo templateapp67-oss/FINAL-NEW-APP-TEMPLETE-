@@ -1,0 +1,6 @@
+{
+  "name": "Nexora Salon Website Builder",
+  "description": "An interactive wizard and live website builder for salons and beauty professionals with AI content generation and custom management modules.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

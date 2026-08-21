@@ -1,0 +1,191 @@
+# Nexora Database Migrations Plan — M01–M21 (DRAFT)
+
+> **Status (2026-08-13): DRAFT SQL committed and extended through Phase 7.4 Session 3; NOT applied to any database.**
+>
+> The migrations implement the ordering proposed by the 90-point master
+> specification §5.25. They have been validated on an embedded real PostgreSQL
+> engine, but **M02 is intentionally not final**: live Supabase introspection must
+> happen first. Applying these files to any remote/local Supabase project needs a
+> separate explicit go-ahead.
+
+## Safety gate
+
+`M02` is a fail-closed preflight, not a claim that the live schema is empty. It
+performs no DDL and raises an exception if it finds known legacy Nexora objects
+such as `salons`, `organizations`, `organization_members`, `job_salon_members`,
+`staff`, `appointments`, or `referrals`. This prevents the later migrations from
+silently creating a parallel `businesses` model.
+
+The known live project already uses `salons`, `organization_members`, and
+related ownership helpers. Therefore the checked-in M02 **must not be run there
+as-is**. First inspect the live schema read-only, map every equivalent table,
+column, constraint, policy, trigger, function, bucket, and relationship, and
+then regenerate M02 with explicit data-preserving `ALTER`/rename/backfill steps.
+No `DROP TABLE` or destructive replacement is allowed.
+
+## Ordered migration set
+
+| Migration | File | Scope |
+|---|---|---|
+| M01 | `20260811000101_m01_extensions_enums.sql` | `pgcrypto`, `btree_gist`, canonical role/status/type enums |
+| M02 | `20260811000201_m02_live_schema_preflight.sql` | Fail-closed legacy collision detection; regenerate after live inspection |
+| M03 | `20260811000301_m03_membership_access.sql` | `profiles`, canonical `businesses`, memberships, public owner profile |
+| M04 | `20260811000401_m04_services_packages.sql` | Single service/package catalog and package composition |
+| M05 | `20260811000501_m05_staff.sql` | Staff root, assignments, skills, weekly schedule, internal permissions |
+| M06 | `20260811000601_m06_media_social_location_settings.sql` | Media, social URLs, location/hours, contact and booking configuration |
+| M07 | `20260811000701_m07_website_onboarding.sql` | Website settings/copy, onboarding progress, JSONB wizard draft |
+| M08 | `20260811000801_m08_customers_bookings.sql` | Guest customers, immutable booking snapshots/history, temporary holds |
+| M09 | `20260811000901_m09_payments.sql` | Razorpay order/payment records and offline balance collections |
+| M10 | `20260811001001_m10_referrals_notifications_activity.sql` | Referrals, notifications, audit/analytics, plan entitlements |
+| M11 | `20260811001101_m11_functions_triggers.sql` | Membership helpers, bootstrap, tenant guards, booking/payment/publish/public/dashboard RPCs, audit and timestamp triggers |
+| M12 | `20260811001201_m12_rls_policies.sql` | RLS on all Nexora tables, role matrix, no anonymous booking/payment access |
+| M13 | `20260811001301_m13_storage.sql` | Private buckets and business/user path-scoped Storage policies |
+| M14 | `20260811001401_m14_indexes_constraints.sql` | Query indexes and GiST overlap protection for assigned staff bookings |
+| M15 | `20260811001501_m15_backfill_defaults.sql` | Non-destructive identities/memberships/defaults backfill; no demo data |
+| M16 | `20260813000101_m16_theme_service_catalog.sql` | Phase 7.1 global themes/categories/predefined-services architecture; no seed data |
+| M17 | `20260813000201_m17_saved_service_catalog_links.sql` | Phase 7.2 nullable provenance links from business-owned saved services to the global catalog |
+| M18 | `20260813000301_m18_seed_five_theme_catalog.sql` | Phase 7.3 idempotent seed generated from the exact five application theme catalogs |
+| M19 | `20260813000401_m19_theme_catalog_read_rpc.sql` | Phase 7.4 Session 1 mandatory theme-filtered catalog read RPC for the five-theme UI |
+| M20 | `20260813000501_m20_save_predefined_services.sql` | Phase 7.4 Session 2 authenticated, tenant-derived, idempotent Add Selected saving |
+| M21 | `20260813000601_m21_saved_service_management.sql` | Phase 7.4 Session 3 tenant-scoped refresh, edit, activate/deactivate, and saved-row delete RPCs |
+| M22 | `20260813000701_m22_saved_service_management.sql` | Phase 8.1 saved-service management hardening |
+| M23 | `20260813000801_m23_service_security_hardening.sql` | Phase 8.2 validation + security hardening |
+| M24 | `20260813000901_m24_offers_pricing_bundles.sql` | Phase 9.1 offers, promotional pricing and theme-safe bundles |
+| M25 | `20260813001001_m25_localization_search_media.sql` | Phase 9.2 localization, theme-scoped search and service media |
+| M26 | `20260813001101_m26_service_safety_audit.sql` | Phase 9.3 booking safety lock, salon audit trail and integrity helpers |
+| M27 | `20260815000101_m27_social_video_likes_weekly.sql` | Phase 15.8 video likes on the existing `social_videos` + weekly most-liked ranking RPCs |
+
+### Deliberate decisions
+
+- `businesses` is the target canonical tenant root, but live `salons` must be
+  mapped/reused by finalized M02; a parallel tenant table is forbidden.
+- Money is integer paise. The fixed advance is `ceil(total_paise / 4)`, so
+  ₹1,200 (`120000`) produces ₹300 (`30000`) advance and ₹900 (`90000`) due.
+- Booking snapshots are immutable after insertion; catalog edits/archive do not
+  rewrite history.
+- Public rendering uses `get_public_website_by_slug()` rather than anonymous
+  table reads. Private staff/access/payment fields are omitted from its payload.
+- The database never stores Razorpay secrets. Signature verification occurs in
+  trusted server/Edge code before the retry-safe `verify_payment()` transaction.
+- `payment_refunds` remains deferred because the repository has no implemented
+  refund backend. This follows P37 and avoids a fake/unusable refund surface.
+- SQL cannot read browser `localStorage`. M15 creates DB draft/progress homes;
+  the later app wiring step must upsert each signed-in owner's existing
+  `nexora_onboarding_state` / `nexora_builder_state` payload once.
+- Buckets are private. Public media reads require a published website and an
+  allowed business-scoped display path; uploads/updates/deletes require tenant
+  membership. No social-video bucket is created.
+- M16 keeps global predefined suggestions separate from tenant-owned `services`;
+  its composite `(category_id, theme_id)` FK blocks cross-theme category links.
+  See [`phase-7.1-theme-service-database.md`](phase-7.1-theme-service-database.md).
+- M17 extends the existing tenant-owned `services` table in place with nullable
+  theme/category/predefined provenance. Composite FKs reject wrong-theme or
+  wrong-category links without deleting or guessing links for custom services.
+  See [`phase-7.2-saved-service-catalog-links.md`](phase-7.2-saved-service-catalog-links.md).
+- M27 reuses the existing `social_videos`, `businesses`/`business_members` and
+  `auth.users` relationships instead of a second video or identity model. It
+  adds two nullable scoping columns (`theme_key`, `video_kind`) plus
+  `social_video_likes`, where a composite `(video_id, business_id, theme_key)`
+  FK makes cross-theme/cross-tenant likes structurally impossible and partial
+  unique indexes make duplicate likes impossible. Anonymous likers reuse the
+  existing `website_events.visitor_token` concept. The weekly ranking is
+  derived from `businesses.timezone` on read — nothing is stored or scheduled.
+  See [`phase-15.8-likes-weekly-most-liked.md`](phase-15.8-likes-weekly-most-liked.md).
+- M18 is generated from `src/lib/themeServices.ts`; it upserts exactly five
+  themes, 17 categories, 78 canonical predefined services, and 30 relational
+  suggested mappings. See [`phase-7.3-five-theme-seed.md`](phase-7.3-five-theme-seed.md).
+- M19 exposes one read-only RPC requiring `p_theme_id`; SQL returns only that
+  active theme’s categories, predefined services, and `is_suggested=true` rows.
+  See [`phase-7.4-session-1-database-ui-read.md`](phase-7.4-session-1-database-ui-read.md).
+- M20 derives one manageable tenant from `auth.uid()` membership, validates the
+  full theme/category/predefined chain, and enforces one saved row per
+  `(business_id, predefined_service_id)`. See
+  [`phase-7.4-session-2-service-saving.md`](phase-7.4-session-2-service-saving.md).
+- M21 completes refresh persistence and mutable saved-service management while
+  deriving tenant ownership server-side and never mutating the global catalog.
+  See [`phase-7.4-session-3-final-integration.md`](phase-7.4-session-3-final-integration.md).
+
+## Validation performed
+
+Run:
+
+```bash
+npm run validate:migrations
+```
+
+The validator uses `@electric-sql/pglite` **0.3.16**, a real PostgreSQL engine
+compiled to WebAssembly, including its `pgcrypto` and `btree_gist` extensions.
+It creates only minimal Supabase-compatible `auth`/`storage` test fixtures.
+
+Result on 2026-08-13:
+
+- **21/21 migrations applied cleanly on an empty schema**
+- **21/21 migrations applied cleanly a second time** (replay/idempotency)
+- **19/19 functional tests passed**
+
+| Test | Assertion |
+|---|---|
+| A | Owner A cannot read Business B through RLS |
+| B | One service row feeds the published website and reflects edits |
+| C | One staff row feeds assignments and public-safe output |
+| D | Published output reflects normalized updates without republishing/copying |
+| E | ₹1,200 → ₹300 fixed advance + ₹900 remaining |
+| F | An unverified signature cannot confirm a booking |
+| G | Repeated verified callbacks create one payment/activity and confirm once |
+| H | Overview and revenue RPCs reflect the same booking/payment records |
+| I | Archiving/editing a service preserves the booking snapshot |
+| J | Progress + JSON draft preserve onboarding resume state |
+| K | A published slug loads; a missing/draft slug does not |
+| L | Anonymous payload excludes commission, access roles, permissions and payment internals |
+| M | Theme/category/service FKs reject orphans and cross-theme links without changing business services |
+| N | Client roles see only active catalog rows and cannot mutate the global catalog |
+| O | Saved services preserve manual rows and require exact theme/category/predefined provenance |
+| P | Five-theme seed exactly matches Phase 2–6 source data and remains duplicate-free |
+| Q | Theme-scoped RPC returns only the requested theme’s categories/services/suggestions |
+| R | Add Selected saves all five themes once with exact tenant/provenance and preserves duplicates/custom rows |
+| S | Refresh, edit/deactivate/delete, switching, global safety, and cross-tenant isolation remain correct |
+
+This validation proves draft consistency on a clean PostgreSQL schema. It does
+**not** replace live-project introspection, Supabase-specific review, staging
+application, or the complete post-apply acceptance run.
+
+## Required live introspection (read-only)
+
+Before changing M02, capture at minimum:
+
+1. Server/PostgreSQL/Supabase migration versions and installed extensions.
+2. `information_schema.columns` for every `public` table, including defaults and
+   nullability.
+3. Primary/foreign/unique/check/exclusion constraints and delete behaviors.
+4. Existing indexes, triggers, functions (definitions, owner, volatility,
+   `SECURITY DEFINER`, `search_path`) and grants.
+5. RLS enabled/forced flags and every `pg_policies` definition.
+6. `auth.users` relationships and current ownership chain.
+7. Storage buckets, object naming conventions and `storage.objects` policies.
+8. Row counts, duplicate/nil values and orphan checks needed before adding
+   uniqueness, `NOT NULL`, enum/check, FK, or overlap constraints.
+9. Exact mapping from existing `salons`, `organization_members`, `services`,
+   staff/appointment/referral concepts to the §5.1 canonical model.
+10. Current app-facing RPC/view names that must remain compatible.
+
+Store the sanitized introspection output outside Git if it contains customer or
+security-sensitive data. Commit only the resulting schema decisions and safe
+M02 SQL.
+
+## Execution runbook (requires separate approval)
+
+1. Complete and review live Supabase introspection.
+2. Regenerate M02 and adapt later migrations wherever live object shapes differ.
+3. Re-run `npm run validate:migrations`; add representative legacy-schema
+   upgrade fixtures and verify data-preserving behavior.
+4. Review the full diff, take a recoverable backup, and obtain explicit
+   migration-execution approval.
+5. Apply M01–M21 in order with Supabase CLI migrations (preferred) or carefully
+   through the SQL editor; stop on the first error and do not skip migrations.
+6. Run acceptance tests A–L from spec P88 plus Phase tests M–S against
+   staging/live as approved, including multi-user RLS and browser/server flows.
+7. Generate Supabase TypeScript types (`supabase gen types typescript`) per P72,
+   commit them, and wire the service layer/screens to the single source of truth.
+
+**Next step:** live Supabase introspection → regenerate M02 → approved M01–M21
+application → P88 tests A–L + Phase tests M–S → P72 TypeScript types.

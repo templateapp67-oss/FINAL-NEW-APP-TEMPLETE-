@@ -19,8 +19,11 @@ const migrationFiles = (await readdir(migrationsDir))
   .filter((name) => name.endsWith('.sql'))
   .sort();
 
-const historicalMigrationFiles = migrationFiles.filter((name) => !name.includes('_phase1a_'));
+const historicalMigrationFiles = migrationFiles.filter(
+  (name) => !name.includes('_phase1a_') && !name.includes('_phase2_'),
+);
 const phase1aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase1a_'));
+const phase2MigrationFiles = migrationFiles.filter((name) => name.includes('_phase2_'));
 assert.equal(historicalMigrationFiles.length, 27, 'expected the immutable M01-M27 history');
 assert.deepEqual(phase1aMigrationFiles, [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
@@ -28,6 +31,9 @@ assert.deepEqual(phase1aMigrationFiles, [
   '20260821000301_m30_phase1a_storage_foundation.sql',
   '20260821000401_m31_phase1a_authoritative_booking_creation.sql',
 ], 'expected the ordered Phase 1A shared-backend migration set');
+assert.deepEqual(phase2MigrationFiles, [
+  '20260821000501_m32_phase2_canonical_foundation.sql',
+], 'expected the ordered Phase 2 canonical-foundation migration set');
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 

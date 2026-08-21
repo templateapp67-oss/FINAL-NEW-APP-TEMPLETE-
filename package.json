@@ -43,6 +43,8 @@
     "generate:theme-seed": "tsx scripts/generate-theme-seed.mts --write",
     "validate:migrations": "tsx scripts/generate-theme-seed.mts --check && tsx scripts/validate-migrations.mjs",
     "test:phase1a": "tsx scripts/test-phase1a-foundation.mjs && tsx scripts/test-phase1a-payment-crypto.mjs",
+    "test:phase2": "tsx scripts/test-phase2-foundation.mjs",
+    "test:phase-2": "npm run validate:migrations && npm run test:phase1a && npm run test:phase2",
     "validate:main-website": "node scripts/validate-main-website-compat.mjs",
     "test:phase-10.6": "tsx scripts/test-phase-10.6.mjs",
     "test:phase-16.1": "tsx scripts/test-phase-16.1.mjs",

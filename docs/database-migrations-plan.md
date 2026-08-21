@@ -189,3 +189,33 @@ M02 SQL.
 
 **Next step:** live Supabase introspection → regenerate M02 → approved M01–M21
 application → P88 tests A–L + Phase tests M–S → P72 TypeScript types.
+
+---
+
+## Phase 1A + Phase 2 addendum (2026-08-21)
+
+The M01–M27 set above remains the immutable historical draft set and is still
+validated twice by `validate:migrations` (27/27, tests A–U). Since Phase 1A,
+the repository additionally ships the **shared-schema migration set** that
+targets the live canonical schema used by BOTH this app and the Main Website
+(ONE Supabase project):
+
+| Migration | File | Scope |
+|---|---|---|
+| M28 | `20260821000101_m28_phase1a_unified_salon_foundation.sql` | Identity/roles/membership reconciliation, themes + five-theme seed, categories, services provenance, products, locations, bookings, media, RLS surface |
+| M29 | `20260821000201_m29_phase1a_razorpay_foundation.sql` | Payment orders/payments/webhook RPC foundations |
+| M30 | `20260821000301_m30_phase1a_storage_foundation.sql` | Private `salon-media` bucket + tenant-scoped object policies |
+| M31 | `20260821000401_m31_phase1a_authoritative_booking_creation.sql` | Server-authoritative booking creation + idempotency keys |
+| M32 | `20260821000501_m32_phase2_canonical_foundation.sql` | Phase 2 canonical foundation: theme/category slugs, `salons.theme_id` + `phase2_set_salon_theme`, organization status/timestamps, membership `created_at`, location `created_at` backfill, service timestamps, safe `updated_at` triggers, product theme index, public-safe column grants |
+
+**Phase 2 rules honoured:** additive only, no edits to applied/older
+migrations, reproducible on a fresh database, unique constraints for stable
+slugs, no duplicate entities (`salons` is canonical; the five themes are
+seeded exactly once by M28), database-side timestamps, soft delete via
+`deleted_at` where history matters, RLS policy surface unchanged (deep RLS is
+Phase 3), bookings/payments/media systems deferred to Phases 4/5/later.
+
+Validation: `npm run test:phase2` (validate:migrations + test:phase1a +
+test:phase2), `npm run validate:main-website` (with
+`NEXORA_MAIN_WEBSITE_PATH` set), `npm run lint`, `npm run build`. Full Phase 2
+report: `docs/phase-2-unified-database-foundation.md`.

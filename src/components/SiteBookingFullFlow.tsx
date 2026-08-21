@@ -167,7 +167,7 @@ export default function SiteBookingFullFlow({ themeId, data }: { themeId: SiteHe
     <div
       data-testid="site-booking-flow-orchestrator"
       data-phase={phase}
-      className="absolute inset-0 z-[70] flex flex-col overflow-hidden"
+      className="absolute inset-0 z-[70] flex flex-col overflow-hidden booking-container"
       style={{ transform: 'translateZ(0)' }}
     >
       {phase === 'entry' && (

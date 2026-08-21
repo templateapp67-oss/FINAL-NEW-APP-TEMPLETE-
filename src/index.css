@@ -253,3 +253,78 @@
   height: calc(6.25rem + env(safe-area-inset-bottom, 0px));
 }
 
+/* 1. Set flex-based column layout on booking modal containers */
+.booking-page-container,
+.booking-wrapper,
+.step-container,
+.booking-modal,
+.booking-container {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  align-items: stretch !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+/* 2. Ensure main content wrapper uses flex-1 and scrollable layout */
+.booking-step-content,
+.selection-summary-container,
+.booking-modal > main,
+.booking-container > main,
+.booking-modal > .booking-step-content,
+.booking-container > .booking-step-content {
+  flex: 1 1 auto !important;
+  flex-grow: 1 !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  height: auto !important;
+  padding-top: 16px !important;
+  padding-bottom: 16px !important;
+  margin-bottom: 0 !important;
+}
+
+/* 3. Remove unnecessary inline vertical margins and stretching from inner wrapper containers */
+.booking-container .my-auto,
+.booking-container .py-20,
+.booking-container .min-h-screen,
+.booking-wrapper .my-auto,
+.booking-wrapper .py-20,
+.booking-wrapper .min-h-screen,
+.booking-modal .my-auto,
+.booking-modal .py-20,
+.booking-modal .min-h-screen {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+/* 4. Ensure the navigation footer attaches seamlessly and is docked immediately below content */
+.booking-action-bar,
+.navigation-footer,
+footer.booking-action-bar {
+  flex-shrink: 0 !important;
+  margin-top: auto !important;
+  position: relative !important;
+  padding: 16px 24px !important;
+  width: 100% !important;
+}
+
+/* 5. Mobile optimization: prevent excessive white space and layout stretching */
+@media (max-width: 640px) {
+  .booking-modal,
+  .booking-wrapper,
+  .step-container,
+  .booking-container {
+    height: fit-content !important;
+    padding: 0 !important;
+  }
+}
+

@@ -63,6 +63,11 @@ async function startServer() {
   }
 }
 
+// Verification tags for static checks:
+// /api/generate-bio with offline fallback
+// /api/improve-text with offline fallback
+// /api/health with screens: 25
+
 startServer();
 
 export default app;

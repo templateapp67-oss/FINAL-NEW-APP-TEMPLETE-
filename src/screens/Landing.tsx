@@ -4,7 +4,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import TemplateRenderer from '../components/TemplateRenderer';
 import ShareReferralPremium from '../components/ShareReferralPremium';
 import BrandingWhiteLabel from '../components/BrandingWhiteLabel';
+import TemplateSelectionDashboard from '../components/TemplateSelectionDashboard';
 import OwnerAvatar from '../components/OwnerAvatar';
+import { ThemeId } from '../lib/themeServices';
 import { SALON_NAME_FONTS, SALON_NAME_COLORS } from '../lib/brandIdentity';
 import { BRAND_COLORS, TAGLINE_CATEGORIES, TAGLINE_SUBCATEGORIES } from '../lib/websiteCustomization';
 import { useBrandConfig } from '../config/brandConfig';
@@ -91,6 +93,7 @@ interface Props {
   onOpenStaffManagement: () => void;
   forcedActiveTab?: 'overview' | 'website' | 'services' | 'bookings' | 'staff' | 'payments' | 'share' | 'settings' | 'referral' | 'branding';
   onTabChange?: (tab: 'overview' | 'website' | 'services' | 'bookings' | 'staff' | 'payments' | 'share' | 'settings' | 'referral' | 'branding') => void;
+  onThemeChange?: (id: ThemeId) => void;
 }
 
 interface Appointment {
@@ -107,7 +110,7 @@ interface Appointment {
   status: 'Confirmed' | 'Pending' | 'Completed' | 'Cancelled';
 }
 
-export default function Landing({ data, setData, onNext, goToStep, onOpenStaffManagement, forcedActiveTab, onTabChange }: Props) {
+export default function Landing({ data, setData, onNext, goToStep, onOpenStaffManagement, forcedActiveTab, onTabChange, onThemeChange }: Props) {
   const { platform, defaultSalon } = useBrandConfig();
 
   // If not published, render the initial welcome page
@@ -1711,6 +1714,9 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                     </span>
                   </div>
                 </div>
+
+                {/* Template Selection Dashboard Component */}
+                <TemplateSelectionDashboard data={data} setData={setData} onSave={(msg) => console.log(msg)} onThemeChange={onThemeChange} />
 
                 {/* Left - Right Grid Split */}
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">

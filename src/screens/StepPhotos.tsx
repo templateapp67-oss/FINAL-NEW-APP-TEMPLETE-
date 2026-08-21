@@ -27,6 +27,7 @@ import { useAuth } from '../lib/useAuth';
 import { resolveOwnerSalonId } from '../lib/ownerSalon';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { deleteSalonMedia, uploadSalonMedia } from '../lib/salonMediaService';
+import { compressImageToMaxFileSize, formatFileSize } from '../lib/imageCompression';
 
 interface Props {
   data: SalonData;
@@ -228,7 +229,14 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
     }
 
     const valid: { file: File; url: string }[] = [];
-    for (const file of list) {
+    for (const rawFile of list) {
+      const file = await compressImageToMaxFileSize(rawFile, 5);
+      if (file.size < rawFile.size) {
+        showFeedback(`Resized ${formatFileSize(rawFile.size)} to ${formatFileSize(file.size)}`);
+      } else {
+        showFeedback(`Uploading ${formatFileSize(file.size)}...`);
+      }
+
       const problem = validateGalleryImageFile(file);
       if (problem) {
         setUploadError(problem);
@@ -474,7 +482,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   <span className="w-2 h-2 rounded-full bg-[#ac0053]"></span> Salon Logo
                 </h2>
                 <span className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-md">
-                  PNG or SVG, max 2MB
+                  PNG or SVG, max 5MB
                 </span>
               </div>
 
@@ -636,7 +644,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   <h2 className="text-base font-bold text-[#1a1c1c] flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-[#ac0053]"></span> Gallery
                   </h2>
-                  <p className="text-xs text-gray-500 mt-0.5">3–10 photos recommended</p>
+                  <p className="text-xs text-gray-500 mt-0.5">3–10 photos recommended. Files auto-resized to 5MB max.</p>
                 </div>
 
                 <button

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DatabaseCatalogThemeId } from './themeCatalogService';
-import { requireSupabase } from './supabaseClient';
+import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { mapContentTranslations as mapTranslations, mapServiceMedia as mapMedia } from './locale';
 import type { ServiceMedia, ServiceTranslation } from '../types';
 
@@ -232,10 +232,36 @@ export async function savePredefinedServicesWithClient(
   };
 }
 
-export function savePredefinedServices(
+export async function savePredefinedServices(
   themeId: DatabaseCatalogThemeId,
   predefinedServiceIds: string[],
 ): Promise<SavePredefinedServicesResult> {
+  const { isSupabaseConfigured } = await import('./supabaseClient');
+  if (!isSupabaseConfigured) {
+    return {
+      businessId: 'mock-business',
+      themeId,
+      requestedCount: predefinedServiceIds.length,
+      insertedCount: predefinedServiceIds.length,
+      existingCount: 0,
+      services: predefinedServiceIds.map((id, index) => ({
+        id: `mock-saved-service-${id}`,
+        businessId: 'mock-business',
+        themeId,
+        themeKey: themeId,
+        categoryId: 'mock-category',
+        predefinedServiceId: id,
+        name: `Predefined ${index}`,
+        category: 'Mock Category',
+        description: 'Mock Description',
+        price: 50,
+        duration: 30,
+        status: 'active',
+        featured: false,
+        translations: [],
+      })),
+    };
+  }
   return savePredefinedServicesWithClient(requireSupabase(), themeId, predefinedServiceIds);
 }
 
@@ -256,9 +282,12 @@ export async function loadSavedServicesForThemeWithClient(
   return rows.map((row) => mapSavedService(row, businessId, themeId));
 }
 
-export function loadSavedServicesForTheme(
+export async function loadSavedServicesForTheme(
   themeId: DatabaseCatalogThemeId,
 ): Promise<SavedService[]> {
+  if (!isSupabaseConfigured) {
+    return [];
+  }
   return loadSavedServicesForThemeWithClient(requireSupabase(), themeId);
 }
 
@@ -310,10 +339,29 @@ export async function createSavedServiceWithClient(
   return mapSavedService(raw, asString(raw.business_id, 'created business_id'), themeId);
 }
 
-export function createSavedService(
+export async function createSavedService(
   themeId: DatabaseCatalogThemeId,
   input: NewSavedService,
 ): Promise<SavedService> {
+  const { isSupabaseConfigured } = await import('./supabaseClient');
+  if (!isSupabaseConfigured) {
+    return {
+      id: 'mock-saved-service-' + Date.now(),
+      businessId: 'mock-business',
+      themeId: themeId,
+      themeKey: themeId,
+      categoryId: input.categoryId || 'mock-category',
+      predefinedServiceId: input.predefinedServiceId || null,
+      name: input.name,
+      category: 'Mock Category',
+      description: input.description || '',
+      price: input.price,
+      duration: input.duration,
+      status: input.status,
+      featured: false,
+      translations: [],
+    };
+  }
   return createSavedServiceWithClient(requireSupabase(), themeId, input);
 }
 
@@ -360,11 +408,30 @@ export async function updateSavedServiceWithClient(
   return mapSavedService(raw, asString(raw.business_id, 'updated business_id'), themeId);
 }
 
-export function updateSavedService(
+export async function updateSavedService(
   themeId: DatabaseCatalogThemeId,
   serviceId: string,
   changes: SavedServiceChanges,
 ): Promise<SavedService> {
+  const { isSupabaseConfigured } = await import('./supabaseClient');
+  if (!isSupabaseConfigured) {
+    return {
+      id: serviceId,
+      businessId: 'mock-business',
+      themeId,
+      themeKey: themeId,
+      categoryId: 'mock-category',
+      predefinedServiceId: null,
+      name: changes.name || 'Mock Updated Service',
+      category: 'Mock Category',
+      description: changes.description || '',
+      price: changes.price ?? 50,
+      duration: changes.duration ?? 30,
+      status: changes.status || 'active',
+      featured: false,
+      translations: [],
+    };
+  }
   return updateSavedServiceWithClient(requireSupabase(), themeId, serviceId, changes);
 }
 
@@ -411,11 +478,30 @@ export async function setSavedServiceStatusWithClient(
   return mapSavedService(raw, asString(raw.business_id, 'status business_id'), themeId);
 }
 
-export function setSavedServiceStatus(
+export async function setSavedServiceStatus(
   themeId: DatabaseCatalogThemeId,
   serviceId: string,
   status: SavedServiceStatus,
 ): Promise<SavedService> {
+  const { isSupabaseConfigured } = await import('./supabaseClient');
+  if (!isSupabaseConfigured) {
+    return {
+      id: serviceId,
+      businessId: 'mock-business',
+      themeId,
+      themeKey: themeId,
+      categoryId: 'mock-category',
+      predefinedServiceId: null,
+      name: 'Mock Status Service',
+      category: 'Mock Category',
+      description: 'Mock Description',
+      price: 50,
+      duration: 30,
+      status: status,
+      featured: false,
+      translations: [],
+    };
+  }
   return setSavedServiceStatusWithClient(requireSupabase(), themeId, serviceId, status);
 }
 
@@ -435,11 +521,30 @@ export async function setSavedServiceActiveWithClient(
   return mapSavedService(raw, asString(raw.business_id, 'status business_id'), themeId);
 }
 
-export function setSavedServiceActive(
+export async function setSavedServiceActive(
   themeId: DatabaseCatalogThemeId,
   serviceId: string,
   isActive: boolean,
 ): Promise<SavedService> {
+  const { isSupabaseConfigured } = await import('./supabaseClient');
+  if (!isSupabaseConfigured) {
+    return {
+      id: serviceId,
+      businessId: 'mock-business',
+      themeId,
+      themeKey: themeId,
+      categoryId: 'mock-category',
+      predefinedServiceId: null,
+      name: 'Mock Active Service',
+      category: 'Mock Category',
+      description: 'Mock Description',
+      price: 50,
+      duration: 30,
+      status: isActive ? 'active' : 'inactive',
+      featured: false,
+      translations: [],
+    };
+  }
   return setSavedServiceActiveWithClient(requireSupabase(), themeId, serviceId, isActive);
 }
 
@@ -459,6 +564,10 @@ export async function deleteSavedServiceWithClient(
   return serviceId;
 }
 
-export function deleteSavedService(serviceId: string): Promise<string> {
+export async function deleteSavedService(serviceId: string): Promise<string> {
+  const { isSupabaseConfigured } = await import('./supabaseClient');
+  if (!isSupabaseConfigured) {
+    return serviceId;
+  }
   return deleteSavedServiceWithClient(requireSupabase(), serviceId);
 }

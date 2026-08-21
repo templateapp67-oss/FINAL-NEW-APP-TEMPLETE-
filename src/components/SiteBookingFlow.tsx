@@ -738,7 +738,7 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
       data-appearance={appearance}
       data-locale={locale}
       data-step={step}
-      className="absolute inset-0 z-[70] flex flex-col overflow-hidden"
+      className="absolute inset-0 z-[70] flex flex-col overflow-hidden booking-page-container booking-wrapper step-container"
       style={{ backgroundColor: s.page, color: s.text }}
     >
       {/* ---- header ---- */}
@@ -804,7 +804,7 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
       </div>
 
       {/* ---- body ---- */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar booking-step-content">
         <div
           data-testid="booking-body"
           className="max-w-5xl mx-auto w-full px-4 md:px-6 py-5 md:py-6 grid grid-cols-1 lg:grid-cols-12 gap-5"
@@ -921,6 +921,7 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
                 className="lg:col-span-12 flex flex-col gap-4"
+                style={{ paddingBottom: '20px' }}
               >
                 <div className="flex items-center gap-2.5">
                   {D.flourish(s)}
@@ -1092,75 +1093,6 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                       })}
                     </div>
 
-                    {/* PHASE 16.2 — live selection totals (auto-calculated). */}
-                    {selection.count > 0 && (
-                      <div
-                        data-testid="booking-selection-totals"
-                        data-count={selection.count}
-                        data-total-price={totalPrice}
-                        data-total-duration={totalDuration}
-                        className={`${D.card} p-4 md:p-5 flex flex-col gap-2`}
-                        style={{ backgroundColor: s.well, borderColor: s.accentLine }}
-                      >
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <h2 className={D.sectionTitle} style={{ color: s.accent }}>
-                            {T['service.totalTitle']} · {selectionCountLabel}
-                          </h2>
-                          <button
-                            type="button"
-                            data-testid="booking-selection-clear"
-                            onClick={clearSelectedServices}
-                            className="text-[10px] font-extrabold uppercase tracking-wider cursor-pointer"
-                            style={{ color: s.muted }}
-                          >
-                            {T['service.clearAll']}
-                          </button>
-                        </div>
-                        {selection.lines.map((line) => (
-                          <div
-                            key={line.service.id}
-                            data-testid={`booking-selection-line-${line.service.id}`}
-                            className="flex items-center justify-between gap-3 text-xs font-bold"
-                            style={{ color: s.text }}
-                          >
-                            <span className="min-w-0 flex items-center gap-2">
-                              <span className="truncate">{displayService(line.service, locale).name}</span>
-                              <span className="text-[10px] font-semibold shrink-0" style={{ color: s.muted }}>
-                                {line.durationMinutes} {minuteLabel}
-                              </span>
-                            </span>
-                            <span className="flex items-center gap-2.5 shrink-0">
-                              <span>{formatCurrency(line.finalPrice)}</span>
-                              <button
-                                type="button"
-                                data-testid={`booking-selection-remove-${line.service.id}`}
-                                onClick={() => selectService(line.service)}
-                                aria-label={`${T['service.remove']}: ${displayService(line.service, locale).name}`}
-                                className="text-[9px] font-extrabold uppercase tracking-wider cursor-pointer"
-                                style={{ color: s.danger }}
-                              >
-                                {T['service.remove']}
-                              </button>
-                            </span>
-                          </div>
-                        ))}
-                        <div
-                          className="flex items-center justify-between text-sm font-extrabold pt-2 border-t"
-                          style={{ color: s.textStrong, borderColor: s.chipLine }}
-                        >
-                          <span className="inline-flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5" style={{ color: s.accent }} />
-                            {totalDuration} {minuteLabel}
-                          </span>
-                          <span data-testid="booking-selection-total-price">{formatCurrency(totalPrice)}</span>
-                        </div>
-                        {selection.count >= BOOKING_MAX_SERVICES && (
-                          <p className="text-[10px] font-semibold" style={{ color: s.muted }}>
-                            {fillBookingText(T['service.limitNote'], { max: BOOKING_MAX_SERVICES })}
-                          </p>
-                        )}
-                      </div>
-                    )}
                   </>
                 )}
               </motion.div>
@@ -1742,75 +1674,148 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
               </motion.div>
             )}
         </div>
-      </div>
+      </main>
 
       {/* ---- sticky action bar (mobile-first) ---- */}
-      <div
-        className="shrink-0 border-t px-4 md:px-6 py-3 flex items-center justify-between gap-3"
+      <footer
+        className="shrink-0 border-t flex flex-col booking-action-bar navigation-footer"
         style={{ backgroundColor: s.card, borderColor: s.line }}
       >
-        <button
-          type="button"
-          data-testid="booking-back"
-          onClick={goBack}
-          disabled={step === 'salon'}
-          className={`${D.secondary} px-4 flex items-center gap-1.5 ${step === 'salon' ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
-          style={{ backgroundColor: 'transparent', borderColor: s.chipLine, color: s.text }}
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          {T.back}
-        </button>
-
-        {step === 'summary' ? (
-          <button
-            type="button"
-            data-testid="booking-confirm"
-            onClick={() => {
-              // PHASE 16.5 — single AND multi-service selections hand off to
-              // the EXISTING payment architecture. The full line items travel
-              // with the payload so the payment engine prices the REAL total
-              // (sum of offer-aware line prices — never hardcoded).
-              if (
-                onProceedToPayment
-                && selectedService && selectedDateKey && selectedSlotMinutes != null
-              ) {
-                onProceedToPayment({
-                  service: { id: selectedService.id },
-                  serviceLines: selection.lines.map((line) => ({
-                    serviceId: line.service.id,
-                    serviceName: line.service.name,
-                    price: line.finalPrice,
-                    durationMinutes: line.durationMinutes,
-                  })),
-                  dateKey: selectedDateKey,
-                  startMinutes: selectedSlotMinutes,
-                  endMinutes: selectedSlotMinutes + totalDuration,
-                  customer,
-                });
-                return;
-              }
-              toast('summary.confirmNote');
-            }}
-            className={`${D.primary} px-6 md:px-8 flex items-center gap-2 cursor-pointer`}
-            style={D.primaryStyle(s)}
+        {step === 'service' && selection.count > 0 && (
+          <div
+            data-testid="booking-selection-totals"
+            data-count={selection.count}
+            data-total-price={totalPrice}
+            data-total-duration={totalDuration}
+            className="p-4 md:p-5 flex flex-col gap-2 border-b selection-summary-container"
+            style={{ backgroundColor: s.well, borderColor: s.line }}
           >
-            <CalendarCheck className="w-4 h-4" />
-            {T.confirm}
-          </button>
-        ) : (
-          <button
-            type="button"
-            data-testid="booking-continue"
-            onClick={goNext}
-            disabled={!canContinue}
-            className={`${D.primary} px-6 md:px-8 flex items-center gap-2`}
-            style={primaryBtnStyle}
-          >
-            {T.continue}
-            <ArrowRight className="w-4 h-4" />
-          </button>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className={D.sectionTitle} style={{ color: s.accent }}>
+                {T['service.totalTitle']} · {selectionCountLabel}
+              </h2>
+              <button
+                type="button"
+                data-testid="booking-selection-clear"
+                onClick={clearSelectedServices}
+                className="text-[10px] font-extrabold uppercase tracking-wider cursor-pointer"
+                style={{ color: s.muted }}
+              >
+                {T['service.clearAll']}
+              </button>
+            </div>
+            <div className="max-h-[100px] overflow-y-auto flex flex-col gap-1.5 pr-1 custom-scrollbar">
+              {selection.lines.map((line) => (
+                <div
+                  key={line.service.id}
+                  data-testid={`booking-selection-line-${line.service.id}`}
+                  className="flex items-center justify-between gap-3 text-xs font-bold"
+                  style={{ color: s.text }}
+                >
+                  <span className="min-w-0 flex items-center gap-2">
+                    <span className="truncate">{displayService(line.service, locale).name}</span>
+                    <span className="text-[10px] font-semibold shrink-0" style={{ color: s.muted }}>
+                      {line.durationMinutes} {minuteLabel}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2.5 shrink-0">
+                    <span>{formatCurrency(line.finalPrice)}</span>
+                    <button
+                      type="button"
+                      data-testid={`booking-selection-remove-${line.service.id}`}
+                      onClick={() => selectService(line.service)}
+                      aria-label={`${T['service.remove']}: ${displayService(line.service, locale).name}`}
+                      className="text-[9px] font-extrabold uppercase tracking-wider cursor-pointer"
+                      style={{ color: s.danger }}
+                    >
+                      {T['service.remove']}
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div
+              className="flex items-center justify-between text-sm font-extrabold pt-2 border-t"
+              style={{ color: s.textStrong, borderColor: s.chipLine }}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" style={{ color: s.accent }} />
+                {totalDuration} {minuteLabel}
+              </span>
+              <span data-testid="booking-selection-total-price">{formatCurrency(totalPrice)}</span>
+            </div>
+            {selection.count >= BOOKING_MAX_SERVICES && (
+              <p className="text-[10px] font-semibold" style={{ color: s.muted }}>
+                {fillBookingText(T['service.limitNote'], { max: BOOKING_MAX_SERVICES })}
+              </p>
+            )}
+          </div>
         )}
-      </div>
+
+        <div className="px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            data-testid="booking-back"
+            onClick={goBack}
+            disabled={step === 'salon'}
+            className={`${D.secondary} px-4 flex items-center gap-1.5 ${step === 'salon' ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+            style={{ backgroundColor: 'transparent', borderColor: s.chipLine, color: s.text }}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            {T.back}
+          </button>
+
+          {step === 'summary' ? (
+            <button
+              type="button"
+              data-testid="booking-confirm"
+              onClick={() => {
+                // PHASE 16.5 — single AND multi-service selections hand off to
+                // the EXISTING payment architecture. The full line items travel
+                // with the payload so the payment engine prices the REAL total
+                // (sum of offer-aware line prices — never hardcoded).
+                if (
+                  onProceedToPayment
+                  && selectedService && selectedDateKey && selectedSlotMinutes != null
+                ) {
+                  onProceedToPayment({
+                    service: { id: selectedService.id },
+                    serviceLines: selection.lines.map((line) => ({
+                      serviceId: line.service.id,
+                      serviceName: line.service.name,
+                      price: line.finalPrice,
+                      durationMinutes: line.durationMinutes,
+                    })),
+                    dateKey: selectedDateKey,
+                    startMinutes: selectedSlotMinutes,
+                    endMinutes: selectedSlotMinutes + totalDuration,
+                    customer,
+                  });
+                  return;
+                }
+                toast('summary.confirmNote');
+              }}
+              className={`${D.primary} px-6 md:px-8 flex items-center gap-2 cursor-pointer`}
+              style={D.primaryStyle(s)}
+            >
+              <CalendarCheck className="w-4 h-4" />
+              {T.confirm}
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="booking-continue"
+              onClick={goNext}
+              disabled={!canContinue}
+              className={`${D.primary} px-6 md:px-8 flex items-center gap-2`}
+              style={primaryBtnStyle}
+            >
+              {T.continue}
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </footer>
     </div>
   );
 }

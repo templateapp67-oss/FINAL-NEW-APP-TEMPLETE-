@@ -693,7 +693,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
             ) : null}
 
             {/* GRID VIEW (AND ALWAYS ON MOBILE) */}
-            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 ${viewMode === 'table' ? 'md:hidden' : 'grid'}`}>
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 ${viewMode === 'table' ? 'md:hidden' : 'grid'}`}>
               {filteredStaff.map(member => {
                 const status = member.status || 'Available';
                 return (

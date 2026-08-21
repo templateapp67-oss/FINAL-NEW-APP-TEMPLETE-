@@ -31,7 +31,13 @@ function projectRef(supabaseUrl: string | undefined): string {
 }
 
 export const NEXORA_AUTH_STORAGE_KEY = `nexora.auth.${projectRef(url)}`;
-export const isSupabaseConfigured = Boolean(url && anonKey && projectRef(url) !== 'invalid');
+export const isSupabaseConfigured = Boolean(
+  url &&
+  anonKey &&
+  projectRef(url) !== 'invalid' &&
+  !url.includes('your-project.supabase.co') &&
+  !anonKey.includes('your-anon-public-key')
+);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url as string, anonKey as string, {

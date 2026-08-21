@@ -425,7 +425,7 @@ export default function BrandingWhiteLabel({ data, onNotify }: Props) {
               <span className="text-[10px] font-semibold text-gray-400 flex items-center gap-1.5">
                 <Smartphone className="w-3 h-3" /> Mobile & desktop ready
               </span>
-              <span className="text-[10px] font-semibold text-gray-400">{data.websiteSlug ? `nexora.site/${data.websiteSlug}` : 'your-site.salon'}</span>
+              <span className="text-[10px] font-semibold text-gray-400">{data.websiteSlug ? `${config.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug}` : 'your-site.salon'}</span>
             </div>
           </div>
 

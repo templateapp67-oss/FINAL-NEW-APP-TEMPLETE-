@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SalonData, Service, ServiceOffer } from '../types';
 import { getPublicStaffData } from '../types';
+import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
 import SiteHeader, { useSiteLocale, useThemeAppearance } from './SiteHeader';
 import OwnerAvatar from './OwnerAvatar';
 import { BundlePrice, ServicePrice } from './PromotionalPricing';
@@ -354,7 +355,7 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
             <span className="w-2.5 h-2.5 rounded-full bg-[#4ecb8d]" />
           </div>
           <div className="mx-auto rounded-lg border px-5 py-1 text-[10px] font-mono tracking-wide" style={{ borderColor: line, color: muted, backgroundColor: mode === 'desktop' ? t.card : t.card }}>
-            {data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'familysalon'}.nexora.site
+            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'familysalon'}
           </div>
         </div>
       ) : (

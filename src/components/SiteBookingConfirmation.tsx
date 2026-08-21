@@ -186,7 +186,8 @@ export default function SiteBookingConfirmation({
       data-theme={themeId}
       data-appearance={appearance}
       data-locale={locale}
-      className="flex flex-col gap-3 w-full"
+      className="flex flex-col gap-3 w-full h-fit m-0 [&>*]:m-0 [&>*]:h-fit"
+      style={{ height: 'fit-content', margin: 0 }}
     >
       {showStatusBanner && (
         <div

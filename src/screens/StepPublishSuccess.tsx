@@ -457,7 +457,7 @@ export default function StepPublishSuccess({ data, setData, onNext, onSave }: Pr
                   <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
                 </div>
                 <div className="mx-auto bg-white px-3 py-1 rounded-full text-[8px] text-gray-500 border border-gray-100 truncate max-w-[140px] font-mono text-center">
-                  {data.websiteSlug || 'royal-hair-studio'}.nexora.site
+                  {displayUrl}
                 </div>
               </div>
 

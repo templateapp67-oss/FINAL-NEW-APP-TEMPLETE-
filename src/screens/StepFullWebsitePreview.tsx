@@ -183,7 +183,7 @@ export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) 
           <ArrowLeft className="w-4 h-4" /> Back to Review
         </button>
         <span className="hidden md:block text-xs font-semibold text-gray-400">
-          {(data.websiteSlug || defaultSalon.slug || 'royal-hair-studio')}.{platform.websiteUrl.replace(/^https?:\/\//, '')}
+          {platform.websiteUrl.replace(/^https?:\/\//, '')}/{(data.websiteSlug || defaultSalon.slug || 'royal-hair-studio')}
         </span>
         <button
           onClick={onNext}

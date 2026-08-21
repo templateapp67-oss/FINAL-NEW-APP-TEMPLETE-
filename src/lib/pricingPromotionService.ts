@@ -10,7 +10,7 @@ import type {
   ServicePriceVariant,
 } from '../types';
 import type { DatabaseCatalogThemeId } from './themeCatalogService';
-import { requireSupabase } from './supabaseClient';
+import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -254,7 +254,18 @@ export async function loadThemeCommerceWithClient(
   };
 }
 
-export function loadThemeCommerce(themeId: DatabaseCatalogThemeId): Promise<ThemeCommerce> {
+export async function loadThemeCommerce(themeId: DatabaseCatalogThemeId): Promise<ThemeCommerce> {
+  if (!isSupabaseConfigured) {
+    return {
+      businessId: 'mock-business',
+      themeId,
+      themeUuid: 'mock-theme-uuid',
+      serviceBadges: new Map(),
+      variants: [],
+      bundles: [],
+      offers: [],
+    };
+  }
   return loadThemeCommerceWithClient(requireSupabase(), themeId);
 }
 

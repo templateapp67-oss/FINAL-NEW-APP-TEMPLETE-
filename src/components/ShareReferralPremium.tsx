@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
 import {
   Gift,
   Copy,
@@ -75,7 +76,8 @@ export default function ShareReferralPremium({ salonName, liveUrl, onNotify }: P
     }
   };
 
-  const referralLink = `https://${liveUrl || 'nexora.site/lumina'}?ref=${REFERRAL_CODE.toLowerCase()}`;
+  const fallbackDomain = DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '') + '/' + DEFAULT_BRAND_CONFIG.defaultSalon.slug;
+  const referralLink = `https://${liveUrl || fallbackDomain}?ref=${REFERRAL_CODE.toLowerCase()}`;
   const invitesSent = 24;
   const friendsBooked = 9;
   const creditsEarned = 1250;

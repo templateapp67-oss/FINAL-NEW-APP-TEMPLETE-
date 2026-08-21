@@ -350,6 +350,7 @@ export default function App() {
             onOpenStaffManagement={() => setActiveModule('staff-management')}
             forcedActiveTab={dashboardTab as any}
             onTabChange={(tab: any) => setDashboardTab(tab)}
+            onThemeChange={handleThemeChange}
           />
         </main>
         <AnimatePresence>
@@ -457,6 +458,7 @@ export default function App() {
           onNext={nextStep} 
           goToStep={goToStep}
           onOpenStaffManagement={() => setActiveModule('staff-management')}
+          onThemeChange={handleThemeChange}
         />
       </div>
       <AnimatePresence>

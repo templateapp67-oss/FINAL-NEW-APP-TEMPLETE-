@@ -971,7 +971,7 @@ export default function SiteBookingPaymentFlow(props: Props) {
       data-locale={locale}
       data-step={step}
       data-payment-option={option}
-      className="absolute inset-0 z-[70] flex flex-col overflow-hidden"
+      className="absolute inset-0 z-[70] flex flex-col overflow-hidden booking-page-container booking-wrapper step-container booking-container"
       style={{ backgroundColor: s.page, color: s.text }}
     >
       {/* ---- header ---- */}
@@ -1034,7 +1034,7 @@ export default function SiteBookingPaymentFlow(props: Props) {
       </div>
 
       {/* ---- body ---- */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar booking-step-content">
         <div
           data-testid="payment-body"
           className="max-w-4xl mx-auto w-full px-4 md:px-6 py-5 md:py-6 flex flex-col gap-5"
@@ -1669,11 +1669,11 @@ export default function SiteBookingPaymentFlow(props: Props) {
             </motion.div>
           )}
         </div>
-      </div>
+      </main>
 
       {/* ---- sticky action bar ---- */}
-      <div
-        className="shrink-0 border-t px-4 md:px-6 py-3 flex items-center justify-between gap-3"
+      <footer
+        className="shrink-0 border-t px-4 md:px-6 py-3 flex items-center justify-between gap-3 booking-action-bar navigation-footer"
         style={{ backgroundColor: s.card, borderColor: s.line }}
       >
         {step === 'option' && (
@@ -1829,7 +1829,7 @@ export default function SiteBookingPaymentFlow(props: Props) {
             </button>
           </>
         )}
-      </div>
+      </footer>
     </div>
   );
 }

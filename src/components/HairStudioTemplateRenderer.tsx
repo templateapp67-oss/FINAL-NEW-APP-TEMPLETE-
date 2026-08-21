@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { SalonData, getPublicStaffData } from '../types';
+import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
 import SiteHeader, { useSiteLocale, useThemeAppearance } from './SiteHeader';
 import OwnerAvatar from './OwnerAvatar';
 import { BundlePrice } from './PromotionalPricing';
@@ -117,7 +118,7 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
             <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
           </div>
           <div className="mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide" style={{ backgroundColor: card, borderColor: line, color: muted }}>
-            {data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}.nexora.site
+            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}
           </div>
         </div>
       ) : (

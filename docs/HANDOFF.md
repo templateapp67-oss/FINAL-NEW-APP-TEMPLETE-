@@ -6,6 +6,54 @@
 
 ## Current repository state
 
+- **M28 MEMBERSHIP IMPLEMENTATION — COMPLETE against the observed live
+  vocabulary (`m28_membership_vocabulary`: owner = 7 rows, active = 7 rows).**
+  - No new table/column/duplicate model was introduced and nothing already
+    correct was changed. The existing `20260821000101_m28_...` membership
+    reconcile block (`status` → STORED GENERATED `is_active`, role backfill,
+    role/profile/org FK constraints, canonical membership index, owner-scoped
+    RPCs `owner_salon_ids()`/`nexora_owner_salon_ids()`, RLS self-read +
+    revokes) already maps the live shape exactly. For the reported live
+    vocabulary it yields one active owner per row (`is_active=true` from
+    `status='active'`, `role='owner'` preserved), with the canonical
+    `organization_members_user_active_role_idx` over the generated column.
+  - Backend types for the M28 surface are now complete in
+    `src/types/database.ts`: `SalonRow` gained `slug/address/city` (M28 adds
+    those), and new `SalonPublicWebsiteRow`, `PublicSalonCatalogRow`,
+    `BookingSlotHoldRow` + `BookingSlotHoldStatus`, and
+    `CreateBookingSlotHoldInput/Result` were added. The M28 RPC/view/tables
+    consumed by the backend integration (`owner_salon_ids()` in ownerSalon.ts,
+    `public_salon_catalog` in nearbySalons.ts, `salon_public_websites` in
+    salonWebsiteService.ts / PublicSalonView.tsx / main.tsx,
+    `create_booking_slot_hold` in M28 §6) are all typed. Migration M28 is a
+    single well-formed transaction (1 BEGIN / 1 COMMIT) and deploys as-is.
+  - Live deployment is fully automated with no manual SQL-editor / `supabase gen
+    types` steps:
+    `supabase/config.toml` pins `project_id = "qwaehqsmodekbgvnaavz"`, and
+    `scripts/apply-live-migration.mjs` applies M28 (or `--all` for M28–M35 in
+    order) through the Supabase **Management API** `database/query` endpoint
+    using only `SUPABASE_ACCESS_TOKEN` (`sbp_…`). Run:
+    `SUPABASE_ACCESS_TOKEN=<sbp_…> npm run db:apply:live` (M28) or
+    `npm run db:apply:live:all` (M28–M35). The token is a live secret supplied
+    by the deployment env — it is never stored in the repo, and the script exits
+    with a clear message (code 2) when it is absent. `npm run db:types:gen`
+    regenerates `src/types/database.generated.ts` in CI once linked. Applying to
+    the real project requires only that token; this sandbox has no Supabase
+    credentials, so live apply cannot run here.
+  - `scripts/test-m28-reconciliation.mjs` grew a dedicated scenario that
+    replays the EXACT observed live vocabulary (7 memberships, every one
+    role='owner' + status='active', no `is_active`) BEFORE M28 and verifies:
+    7/7 rows preserved, all reconcile to owner+active+is_active=true, the
+    active-owner projection matches the reported count, the canonical index
+    exists, `owner_salon_ids()` resolves the owner salon end-to-end, and a
+    second apply is idempotent. Suite now **18/18**.
+  - Regressions: `validate:migrations` 27/27 ×2 + tests A–U 21/21; `lint` 0.
+  - Note: this sandbox has no credentials/CLI/Docker for the real Supabase
+    project `qwaehqsmodekbgvnaavz`, so verification is against the PGlite
+    live-like reproduction (the same DB engine the whole migration suite uses).
+    Applying M28 to the live project still requires the documented SQL-editor /
+    Supabase CLI step with the project's own credentials.
+
 - **PHASE 2D — FINAL VERIFICATION & FIX: COMPLETE (no corrective migration
   required).**
   - `scripts/test-phase2d-final.mjs` — **21/21 PASS** with

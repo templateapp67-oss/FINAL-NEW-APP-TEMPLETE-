@@ -349,6 +349,126 @@ assert.equal(
 ok('data still intact after full-chain apply + M34/M35 replay');
 
 // ---------------------------------------------------------------------------
+// Observed LIVE vocabulary — `m28_membership_vocabulary` reported exactly
+// `owner = 7 rows` and `active = 7 rows` from the shared live project. This
+// scenario replays that precise production shape (7 memberships, every one
+// role='owner' and status='active', NO is_active column) BEFORE M28 and proves
+// the reconciled implementation yields exactly one active owner per row with
+// no invented data, no row loss, and working owner-scoped RPC/RLS.
+// ---------------------------------------------------------------------------
+const liveDb = new PGlite({ extensions: { btree_gist, pgcrypto } });
+await liveDb.exec(bootstrapCommon);
+
+const liveUserIds = [
+  '00000000-0000-4000-8000-000000000101',
+  '00000000-0000-4000-8000-000000000102',
+  '00000000-0000-4000-8000-000000000103',
+  '00000000-0000-4000-8000-000000000104',
+  '00000000-0000-4000-8000-000000000105',
+  '00000000-0000-4000-8000-000000000106',
+  '00000000-0000-4000-8000-000000000107',
+];
+const liveOrg = '10000000-0000-4000-8000-000000000111';
+const liveSalon = '20000000-0000-4000-8000-000000000111';
+
+await liveDb.query(
+  `insert into auth.users (id, email) values
+    ($1,'o1@example.test'),($2,'o2@example.test'),($3,'o3@example.test'),
+    ($4,'o4@example.test'),($5,'o5@example.test'),($6,'o6@example.test'),($7,'o7@example.test')`,
+  liveUserIds,
+);
+await liveDb.query(
+  `insert into public.profiles (id, platform_role) values
+    ($1,'business_user'),($2,'business_user'),($3,'business_user'),
+    ($4,'business_user'),($5,'business_user'),($6,'business_user'),($7,'business_user')`,
+  liveUserIds,
+);
+await liveDb.query(`insert into public.organizations (id, name) values ($1, 'Live Org')`, [liveOrg]);
+// Exactly the observed live vocabulary: owner = 7 rows, active = 7 rows.
+await liveDb.query(
+  `insert into public.organization_members (organization_id, user_id, role, status) values
+    ($1,$2,'owner','active'),($1,$3,'owner','active'),($1,$4,'owner','active'),
+    ($1,$5,'owner','active'),($1,$6,'owner','active'),($1,$7,'owner','active'),($1,$8,'owner','active')`,
+  [liveOrg, ...liveUserIds],
+);
+await liveDb.query(
+  `insert into public.salons (id, organization_id, name, slug, address, city)
+   values ($1, $2, 'Live Salon', 'live-salon', 'MI Road', 'Jaipur')`,
+  [liveSalon, liveOrg],
+);
+await liveDb.query(
+  `insert into public.salon_public_websites (salon_id, slug, is_published)
+   values ($1, 'live-salon', true)`,
+  [liveSalon],
+);
+
+// 1. M28 applies cleanly on the observed live vocabulary.
+await liveDb.exec(await sqlOf(M28));
+ok('M28 applies on observed live vocabulary (owner=7, active=7)');
+
+// 2. Exactly the observed count is preserved — no rows invented or lost.
+const liveCount = (await liveDb.query(
+  'select count(*)::int as n from public.organization_members',
+)).rows[0].n;
+assert.equal(liveCount, 7, 'exactly 7 membership rows preserved (no duplication/loss)');
+
+// 3. Every one of the 7 becomes exactly one ACTIVE OWNER.
+const liveRows = (await liveDb.query(
+  `select user_id, role, status, is_active
+   from public.organization_members order by user_id`,
+)).rows;
+assert.equal(liveRows.length, 7, 'all 7 memberships present after M28');
+for (const r of liveRows) {
+  assert.equal(r.role, 'owner', 'observed role preserved as owner');
+  assert.equal(r.status, 'active', 'observed status preserved as active');
+  assert.equal(r.is_active, true, "is_active derives true from status='active'");
+}
+ok('all 7 rows reconcile to role=owner, status=active, is_active=true');
+
+// 4. Single canonical owner per row via the generated is_active + role check.
+const ownerCount = (await liveDb.query(
+  `select count(*)::int as n from public.organization_members
+   where role = 'owner' and is_active = true`,
+)).rows[0].n;
+assert.equal(ownerCount, 7, 'canonical active-owner projection = 7 (matches vocabulary)');
+ok('active-owner projection matches observed live vocabulary exactly');
+
+// 5. The canonical membership index exists over the generated column.
+const liveIdx = (await liveDb.query(
+  `select 1 from pg_indexes where schemaname = 'public'
+   and tablename = 'organization_members'
+   and indexname = 'organization_members_user_active_role_idx'`,
+)).rows;
+assert.equal(liveIdx.length, 1, 'canonical membership index present');
+ok('canonical membership index present on reconciled live base');
+
+// 6. Owner-scoped RPC returns the owner's own salon (end-to-end ownership chain).
+await liveDb.query("select set_config('request.jwt.claim.sub', $1, false)", [liveUserIds[0]]);
+await liveDb.query("select set_config('request.jwt.claim.role', 'authenticated', false)");
+const ownerSalons = (await liveDb.query('select public.owner_salon_ids() as id')).rows.map((r) => r.id);
+assert.deepEqual(ownerSalons, [liveSalon], 'owner_salon_ids() resolves the owner salon');
+await liveDb.query("select set_config('request.jwt.claim.sub', '', false)");
+await liveDb.query("select set_config('request.jwt.claim.role', '', false)");
+ok('owner_salon_ids() RPC resolves owner salon end-to-end');
+
+// 7. Second apply on the observed vocabulary is idempotent.
+await liveDb.exec(await sqlOf(M28));
+const liveGenCount = (await liveDb.query(
+  `select count(*)::int as n from pg_attribute
+   where attrelid = 'public.organization_members'::regclass
+     and attname = 'is_active' and not attisdropped`,
+)).rows[0].n;
+assert.equal(liveGenCount, 1, 'idempotent: no duplicate is_active column');
+assert.equal(
+  (await liveDb.query('select count(*)::int as n from public.organization_members')).rows[0].n,
+  7,
+  'idempotent: membership rows preserved',
+);
+ok('M28 second apply idempotent on observed live vocabulary');
+
+await liveDb.close();
+
+// ---------------------------------------------------------------------------
 // Fail-closed protection paths (each on a fresh database).
 // ---------------------------------------------------------------------------
 const expectM28Failure = async (label, fixtureSql, pattern) => {

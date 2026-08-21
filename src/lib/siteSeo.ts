@@ -15,6 +15,7 @@ import type { SalonData } from '../types';
 import type { AppLocale } from './locale';
 import type { SiteHeaderThemeId } from './siteNavigation';
 import { salonDisplayName } from './siteBooking';
+import { getBrandConfig } from '../config/brandConfig';
 
 export const SEO_ROBOTS = 'index, follow';
 export const SEO_OG_TYPE = 'website';
@@ -244,17 +245,19 @@ export function buildCanonicalUrl(data: SalonData): string {
       if (published.startsWith('http')) return published;
     }
   }
+  const brand = getBrandConfig();
+  const domain = brand.platform.websiteUrl.replace(/^https?:\/\//, '');
   const slug = (data.websiteSlug || '').trim();
   if (slug) {
     const clean = slugify(slug);
-    return `https://${clean}.nexora.site`;
+    return `https://${clean}.${domain}`;
   }
   const name = (data.salonName || '').trim();
   if (name) {
     const clean = slugify(name);
-    return `https://${clean}.nexora.site`;
+    return `https://${clean}.${domain}`;
   }
-  return 'https://nexora.site';
+  return brand.platform.websiteUrl;
 }
 
 /** OG Image from actual salon media — never invented. */

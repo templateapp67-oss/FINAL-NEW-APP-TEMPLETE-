@@ -2,6 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Prevent "Uncaught TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      try {
+        var originalFetch = window.fetch || globalThis.fetch;
+        if (originalFetch) {
+          var currentFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() { return currentFetch; },
+            set: function(val) { currentFetch = val; },
+            configurable: true,
+            enumerable: true
+          });
+          if (typeof globalThis !== 'undefined' && globalThis !== window) {
+            Object.defineProperty(globalThis, 'fetch', {
+              get: function() { return currentFetch; },
+              set: function(val) { currentFetch = val; },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Could not define custom fetch getter/setter:', e);
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ac0053" />
     <meta name="description" content="Nexora salon website builder and business dashboard" />

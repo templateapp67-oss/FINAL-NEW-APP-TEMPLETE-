@@ -1,4 +1,4 @@
-import { useState, useMemo, FormEvent } from 'react';
+import { useState, useMemo, FormEvent, ChangeEvent } from 'react';
 import { 
   Users, 
   UserCheck, 
@@ -26,7 +26,8 @@ import {
   Briefcase,
   Layers,
   ChevronRight,
-  Download
+  Download,
+  Upload
 } from 'lucide-react';
 import { 
   SalonData, 
@@ -128,6 +129,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
 
   // Form Errors
   const [formErrors, setFormErrors] = useState<{ name?: string; role?: string }>({});
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   // Summary Counts
   const stats = useMemo(() => {
@@ -172,6 +174,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
     setFormSkills(['Hair Styling', 'Balayage']);
     setFormBio('');
     setFormErrors({});
+    setPhotoError(null);
     setIsFormOpen(true);
   };
 
@@ -199,7 +202,32 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
     setFormSkills(member.specialties || []);
     setFormBio(member.bio || '');
     setFormErrors({});
+    setPhotoError(null);
     setIsFormOpen(true);
+  };
+
+  const handlePhotoFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setPhotoError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // File size limit: 2MB (2,097,152 bytes)
+    if (file.size > 2 * 1024 * 1024) {
+      setPhotoError('Image size must be less than 2MB');
+      e.target.value = ''; // clear input
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result && typeof event.target.result === 'string') {
+        setFormPhoto(event.target.result);
+      }
+    };
+    reader.onerror = () => {
+      setPhotoError('Failed to read image file');
+    };
+    reader.readAsDataURL(file);
   };
 
   // Copy Monday to all working days
@@ -891,15 +919,18 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                     Staff Photo
                   </label>
                   <div className="flex items-center gap-4 mb-3">
-                    <img src={formPhoto} alt="Selected" className="w-16 h-16 rounded-full object-cover border-2 border-[#ac0053]" />
+                    <img src={formPhoto} alt="Selected" className="w-16 h-16 rounded-full object-cover border-2 border-[#ac0053] shrink-0" />
                     <div>
-                      <div className="text-xs font-semibold text-gray-600 mb-1">Select Preset Avatar</div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="text-xs font-semibold text-gray-600 mb-1.5">Select Preset Avatar or Upload Photo</div>
+                      <div className="flex flex-wrap items-center gap-2">
                         {PRESET_AVATARS.map((url, i) => (
                           <button
                             key={i}
                             type="button"
-                            onClick={() => setFormPhoto(url)}
+                            onClick={() => {
+                              setFormPhoto(url);
+                              setPhotoError(null);
+                            }}
                             className={`w-9 h-9 rounded-full overflow-hidden border-2 transition-transform hover:scale-110 ${
                               formPhoto === url ? 'border-[#ac0053] ring-2 ring-[#ffd9e1]' : 'border-transparent opacity-60'
                             }`}
@@ -907,13 +938,29 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                             <img src={url} alt="Preset" className="w-full h-full object-cover" />
                           </button>
                         ))}
+
+                        {/* File Upload Option */}
+                        <label className="cursor-pointer bg-white hover:bg-gray-50 border border-gray-200 hover:border-[#ac0053] text-gray-700 hover:text-[#ac0053] text-xs font-bold h-9 px-3 rounded-xl transition-all flex items-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload Photo</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handlePhotoFileChange}
+                          />
+                        </label>
                       </div>
                     </div>
                   </div>
+                  {photoError && <p className="text-xs text-red-500 mb-2 font-medium">{photoError}</p>}
                   <input
                     type="text"
                     value={formPhoto}
-                    onChange={e => setFormPhoto(e.target.value)}
+                    onChange={e => {
+                      setFormPhoto(e.target.value);
+                      setPhotoError(null);
+                    }}
                     placeholder="Or enter custom image URL"
                     className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-[#ac0053]"
                   />

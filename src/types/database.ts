@@ -56,10 +56,43 @@ export interface SalonRow {
   organization_id: string;
   theme_id: string | null;
   name: string;
+  /** M28 adds the public-facing identity/location copy columns. */
+  slug: string | null;
+  address: string | null;
+  city: string | null;
   is_active: boolean;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * One published/ drafted public website per salon (pre-existing shared table
+ * that M28's preflight requires; M28 adds the published/owner-draft RLS and
+ * owner read/insert/update policies). The `config` JSON is the site copy.
+ */
+export interface SalonPublicWebsiteRow {
+  id: string;
+  salon_id: string;
+  slug: string;
+  template_key: string;
+  config: Json;
+  is_published: boolean;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Anonymous-safe salon projection (M28 `public.public_salon_catalog`
+ * security-barrier view over salons + salon_public_websites).
+ */
+export interface PublicSalonCatalogRow {
+  id: string;
+  name: string;
+  slug: string;
+  address: string | null;
+  city: string | null;
 }
 
 /**
@@ -180,6 +213,34 @@ export interface BookingServiceRow {
   quantity: number;
   created_at: string;
 }
+
+export type BookingSlotHoldStatus = 'active' | 'converted' | 'released' | 'expired';
+
+/** Server-side slot hold (M28 §6). RLS: own holds + salon members. */
+export interface BookingSlotHoldRow {
+  id: string;
+  salon_id: string;
+  customer_id: string;
+  service_id: string;
+  staff_id: string | null;
+  starts_at: string;
+  ends_at: string;
+  status: BookingSlotHoldStatus;
+  idempotency_key: string;
+  expires_at: string;
+  created_at: string;
+}
+
+/** M28 `create_booking_slot_hold` RPC input + returned row. */
+export interface CreateBookingSlotHoldInput {
+  p_salon_id: string;
+  p_service_id: string;
+  p_staff_id: string | null;
+  p_starts_at: string;
+  p_idempotency_key: string;
+  p_hold_minutes?: number;
+}
+export type CreateBookingSlotHoldResult = BookingSlotHoldRow;
 
 export interface BusinessLocationRow {
   salon_id: string;

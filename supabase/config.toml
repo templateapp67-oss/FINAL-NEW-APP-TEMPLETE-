@@ -1,0 +1,62 @@
+# Supabase CLI configuration for the Nexora shared backend.
+#
+# This file lets the Supabase CLI target the live project `qwaehqsmodekbgvnaavz`
+# so migrations can be pushed with a single command once the CLI is linked
+# (no SQL-editor pasting required):
+#
+#     supabase link --project-ref qwaehqsmodekbgvnaavz
+#     supabase db push
+#
+# It is also what `scripts/apply-live-migration.mjs` reads to resolve the
+# project reference when applying via the Management API.
+
+project_id = "qwaehqsmodekbgvnaavz"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+
+[db]
+port = 54322
+major_version = 15
+
+[db.pooler]
+enabled = false
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+enable_signup = true
+enable_anonymous_sign_ins = false
+password_min_length = 6
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = false
+enable_confirmations = false
+
+[edge_runtime]
+enabled = true
+policy = "oneshot"
+
+[analytics]
+enabled = false

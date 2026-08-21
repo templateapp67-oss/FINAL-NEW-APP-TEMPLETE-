@@ -13,7 +13,12 @@ import {
   EyeOff,
   Sparkles,
 } from 'lucide-react';
-import { signInWithPassword, signUpWithPassword } from '../lib/useAuth';
+import {
+  sendPasswordReset,
+  signInWithGoogle,
+  signInWithPassword,
+  signUpWithPassword,
+} from '../lib/useAuth';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 
 /**
@@ -89,6 +94,30 @@ export default function LoginModal({
     setMode(newMode);
     setError(null);
     setNotice(null);
+  };
+
+  const handlePasswordReset = async () => {
+    const mail = email.trim();
+    if (!mail) {
+      setError('Enter your email address first.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const result = await sendPasswordReset(mail);
+    setBusy(false);
+    if (result.error) setError(result.error);
+    else setNotice('Password reset link sent. Check your email.');
+  };
+
+  const handleGoogle = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await signInWithGoogle('/dashboard');
+    if (result.error) {
+      setBusy(false);
+      setError(result.error);
+    }
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -224,6 +253,17 @@ export default function LoginModal({
           </button>
         </div>
 
+        {import.meta.env.VITE_GOOGLE_OAUTH_ENABLED === 'true' && (
+          <button
+            type="button"
+            onClick={() => void handleGoogle()}
+            disabled={busy || !isSupabaseConfigured}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Continue with Google
+          </button>
+        )}
+
         {/* Missing Supabase Configuration Warning */}
         {!isSupabaseConfigured && (
           <div
@@ -279,7 +319,16 @@ export default function LoginModal({
               >
                 Password
               </label>
-              {!isLogin && (
+              {isLogin ? (
+                <button
+                  type="button"
+                  onClick={() => void handlePasswordReset()}
+                  disabled={busy}
+                  className="text-[11px] font-semibold text-[#ac0053] hover:underline disabled:opacity-50"
+                >
+                  Forgot password?
+                </button>
+              ) : (
                 <span className="text-[11px] font-medium text-gray-500">
                   Min 6 characters
                 </span>

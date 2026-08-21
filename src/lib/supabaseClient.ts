@@ -18,14 +18,31 @@ const env: Record<string, string | undefined> =
       ? (process.env as Record<string, string | undefined>)
       : {};
 
-const url = env.VITE_SUPABASE_URL;
-const anonKey = env.VITE_SUPABASE_ANON_KEY;
+const url = env.VITE_SUPABASE_URL?.trim();
+const anonKey = env.VITE_SUPABASE_ANON_KEY?.trim();
 
-export const isSupabaseConfigured = Boolean(url && anonKey);
+function projectRef(supabaseUrl: string | undefined): string {
+  if (!supabaseUrl) return 'unconfigured';
+  try {
+    return new URL(supabaseUrl).hostname.split('.')[0] || 'unknown';
+  } catch {
+    return 'invalid';
+  }
+}
+
+export const NEXORA_AUTH_STORAGE_KEY = `nexora.auth.${projectRef(url)}`;
+export const isSupabaseConfigured = Boolean(url && anonKey && projectRef(url) !== 'invalid');
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url as string, anonKey as string, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        flowType: 'pkce',
+        storageKey: NEXORA_AUTH_STORAGE_KEY,
+      },
+      global: { headers: { 'x-nexora-client': 'template-app/phase1a' } },
     })
   : null;
 

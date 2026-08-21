@@ -1,3 +1,4 @@
+import { authenticatedApiFetch } from '../lib/apiFetch';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SalonData, ReviewedContent } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
@@ -130,7 +131,7 @@ export default function StepAIContentReview({ data, setData, onNext, onPrev, onS
     const current = (reviewed[field] as string) || '';
     setGeneratingField(prev => ({ ...prev, [field]: true }));
     try {
-      const res = await fetch('/api/improve-text', {
+      const res = await authenticatedApiFetch('/api/improve-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -155,7 +156,7 @@ export default function StepAIContentReview({ data, setData, onNext, onPrev, onS
   const handleServiceRewrite = async (serviceId: string, currentDesc: string, customInstruct?: string) => {
     setGeneratingField(prev => ({ ...prev, [serviceId]: true }));
     try {
-      const res = await fetch('/api/improve-text', {
+      const res = await authenticatedApiFetch('/api/improve-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

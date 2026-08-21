@@ -16,6 +16,9 @@ import { newBookingNoticeId, normalizeNotice } from '../lib/siteBookingNotices';
 import { bookingConfirmationText } from '../lib/siteBookingConfirmationI18n';
 import { bookingFlowText } from '../lib/siteBookingI18n';
 import { bookingSurfaces } from '../lib/siteBookingTheme';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { createBookingAndPay } from '../lib/authoritativeBooking';
+import { useAuthModal } from './AuthModalProvider';
 
 /**
  * PHASE 10.7 — orchestrator for the full booking + payment + confirmation
@@ -121,20 +124,20 @@ export default function SiteBookingFullFlow({ themeId, data }: { themeId: SiteHe
   // during confirmation does not lose the user's confirmed row. The
   // most-recent confirmed/pay_at_salon record for this business+theme
   // is auto-resumed.
-  const existingConfirmed = readPaymentRecordsForBusiness(businessId, themeId).find(
+  const existingConfirmed = isSupabaseConfigured ? null : (readPaymentRecordsForBusiness(businessId, themeId).find(
     (r) => r.bookingStatus === 'confirmed' || r.bookingStatus === 'pay_at_salon',
-  ) || null;
+  ) || null);
   // Only use the auto-resumed record when the user hasn't already
   // chosen a different path in this session.
   const shouldAutoResume = existingConfirmed && !summary;
-  const initialRecord = shouldAutoResume
+  const initialRecord = isSupabaseConfigured ? null : (shouldAutoResume
     ? existingConfirmed
     : (phase === 'payment' && summary
         ? readPaymentRecordsForBusiness(businessId, themeId).find(
             (r) => r.serviceId === summary.serviceId && r.dateKey === summary.dateKey && r.startMinutes === summary.startMinutes
               && (r.bookingStatus === 'confirmed' || r.bookingStatus === 'pay_at_salon'),
           ) || null
-        : null);
+        : null));
 
   const locale = useSiteLocale();
 
@@ -178,21 +181,136 @@ export default function SiteBookingFullFlow({ themeId, data }: { themeId: SiteHe
         />
       )}
       {phase === 'payment' && summary && (
-        <SiteBookingPaymentFlowWrapper
-          themeId={themeId}
-          data={data}
-          summary={summary}
-          initialRecord={initialRecord}
-          onBackToSummary={handleBackToSummary}
-          onBookingConfirmed={handleBookingConfirmed}
-          onBackToWebsite={closeSiteBooking}
-          onStartNewBooking={handleStartNewBooking}
-          onShowToast={showNotice}
-        />
+        isSupabaseConfigured ? (
+          <AuthoritativeBookingPayment
+            data={data}
+            summary={summary}
+            onBack={handleBackToSummary}
+            onClose={closeSiteBooking}
+            onShowToast={showNotice}
+          />
+        ) : (
+          <SiteBookingPaymentFlowWrapper
+            themeId={themeId}
+            data={data}
+            summary={summary}
+            initialRecord={initialRecord}
+            onBackToSummary={handleBackToSummary}
+            onBookingConfirmed={handleBookingConfirmed}
+            onBackToWebsite={closeSiteBooking}
+            onStartNewBooking={handleStartNewBooking}
+            onShowToast={showNotice}
+          />
+        )
       )}
       {/* PHASE 16.9 — the notice presenter for the whole journey. */}
       <SiteBookingNotices themeId={themeId} notices={notices} onDismiss={dismissNotice} />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Configured deployments: persisted booking + real verified checkout. */
+/* ------------------------------------------------------------------ */
+
+function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToast }: {
+  data: SalonData;
+  summary: {
+    serviceId: string;
+    serviceLines?: PaymentServiceLine[];
+    dateKey: string;
+    startMinutes: number;
+    endMinutes: number;
+    customer: { name: string; mobile: string; email: string; notes: string };
+  };
+  onBack: () => void;
+  onClose: () => void;
+  onShowToast: (input: BookingNoticeInput) => void;
+}) {
+  const [state, setState] = useState<'ready' | 'processing' | 'verified'>('ready');
+  const [error, setError] = useState<string | null>(null);
+  const [verified, setVerified] = useState<{ bookingId: string; paymentId: string } | null>(null);
+  const idempotencyKey = useRef<string | null>(null);
+  const { openAuth } = useAuthModal();
+
+  const pay = async () => {
+    if (state === 'processing') return;
+    if (!data.salonId) {
+      setError('This salon is not connected to a persisted booking profile.');
+      return;
+    }
+    const [year, month, day] = summary.dateKey.split('-').map(Number);
+    const start = new Date(year, month - 1, day, Math.floor(summary.startMinutes / 60), summary.startMinutes % 60);
+    if (!Number.isFinite(start.getTime())) {
+      setError('The selected appointment time is invalid.');
+      return;
+    }
+    const serviceIds = summary.serviceLines?.length
+      ? summary.serviceLines.map((line) => line.serviceId)
+      : [summary.serviceId];
+    if (!idempotencyKey.current) idempotencyKey.current = `booking:${crypto.randomUUID()}`;
+
+    setState('processing');
+    setError(null);
+    onShowToast({ kind: 'info', message: 'Creating a secure, server-priced booking…' });
+    try {
+      const result = await createBookingAndPay({
+        salonId: data.salonId,
+        serviceIds,
+        appointmentStart: start.toISOString(),
+        idempotencyKey: idempotencyKey.current,
+      }, {
+        name: summary.customer.name,
+        email: summary.customer.email,
+        phone: summary.customer.mobile,
+      });
+      setVerified({ bookingId: result.bookingId, paymentId: result.paymentId });
+      setState('verified');
+      onShowToast({ kind: 'success', message: 'Payment verified and booking confirmed.' });
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Secure checkout could not be completed.';
+      setError(message);
+      setState('ready');
+      onShowToast({ kind: 'error', message });
+    }
+  };
+
+  return (
+    <main className="absolute inset-0 overflow-auto bg-[#fcfcfc] p-5 sm:p-8" data-testid="authoritative-booking-payment">
+      <section className="mx-auto mt-8 max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <button type="button" onClick={onBack} disabled={state === 'processing'} className="text-sm font-semibold text-gray-600 disabled:opacity-50">← Back</button>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Server-priced checkout</span>
+        </div>
+        <h2 className="mt-6 text-2xl font-bold text-gray-950">Confirm and pay securely</h2>
+        <p className="mt-2 text-sm leading-6 text-gray-600">The payable amount is calculated from active database services. A booking is confirmed only after Razorpay evidence is verified by the server.</p>
+        <dl className="mt-5 space-y-3 rounded-xl bg-gray-50 p-4 text-sm">
+          <div className="flex justify-between gap-4"><dt className="text-gray-500">Salon</dt><dd className="font-semibold text-right">{data.salonName}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-gray-500">Date</dt><dd className="font-semibold text-right">{summary.dateKey}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-gray-500">Services</dt><dd className="font-semibold text-right">{summary.serviceLines?.length || 1}</dd></div>
+        </dl>
+        {error && (
+          <div role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            <p>{error}</p>
+            {/auth|log in|session/i.test(error) && (
+              <button type="button" onClick={() => openAuth('login')} className="mt-2 font-bold underline">Log in to continue</button>
+            )}
+          </div>
+        )}
+        {state === 'verified' && verified ? (
+          <div className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
+            <strong>Booking confirmed.</strong>
+            <p className="mt-1 break-all">Booking: {verified.bookingId}</p>
+            <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-emerald-700 px-5 py-2.5 font-semibold text-white">Return to salon</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => void pay()} disabled={state === 'processing' || !data.salonId} className="mt-5 w-full rounded-xl bg-[#ac0053] px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+            {state === 'processing' ? 'Opening secure checkout…' : 'Continue to Razorpay'}
+          </button>
+        )}
+        <p className="mt-3 text-center text-xs text-gray-500">No browser amount or local payment flag can confirm this booking.</p>
+      </section>
+    </main>
   );
 }
 

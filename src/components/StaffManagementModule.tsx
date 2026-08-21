@@ -1,3 +1,4 @@
+import { authenticatedApiFetch } from '../lib/apiFetch';
 import { useState, useMemo, FormEvent, ChangeEvent } from 'react';
 import { 
   Users, 
@@ -257,7 +258,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
     setIsGeneratingBio(true);
     try {
       const roleToUse = formPrimaryRole === 'Other' ? customPrimaryRole : formPrimaryRole;
-      const res = await fetch('/api/generate-bio', {
+      const res = await authenticatedApiFetch('/api/generate-bio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

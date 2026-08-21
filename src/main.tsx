@@ -5,7 +5,10 @@ import App from './App.tsx';
 import NearbySalonSearch from './components/NearbySalonSearch.tsx';
 import PublicSalonView from './components/PublicSalonView.tsx';
 import NotFound from './components/NotFound.tsx';
-import { AuthModalProvider } from './components/AuthModalProvider.tsx';
+import AuthCallbackPage from './components/AuthCallbackPage.tsx';
+import PasswordResetPage from './components/PasswordResetPage.tsx';
+import { AuthModalProvider, useAuthModal } from './components/AuthModalProvider.tsx';
+import { useAuth } from './lib/useAuth.ts';
 import { applyBrandConfigToDocument } from './config/brandConfig.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
 import './index.css';
@@ -31,6 +34,28 @@ const getSavedSlug = (): string => {
   return '';
 };
 
+function ProtectedApp() {
+  const { user, loading } = useAuth();
+  const { openAuth } = useAuthModal();
+  if (!isSupabaseConfigured) return <App />;
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">Verifying your session…</div>;
+  }
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-[#fcfcfc] flex items-center justify-center p-6">
+        <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-xl font-bold">Log in to open your salon workspace</h1>
+          <p className="mt-2 text-sm text-gray-600">Dashboard ownership is resolved from your authenticated Supabase account and organization membership.</p>
+          <button onClick={() => openAuth('login')} className="mt-5 rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white">Log in</button>
+          <a href="/" className="mt-3 block text-sm font-semibold text-gray-600">Return to public site</a>
+        </section>
+      </main>
+    );
+  }
+  return <App />;
+}
+
 /**
  * Dynamic path-based routing component.
  * Evaluates the pathname, dynamically querying Supabase 'salons' table for registered slugs
@@ -39,12 +64,29 @@ const getSavedSlug = (): string => {
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
-  const [route, setRoute] = useState<'app' | 'nearby' | 'public_salon' | 'not_found'>('app');
+  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'reset_password' | 'nearby' | 'public_salon' | 'not_found'>('app');
 
-  const normalizedPath = window.location.pathname.replace(/^\/+/, '').split('/')[0] || '';
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  const normalizedPath = pathname.replace(/^\/+/, '').split('/')[0] || '';
 
   useEffect(() => {
     async function resolveRoute() {
+      if (pathname === '/auth/callback') {
+        setRoute('auth_callback');
+        setLoading(false);
+        return;
+      }
+      if (pathname === '/reset-password') {
+        setRoute('reset_password');
+        setLoading(false);
+        return;
+      }
+      if (pathname === '/dashboard' || pathname === '/builder') {
+        setRoute('protected_app');
+        setLoading(false);
+        return;
+      }
+
       // 1. Root / Home route goes to onboarding wizard/dashboard
       if (!normalizedPath) {
         setRoute('app');
@@ -76,9 +118,10 @@ function RootRouter() {
       if (isSupabaseConfigured && supabase) {
         try {
           const { data, error } = await supabase
-            .from('salons')
+            .from('salon_public_websites')
             .select('slug')
             .eq('slug', normalizedPath)
+            .eq('is_published', true)
             .maybeSingle();
 
           if (!error && data) {
@@ -97,7 +140,7 @@ function RootRouter() {
     }
 
     resolveRoute();
-  }, [normalizedPath]);
+  }, [normalizedPath, pathname]);
 
   if (loading) {
     return (
@@ -128,6 +171,12 @@ function RootRouter() {
   }
 
   switch (route) {
+    case 'auth_callback':
+      return <AuthCallbackPage />;
+    case 'reset_password':
+      return <PasswordResetPage />;
+    case 'protected_app':
+      return <ProtectedApp />;
     case 'nearby':
       return (
         <div className="min-h-screen bg-[#f9f9f9] font-sans text-gray-900">

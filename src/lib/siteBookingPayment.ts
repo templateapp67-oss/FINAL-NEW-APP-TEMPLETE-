@@ -30,6 +30,7 @@ import { parsedBookingRules, bookingBrowserId, bookingSlotKey } from './siteBook
 import type { Service } from '../types';
 import type { SiteHeaderThemeId } from './siteNavigation';
 import { serviceDisplayPrice } from './pricing';
+import { isSupabaseConfigured } from './supabaseClient';
 
 /* ------------------------------------------------------------------ */
 /* Public types                                                       */
@@ -557,7 +558,28 @@ export function simulateGateway(record: PaymentRecord, form: Partial<GatewayForm
   let cancelReason: string | undefined;
   let cancelHook: ((reason?: string, outcome?: GatewayOutcome) => void) | null = null;
 
-  // Move the record into the `pending` state immediately.
+  // A configured deployment must never treat this browser simulator as payment
+  // authority. Real flows persist a UUID booking and use startRazorpayCheckout,
+  // whose server routes derive the amount and verify the signature.
+  if (isSupabaseConfigured) {
+    const reason = 'Secure checkout requires a persisted booking. Please restart this booking.';
+    const failed = patchRecord(record.id, {
+      paymentStatus: 'failed',
+      bookingStatus: 'pending_payment',
+      paymentMethod: form.method,
+      paymentMask: maskPaymentForm(form),
+      failureReason: reason,
+    }) || record;
+    return {
+      attemptId,
+      recordId: record.id,
+      startedAt,
+      promise: Promise.resolve({ outcome: 'failure', reason, method: form.method, record: failed }),
+      cancel() { /* already failed closed */ },
+    };
+  }
+
+  // Move the demo-only record into the `pending` state immediately.
   patchRecord(record.id, {
     paymentStatus: 'pending',
     paymentMethod: form.method,

@@ -21,7 +21,19 @@ export type MediaStatus = 'pending' | 'active' | 'inactive' | 'rejected' | 'arch
 /** Canonical role mapping (one role system, two scopes):
  *  - customer/admin live on profiles.platform_role
  *  - owner/staff live on organization_members.role (tenant-scoped)
+ *
+ * Phase 3A required roles resolve onto this ONE system:
+ *    owner    → organization_members.role = 'owner'   (tenant scope)
+ *    staff    → organization_members.role = 'staff'   (tenant scope)
+ *    customer → profiles.platform_role = 'customer'   (global scope)
+ *    admin    → profiles.platform_role = 'admin'      (global scope)
+ * There is no fourth/fifth "role table" and no client-controlled role field.
  */
+export type CanonicalRole = 'owner' | 'staff' | 'customer' | 'admin';
+
+/** The full canonical profile row after M36 (columns that exist in the live
+ * shared schema — nothing invented; wallet/points are server-ledger fields
+ * that clients may never write). */
 export interface CanonicalProfileRow {
   id: string;
   full_name: string | null;
@@ -30,8 +42,21 @@ export interface CanonicalProfileRow {
   avatar_url: string | null;
   email: string | null;
   phone: string | null;
+  loyalty_points: number;
+  wallet_balance_paise: number;
+  last_seen_at: string | null;
+  role_assigned_at: string;
+  role_assigned_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Live-shared-schema-only preference columns (Phase 3A/3B-FIX drift note):
+   * read by the Main Website app but not created by any committed migration.
+   * Optional here so typed reads compile against BOTH the fresh chain (absent)
+   * and the live schema (present). Never dropped, never written by clients. */
+  allow_recently_viewed?: boolean | null;
+  preferred_city?: string | null;
+  preferred_area?: string | null;
+  gender?: string | null;
 }
 
 export interface OrganizationRow {

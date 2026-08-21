@@ -20,13 +20,14 @@ const migrationFiles = (await readdir(migrationsDir))
   .sort();
 
 const historicalMigrationFiles = migrationFiles.filter(
-  (name) => !name.includes('_phase1a_') && !name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_'),
+  (name) => !name.includes('_phase1a_') && !name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_') && !name.includes('_phase3a_'),
 );
 const phase1aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase1a_'));
 const phase2MigrationFiles = migrationFiles.filter((name) => name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_'));
 const phase2aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase2a_'));
 const phase2bMigrationFiles = migrationFiles.filter((name) => name.includes('_phase2b_'));
 const phase2cMigrationFiles = migrationFiles.filter((name) => name.includes('_phase2c_'));
+const phase3aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase3a_'));
 assert.equal(historicalMigrationFiles.length, 27, 'expected the immutable M01-M27 history');
 assert.deepEqual(phase1aMigrationFiles, [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
@@ -46,6 +47,9 @@ assert.deepEqual(phase2bMigrationFiles, [
 assert.deepEqual(phase2cMigrationFiles, [
   '20260821000801_m35_phase2c_canonical_theme_slugs.sql',
 ], 'expected the ordered Phase 2C canonical-theme-slugs migration set');
+assert.deepEqual(phase3aMigrationFiles, [
+  '20260821000901_m36_phase3a_auth_profiles_roles.sql',
+], 'expected the ordered Phase 3A auth-profiles-roles migration set');
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 

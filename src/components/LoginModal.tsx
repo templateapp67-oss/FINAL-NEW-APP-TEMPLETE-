@@ -47,6 +47,8 @@ export default function LoginModal({
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,8 @@ export default function LoginModal({
     setError(null);
     setNotice(null);
     setBusy(false);
+    setFullName('');
+    setPhone('');
   }, [open, initialMode]);
 
   // Handle Escape key
@@ -157,7 +161,10 @@ export default function LoginModal({
         return;
       }
 
-      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password);
+      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password, {
+        fullName,
+        phone,
+      });
       setBusy(false);
       if (err) {
         setError(err);
@@ -310,6 +317,51 @@ export default function LoginModal({
               />
             </div>
           </div>
+
+          {!isLogin && (
+            <>
+              <div>
+                <label
+                  htmlFor="auth-fullname-input"
+                  className="mb-1 block text-xs font-semibold text-[#1a1c1c]"
+                >
+                  Full Name <span className="font-normal text-gray-400">(optional)</span>
+                </label>
+                <input
+                  id="auth-fullname-input"
+                  name="fullName"
+                  type="text"
+                  data-testid="auth-fullname-input"
+                  autoComplete="name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Salon owner name"
+                  disabled={busy}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="auth-phone-input"
+                  className="mb-1 block text-xs font-semibold text-[#1a1c1c]"
+                >
+                  Phone <span className="font-normal text-gray-400">(optional)</span>
+                </label>
+                <input
+                  id="auth-phone-input"
+                  name="phone"
+                  type="tel"
+                  data-testid="auth-phone-input"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+91 …"
+                  disabled={busy}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
+                />
+              </div>
+            </>
+          )}
 
           <div>
             <div className="mb-1 flex items-center justify-between">

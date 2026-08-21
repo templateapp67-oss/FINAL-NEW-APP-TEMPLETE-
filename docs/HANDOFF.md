@@ -1,10 +1,52 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2D — Final Database Integrity, Cross-Repository Consistency & Production-Ready Verification).
+> Last updated: **2026-08-21** (session `arena/01a0248b-final-new-app-templete`, Phase 3A — Supabase Authentication, Profiles & Canonical Roles).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
+
+- **PHASE 3A — SUPABASE AUTH, PROFILES & CANONICAL ROLES: COMPLETE.**
+  - `supabase/migrations/20260821000901_m36_phase3a_auth_profiles_roles.sql`
+    (additive, idempotent, single transaction, fail-closed preflight): makes
+    the M28→M35 chain self-sufficient for identity and is a safe no-op on the
+    live shared project. Syncs the canonical profile columns that exist live
+    (email/phone/avatar_url/last_seen_at/loyalty_points/wallet_balance_paise/
+    role_assigned_at/role_assigned_by — nothing invented); enables + forces
+    RLS on profiles with own-row/admin policies; installs the permanent
+    `guard_profile_platform_role` + `guard_profile_financial_fields` triggers,
+    `assign_platform_role` / `set_profile_active` RPCs (service-role/admin
+    only), the canonical `handle_new_user` signup trigger + email sync, a
+    defense-in-depth `trg_organization_members_role_guard` (clients cannot
+    insert memberships or change role/status), narrow column grants, and the
+    `verify_phase3a_auth()` self-test. Remote execution remains BLOCKED (no
+    Supabase credentials in the workspace) — apply via SQL editor/CLI.
+  - `scripts/test-phase3a.mjs` — **9/9 PASS** (with `NEXORA_MAIN_WEBSITE_PATH`):
+    auth.users→profile mapping; cannot modify another user's profile; cannot
+    modify own role; customer→owner blocked; staff→admin blocked; fake user
+    ids resolve nothing; localStorage is never the auth authority; service-role
+    secret never in browser code; verify_phase3a_auth() passes.
+  - App-side: `src/lib/useAuth.ts` now resolves the canonical profile
+    (id/fullName/role/isActive/avatarUrl/phone/email) after session
+    restoration and passes `full_name`/`phone` as signup metadata;
+    `LoginModal` collects optional Full Name/Phone on signup;
+    `src/App.tsx` gates the owner dashboard on a real session (supplementary —
+    the data layer already fails closed); `src/types/database.ts` adds
+    `CanonicalRole` (owner/staff/customer/admin) + full canonical profile row.
+  - Repo 2 (Main Website): `packages/auth/src/roles.ts` drops the conflicting
+    `staff → admin` alias (staff is the TENANT role, never a global admin
+    alias; signup "staff" still degrades to customer and the existing test
+    asserts it) and adds `TENANT_ROLES`/`TenantRole`/`isTenantRole`,
+    re-exported from `packages/auth/src/index.ts` + `app/lib/auth/index.ts`.
+  - Checks: repo 1 lint PASS, build PASS, `test:phase-3a` chain green
+    (validate:migrations 21/21 + Phase 2C 20/20 + Phase 2D 21/21 + Phase 3A
+    9/9). Repo 2 typecheck PASS, repo 2 lint = same 3 pre-existing errors
+    (SplashOverlay.tsx:63; nexora-app.tsx:6162 ×2), repo 2 build BLOCKED by
+    the fail-closed credential guard (no live Supabase credentials).
+  - Full report: `docs/phase-3a-auth-profiles-roles.md`.
+  - NEXT: apply M28–M36 to `qwaehqsmodekbgvnaavz` (manual steps in the
+    report), then Phase 3B (business-table RLS audit/policies). Do not touch
+    M01–M35; new schema work must be additive migrations after M36.
 
 - **PHASE 2D — FINAL VERIFICATION & FIX: COMPLETE (no corrective migration
   required).**

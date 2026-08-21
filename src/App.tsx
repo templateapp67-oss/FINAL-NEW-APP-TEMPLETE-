@@ -372,7 +372,38 @@ export default function App() {
   // PHASE 17.1 — SALON OWNER DASHBOARD (screen 26). Rendered inside the same
   // app chrome as every other module; it resolves its own salon from the
   // authenticated session and never receives a salon id from here.
+  // PHASE 3A — supplementary route protection: when Supabase is configured
+  // the owner dashboard additionally requires a real authenticated session
+  // (the data layer independently fails closed via loadOwnerDashboardContext).
   if (activeModule === 'owner-dashboard') {
+    if (isSupabaseConfigured) {
+      if (authLoading) {
+        return (
+          <div className="min-h-screen bg-[#f9f9f9] flex items-center justify-center text-sm text-gray-500">
+            Verifying your session…
+          </div>
+        );
+      }
+      if (!user) {
+        return (
+          <main className="min-h-screen bg-[#fcfcfc] flex items-center justify-center p-6">
+            <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+              <h1 className="text-xl font-bold">Log in to open the owner dashboard</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                Salon ownership is resolved from your authenticated Supabase account and organization
+                membership — never from a stored page or URL.
+              </p>
+              <a
+                href="/dashboard"
+                className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
+              >
+                Log in
+              </a>
+            </section>
+          </main>
+        );
+      }
+    }
     return (
       <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
         <TopBar

@@ -6,6 +6,23 @@
 
 ## Current repository state
 
+- **PHASE 3B-FIX FINAL CLOSE-OUT — COMPLETE (repo-side).**
+  - M28 theme-seed idempotency fix: the canonical five-theme seed now
+    detects whether `themes.slug` exists and supplies canonical slugs when it
+    does (M32/M35 make slug NOT NULL), so the FULL M28→M37 chain is now safe
+    against repeated execution (verified: full-chain double-apply PASS, both
+    passes 10/10 with verify_phase3b_rls 35/35). No other migration had a
+    repeat-execution hazard (all other inserts are inside functions/triggers
+    or `on conflict`; M30 bucket insert already `on conflict`).
+  - `docs/live-migration-execution.md` — the ONLY remaining manual action:
+    apply M28→M37 to qwaehqsmodekbgvnaavz via SQL Editor / CLI / psql.
+  - Canonical types (`src/types/database.ts`) carry optional live-only profile
+    preference columns (allow_recently_viewed, preferred_city, preferred_area,
+    gender); nothing dropped, nothing invented.
+  - Live execution + live verification remain BLOCKED (no credentials).
+  - Final report: `docs/phase-3b-fix-report.md` (PHASE 3B-FIX) + this close-out
+    report.
+
 - **PHASE 3B — MULTI-TENANT AUTHORIZATION & COMPLETE RLS: COMPLETE.**
   - `supabase/migrations/20260821001001_m37_phase3b_multitenant_rls.sql`
     (additive, idempotent, single transaction, fail-closed preflight): closes
@@ -24,7 +41,7 @@
     (RLS decides rows; M28 narrow public product columns preserved; no anon
     grants on identity/payment tables). Guarded `profiles.allow_recently_viewed`
     UPDATE grant for the Main Website app (column exists live, not on the
-    fresh chain). `verify_phase3b_rls()` self-test (14 checks, service_role).
+    fresh chain). `verify_phase3b_rls()` self-test (35 checks, service_role).
   - `scripts/test-phase3b.mjs` — **32/32 PASS** (with
     `NEXORA_MAIN_WEBSITE_PATH=/home/user/nexora-main-website`): cross-tenant
     SELECT/UPDATE/DELETE on org/salon/services/products/staff/bookings all

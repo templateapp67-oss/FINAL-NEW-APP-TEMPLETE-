@@ -374,17 +374,48 @@ alter table public.service_categories
   add column if not exists is_active boolean not null default true;
 
 -- These are platform reference rows, not fake salon/business data.
-insert into public.themes (theme_id, name, description, sort_order, is_active)
-values
-  ('barber_mens_grooming', 'Barber & Men''s Grooming', 'Barber and men''s grooming services.', 0, true),
-  ('hair_studio_color_bar', 'Hair Studio & Color Bar', 'Hair studio and color services.', 1, true),
-  ('beauty_skin_spa', 'Beauty, Skin & Spa', 'Beauty, skin, spa and wellness services.', 2, true),
-  ('family_full_service', 'Full-Service Family Salon', 'Full-service family salon services.', 3, true),
-  ('nail_lash_studio', 'Nail & Lash Studio', 'Nail, lash and brow studio services.', 4, true)
-on conflict (theme_id) do update
-set name = excluded.name,
-    description = excluded.description,
-    sort_order = excluded.sort_order;
+-- The five canonical themes are seeded WITHOUT slug on a fresh chain (the
+-- slug column does not exist until M32/M35 introduce it). On repeated
+-- execution of the chain the column already exists and is NOT NULL, so the
+-- same insert must also supply the canonical slug (M35's mapping:
+-- theme_id == slug except family_full_service -> full_service_family_salon).
+do $theme_seed$
+declare
+  has_slug_column boolean;
+begin
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'themes'
+      and column_name = 'slug'
+  ) into has_slug_column;
+
+  if has_slug_column then
+    insert into public.themes (theme_id, name, description, sort_order, is_active, slug)
+    values
+      ('barber_mens_grooming', 'Barber & Men''s Grooming', 'Barber and men''s grooming services.', 0, true, 'barber_mens_grooming'),
+      ('hair_studio_color_bar', 'Hair Studio & Color Bar', 'Hair studio and color services.', 1, true, 'hair_studio_color_bar'),
+      ('beauty_skin_spa', 'Beauty, Skin & Spa', 'Beauty, skin, spa and wellness services.', 2, true, 'beauty_skin_spa'),
+      ('family_full_service', 'Full-Service Family Salon', 'Full-service family salon services.', 3, true, 'full_service_family_salon'),
+      ('nail_lash_studio', 'Nail & Lash Studio', 'Nail, lash and brow studio services.', 4, true, 'nail_lash_studio')
+    on conflict (theme_id) do update
+    set name = excluded.name,
+        description = excluded.description,
+        sort_order = excluded.sort_order;
+  else
+    insert into public.themes (theme_id, name, description, sort_order, is_active)
+    values
+      ('barber_mens_grooming', 'Barber & Men''s Grooming', 'Barber and men''s grooming services.', 0, true),
+      ('hair_studio_color_bar', 'Hair Studio & Color Bar', 'Hair studio and color services.', 1, true),
+      ('beauty_skin_spa', 'Beauty, Skin & Spa', 'Beauty, skin, spa and wellness services.', 2, true),
+      ('family_full_service', 'Full-Service Family Salon', 'Full-service family salon services.', 3, true),
+      ('nail_lash_studio', 'Nail & Lash Studio', 'Nail, lash and brow studio services.', 4, true)
+    on conflict (theme_id) do update
+    set name = excluded.name,
+        description = excluded.description,
+        sort_order = excluded.sort_order;
+  end if;
+end
+$theme_seed$;
 
 alter table public.services
   add column if not exists theme_id uuid,

@@ -36,7 +36,7 @@ New additive migration (this repo, head of the canonical chain):
 - `private.is_public_salon(salon_id)` — active + non-deleted salon (idempotent re-creation).
 - `private.is_org_member(org_id)` / `private.is_org_owner(org_id)` — NEW Phase 3B helpers; member = active org membership, owner = active `owner` membership; admins pass.
 - `private.can_manage_salon_settings(uuid)` — existing live helper; M37 only re-asserts its grants (does not redefine, because the live definition differs).
-- `public.verify_phase3b_rls()` — service_role-only self-test (14 checks).
+- `public.verify_phase3b_rls()` — service_role-only self-test (35 checks: 20 table-RLS rows + 15 assertions).
 
 Grants: helpers → `authenticated` + `service_role` only (`is_public_salon` also `anon`); `verify_phase3b_rls` → `service_role` only.
 
@@ -75,7 +75,7 @@ Coverage:
 - **Role escalation:** customer→owner, customer→admin, staff→owner, staff→admin, staff→business_user — all fail; changing own role/salon/organization — all fail; `salons.organization_id` and `services.salon_id` reassignment — fail.
 - **INSERT protection:** service/product/staff/salon_hours insert with another tenant's `salon_id` fails; `organizations`/`salons` insert denied entirely.
 - **Authorized access preserved:** owner reads/updates own org+salon; staff reads salon rows but cannot edit salon settings (owner-only); anon reads only active public catalog rows; inactive/private rows invisible.
-- **Self-test** `verify_phase3b_rls()` — 14/14 checks.
+- **Self-test** `verify_phase3b_rls()` — 35/35 checks (20 table-RLS + 15 assertions).
 - **Idempotency:** M37 replays cleanly on the hardened schema.
 - **Static scans (both repos):** no localStorage auth authority; no hardcoded salon/organization ids in client code; no service-role secret in browser code; no anon grants on private tables in M37.
 

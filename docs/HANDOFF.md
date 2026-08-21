@@ -1,10 +1,48 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a0248b-final-new-app-templete`, Phase 3A — Supabase Authentication, Profiles & Canonical Roles).
+> Last updated: **2026-08-21** (session `arena/01a0248b-final-new-app-templete`, Phase 3B — Multi-Tenant Authorization & Complete RLS).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
+
+- **PHASE 3B — MULTI-TENANT AUTHORIZATION & COMPLETE RLS: COMPLETE.**
+  - `supabase/migrations/20260821001001_m37_phase3b_multitenant_rls.sql`
+    (additive, idempotent, single transaction, fail-closed preflight): closes
+    the remaining RLS gaps on the fresh M28→M36 chain — `organizations`,
+    `salons`, `staff`, `salon_hours` had NO RLS — and bootstraps the tenant
+    helpers the live shared DB lacks (`has_salon_role`, `is_public_salon`,
+    `is_active_admin`, `can_manage_salon_settings` grants; NEW
+    `is_org_member`/`is_org_owner`). All SECURITY DEFINER, empty search_path,
+    no dynamic SQL. Policies: org member-select/owner-update; salon
+    member-select/owner-update; staff + salon_hours member-all/public-safe
+    read; every UPDATE has USING + WITH CHECK; ownership columns
+    (`organization_id`, `salon_id`) are column-grant-excluded and
+    WITH-CHECK-reverified, so clients can never reassign tenant ownership.
+    Organizations/salons are server-created only (no INSERT/DELETE grant).
+    Restored PostgREST-visible table SELECT for anon on catalog tables
+    (RLS decides rows; M28 narrow public product columns preserved; no anon
+    grants on identity/payment tables). Guarded `profiles.allow_recently_viewed`
+    UPDATE grant for the Main Website app (column exists live, not on the
+    fresh chain). `verify_phase3b_rls()` self-test (14 checks, service_role).
+  - `scripts/test-phase3b.mjs` — **32/32 PASS** (with
+    `NEXORA_MAIN_WEBSITE_PATH=/home/user/nexora-main-website`): cross-tenant
+    SELECT/UPDATE/DELETE on org/salon/services/products/staff/bookings all
+    fail; role escalation customer→owner/admin, staff→owner/admin, own-role,
+    own-salon, own-organization changes all fail; client-submitted foreign
+    tenant ids on INSERT rejected; owner/staff/public authorized access
+    preserved; verify_phase3b_rls(); M37 idempotent replay; static scans
+    (localStorage authority, hardcoded tenant ids, service-role exposure,
+    anon grants) across BOTH repos. Full `npm run test:phase-3b` chain green.
+  - App-side: **no code changes required in either repo** (apps already
+    derive authorization from DB reads; DB now enforces tenant isolation).
+  - Checks: repo 1 lint PASS, build PASS, `validate:migrations` PASS
+    (21/21 + M37 inventory assert). Repo 2 typecheck PASS; repo 2 lint =
+    same 3 pre-existing errors; repo 2 build BLOCKED by credential guard.
+  - Full report: `docs/phase-3b-multitenant-rls.md`.
+  - NEXT: apply M28–M37 to `qwaehqsmodekbgvnaavz` (manual steps in the
+    report), then Phase 3C (finalize public access). Do not touch M01–M36;
+    new schema work must be additive migrations after M37.
 
 - **PHASE 3A — SUPABASE AUTH, PROFILES & CANONICAL ROLES: COMPLETE.**
   - `supabase/migrations/20260821000901_m36_phase3a_auth_profiles_roles.sql`

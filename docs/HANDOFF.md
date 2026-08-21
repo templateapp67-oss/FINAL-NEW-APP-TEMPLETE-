@@ -1,10 +1,40 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2B — Final Database Schema Hardening & Verification).
+> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2C — Actual Implementation & Final Verification).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
+
+- **PHASE 2C — ACTUAL IMPLEMENTATION & FINAL VERIFICATION: COMPLETE.**
+  - M35 `20260821000801_m35_phase2c_canonical_theme_slugs.sql` (additive,
+    idempotent, single transaction): reconciles the Full-Service Family Salon
+    theme's public slug to **`full_service_family_salon`** (the Phase 2C
+    brief's explicit canonical slug, superseding Phase 2B's keep-as-is
+    decision). `theme_id` stays `family_full_service` — the stable internal
+    key used by both repos' type layers and seeds; no application references
+    change because nothing in either repo references `themes.slug`.
+    Reconciliation is deterministic (only from `slug IS NULL` or
+    `slug = theme_id` legacy states); `themes.slug` UNIQUE re-asserted; a
+    verification block raises unless all five canonical slugs exist exactly
+    once. Four-role mapping verified readable
+    (owner/staff = `organization_members.role`, customer/admin =
+    `profiles.platform_role`).
+  - **Verification**: `test-phase2c-final.mjs` 20/20 with
+    `NEXORA_MAIN_WEBSITE_PATH` (all seven required DB tests: duplicate
+    membership FAILS, duplicate slug FAILS, invalid FK FAILS, soft-deleted
+    service/product absent, `updated_at` auto-refresh, invalid
+    category/theme/salon FAILS, cross-tenant RLS denies); `test:phase-2c`
+    chain green; repo 1 lint + build green; repo 2 typecheck green; repo 2
+    lint/build fail/block exactly as before (pre-existing, no repo-2 file
+    modified). Type generation is BLOCKED for both repos (no supabase
+    CLI/config and no live credentials; repo 2 has no `Database` generic) —
+    hand-synced types verified by lint/typecheck.
+  - Full report: `docs/phase-2c-final-implementation.md`.
+  - NEXT: apply M28–M35 to the shared project `qwaehqsmodekbgvnaavz` via
+    Supabase CLI/SQL editor (exact manual steps in the report), then Phase 3
+    (auth/RBAC/RLS policy work). Do not touch M01–M34; new schema work must
+    be additive migrations after M35.
 
 - **PHASE 2B — FINAL DATABASE SCHEMA HARDENING & VERIFICATION: COMPLETE.**
   - M34 `20260821000701_m34_phase2b_final_hardening.sql` (additive,

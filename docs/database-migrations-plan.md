@@ -261,3 +261,23 @@ schema.
 Validation: `npm run test:phase-2b` (includes the 8 mandatory Phase 2B final
 database tests), `npm run test:phase2b` with `NEXORA_MAIN_WEBSITE_PATH` set
 (19/19), `npm run lint`, `npm run build`.
+
+---
+
+## Phase 2C addendum (2026-08-21)
+
+| Migration | File | Scope |
+|---|---|---|
+| M35 | `20260821000801_m35_phase2c_canonical_theme_slugs.sql` | Phase 2C canonical theme slugs: reconciles the Full-Service Family Salon theme's public slug to `full_service_family_salon` (theme_id stays the stable internal key `family_full_service`; nothing in either application references `themes.slug`, so no app reference changes); deterministic reconciliation only from known legacy states (`slug` NULL or `slug = theme_id`); `themes.slug` UNIQUE re-asserted; final verification block raises unless all five canonical slugs exist exactly once (`barber_mens_grooming`, `hair_studio_color_bar`, `beauty_skin_spa`, `full_service_family_salon`, `nail_lash_studio`) |
+
+Phase 2C supersedes the Phase 2B slug decision (M34 had kept
+`family_full_service` as the slug; the Phase 2C brief explicitly requires
+the public slug `full_service_family_salon`). M35 is additive, idempotent,
+single-transaction, and replays cleanly on the M28–M34 schema. Canonical
+entity, membership uniqueness, soft delete, FK RESTRICT rules, updated_at
+automation, role system and indexes from M28–M34 are unchanged and
+re-verified by the Phase 2C suite (`scripts/test-phase2c-final.mjs`,
+20/20 with `NEXORA_MAIN_WEBSITE_PATH` set).
+
+Validation: `npm run test:phase-2c`, `npm run test:phase2c` with
+`NEXORA_MAIN_WEBSITE_PATH` set, `npm run lint`, `npm run build`.

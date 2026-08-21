@@ -62,7 +62,11 @@ export interface SalonRow {
   updated_at: string;
 }
 
-/** One of the five canonical application themes (M28 seed + M32 slugs). */
+/**
+ * One of the five canonical application themes (M28 seed; M32 slugs;
+ * M35 reconciles the family theme's public slug to
+ * 'full_service_family_salon' while theme_id stays 'family_full_service').
+ */
 export interface ThemeRow {
   id: string;
   theme_id: string;

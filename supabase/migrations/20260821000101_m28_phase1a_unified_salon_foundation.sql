@@ -23,6 +23,109 @@ create extension if not exists btree_gist;
 create schema if not exists private;
 
 -- ---------------------------------------------------------------------------
+-- 0. Reconcile the live organization_members activity flag BEFORE preflight.
+--
+-- The shared live project predates the canonical `is_active boolean` column:
+-- it tracks membership activity as a `status` column whose active value is
+-- 'active' (both repositories' ownership chains are documented and coded as
+-- role = 'owner' AND status = 'active'; see docs/owner-location-setup.sql).
+--
+-- This block maps that existing semantics onto the canonical column WITHOUT
+-- inventing data, dropping anything, or creating a duplicate model:
+--   * `is_active boolean` already present  -> compatible, nothing to do.
+--   * `status` present (text/varchar/enum) -> validate the observed status
+--     vocabulary (fail closed on unknown values), then add `is_active` as a
+--     STORED GENERATED column derived from `status = 'active'`. `status`
+--     remains the single writable authority; the generated flag can never
+--     drift from it, no existing row or value is modified, and every
+--     canonical read site (indexes, security functions, RLS) works unchanged.
+--   * anything else -> stop with a precise diagnostic naming the actual live
+--     structure. Never build a competing membership model.
+-- ---------------------------------------------------------------------------
+do $membership_activity_reconcile$
+declare
+  v_is_active_type text;
+  v_status_type text;
+  v_unexpected text;
+  v_columns text;
+begin
+  if to_regclass('public.organization_members') is null then
+    -- The strict preflight below owns the missing-table diagnostic.
+    return;
+  end if;
+
+  select c.data_type into v_is_active_type
+  from information_schema.columns c
+  where c.table_schema = 'public'
+    and c.table_name = 'organization_members'
+    and c.column_name = 'is_active';
+
+  if v_is_active_type is not null then
+    if v_is_active_type <> 'boolean' then
+      raise exception
+        'Phase 1A reconcile: public.organization_members.is_active exists with type % (expected boolean). Reconcile the existing column manually; refusing to guess.',
+        v_is_active_type;
+    end if;
+    return; -- canonical column already present and compatible
+  end if;
+
+  select c.data_type into v_status_type
+  from information_schema.columns c
+  where c.table_schema = 'public'
+    and c.table_name = 'organization_members'
+    and c.column_name = 'status';
+
+  if v_status_type is null then
+    select string_agg(c.column_name || ' ' || c.data_type, ', '
+             order by c.ordinal_position)
+      into v_columns
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = 'organization_members';
+    raise exception
+      'Phase 1A reconcile: public.organization_members has neither is_active nor a status column to derive it from (live columns: %). Export and reconcile the live schema first; do not create a competing model.',
+      coalesce(v_columns, '<none>');
+  end if;
+
+  if v_status_type not in ('text', 'character varying', 'USER-DEFINED') then
+    raise exception
+      'Phase 1A reconcile: public.organization_members.status has type % — cannot safely derive the canonical is_active flag from it. Reconcile manually.',
+      v_status_type;
+  end if;
+
+  -- Fail closed on an unknown activity vocabulary instead of silently
+  -- deactivating memberships whose status we do not understand.
+  select string_agg(distinct status::text, ', ' order by status::text)
+    into v_unexpected
+  from public.organization_members
+  where status is not null
+    and status::text not in (
+      'active', 'inactive', 'invited', 'pending', 'suspended', 'removed',
+      'disabled', 'archived', 'revoked', 'blocked', 'left', 'cancelled',
+      'expired', 'deleted', 'rejected'
+    );
+
+  if v_unexpected is not null then
+    raise exception
+      'Phase 1A reconcile: public.organization_members.status contains unrecognized value(s) [%] — cannot infer activity semantics. Resolve these rows (or deliberately extend the recognized vocabulary in M28), then re-run.',
+      v_unexpected;
+  end if;
+
+  -- Exact mapping of the existing production rule (status = 'active') onto
+  -- the canonical flag. STORED GENERATED: existing rows and the status
+  -- column are untouched, status stays the only writable source of truth,
+  -- and the two representations cannot diverge. NULL status = inactive,
+  -- matching the live chains which already require status = 'active'.
+  alter table public.organization_members
+    add column is_active boolean
+      generated always as ((status = 'active') is true) stored not null;
+
+  comment on column public.organization_members.is_active is
+    'Canonical membership activity flag (Phase 1A reconciliation). GENERATED ALWAYS from status = ''active''; write status, never this column.';
+end
+$membership_activity_reconcile$;
+
+-- ---------------------------------------------------------------------------
 -- 1. Fail closed instead of creating a parallel tenant hierarchy.
 -- ---------------------------------------------------------------------------
 do $preflight$

@@ -1,10 +1,39 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2C — Actual Implementation & Final Verification).
+> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2D — Final Database Integrity, Cross-Repository Consistency & Production-Ready Verification).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
+
+- **PHASE 2D — FINAL VERIFICATION & FIX: COMPLETE (no corrective migration
+  required).**
+  - `scripts/test-phase2d-final.mjs` — **21/21 PASS** with
+    `NEXORA_MAIN_WEBSITE_PATH` (10 required behavior tests A–J: duplicate
+    membership/slug/invalid FK/invalid latitude/invalid longitude MUST
+    FAIL; soft-deleted service+product absent from active catalog;
+    updated_at auto-change; invalid theme/category/salon MUST FAIL;
+    cross-tenant blocked by RLS; plus schema-chain FKs, theme authority,
+    salon→theme RESTRICT FK, zero orphans, RLS/grant inventory, index
+    inventory, trigger inventory, idempotent M34+M35 replay, regression,
+    cross-repo Main Website DDL).
+  - Re-verified Phase 2C actual work (M35 + slug reconciliation + theme
+    FKs + coordinate CHECKs + narrow grants). Every §1–§25 item verified;
+    NO new migration needed (M28–M35 chain is complete).
+  - RLS on profiles/organizations/salons is provided by the Main Website's
+    live migrations in production; the canonical chain grants no base-table
+    access on them. Complete fresh-chain policy design is Phase 3's
+    mandate (documented, not a Phase 2D defect).
+  - Repo 1: `test:phase-2d` chain exit 0, lint PASS, build PASS,
+    typecheck NOT AVAILABLE (no script). Repo 2: typecheck PASS, lint FAIL
+    (3 pre-existing errors, unchanged, no repo-2 file modified), build
+    BLOCKED by fail-closed credential guard. Type generation BLOCKED (no
+    pipeline in either repo; requires live credentials).
+  - Full report: `docs/phase-2d-final-verification.md`.
+  - NEXT: apply M28–M35 to `qwaehqsmodekbgvnaavz` (exact manual steps in
+    the report), then Phase 3 (complete RLS/auth policy work incl.
+    profiles/organizations/salons RLS on fresh chains). Do not touch
+    M01–M35; new schema work must be additive migrations after M35.
 
 - **PHASE 2C — ACTUAL IMPLEMENTATION & FINAL VERIFICATION: COMPLETE.**
   - M35 `20260821000801_m35_phase2c_canonical_theme_slugs.sql` (additive,

@@ -281,3 +281,32 @@ re-verified by the Phase 2C suite (`scripts/test-phase2c-final.mjs`,
 
 Validation: `npm run test:phase-2c`, `npm run test:phase2c` with
 `NEXORA_MAIN_WEBSITE_PATH` set, `npm run lint`, `npm run build`.
+
+---
+
+## Phase 2D addendum (2026-08-21)
+
+Phase 2D is the final validation + fix phase. No corrective migration was
+required: the M28–M35 chain verified complete against actual files and the
+PGlite-replayed schema. Verification artifact:
+`scripts/test-phase2d-final.mjs` (21/21 with
+`NEXORA_MAIN_WEBSITE_PATH`), covering the ten required behavior tests
+(A duplicate membership, B duplicate theme slug, C invalid FK, D invalid
+latitude, E invalid longitude, F/G soft-deleted service/product absent
+from active catalog, H updated_at auto-change, I invalid
+theme/category/salon, J cross-tenant RLS block), schema-chain FK
+existence, five canonical themes + unique slugs, salon→theme RESTRICT FK,
+zero orphan records, RLS enabled on all 12 chain-managed tables, zero
+anon/authenticated base grants on profiles/organizations/salons/
+organization_members, index inventory (9 required indexes), updated_at
+trigger inventory (10 tables × 1), no CASCADE from business-owned tables
+to salons, M34+M35 idempotent replay, Phase 1A/2A/2C regression, and the
+cross-repository Main Website DDL contract (93 statements apply cleanly).
+
+Notable decision: RLS on `profiles`/`organizations`/`salons` is provided
+by the Main Website's live migrations in production; the canonical chain
+grants no base-table access on those tables (verified), and complete
+policy design for fresh chains is deferred to Phase 3 per the phase brief.
+
+Validation: `npm run test:phase-2d`, `npm run test:phase2d` with
+`NEXORA_MAIN_WEBSITE_PATH` set, `npm run lint`, `npm run build`.

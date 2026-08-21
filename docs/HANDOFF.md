@@ -1,10 +1,134 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-17** (session `arena/01a00df7-new-tamplete-app`, Phase 17.3).
+> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2D — Final Database Integrity, Cross-Repository Consistency & Production-Ready Verification).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
 ## Current repository state
+
+- **PHASE 2D — FINAL VERIFICATION & FIX: COMPLETE (no corrective migration
+  required).**
+  - `scripts/test-phase2d-final.mjs` — **21/21 PASS** with
+    `NEXORA_MAIN_WEBSITE_PATH` (10 required behavior tests A–J: duplicate
+    membership/slug/invalid FK/invalid latitude/invalid longitude MUST
+    FAIL; soft-deleted service+product absent from active catalog;
+    updated_at auto-change; invalid theme/category/salon MUST FAIL;
+    cross-tenant blocked by RLS; plus schema-chain FKs, theme authority,
+    salon→theme RESTRICT FK, zero orphans, RLS/grant inventory, index
+    inventory, trigger inventory, idempotent M34+M35 replay, regression,
+    cross-repo Main Website DDL).
+  - Re-verified Phase 2C actual work (M35 + slug reconciliation + theme
+    FKs + coordinate CHECKs + narrow grants). Every §1–§25 item verified;
+    NO new migration needed (M28–M35 chain is complete).
+  - RLS on profiles/organizations/salons is provided by the Main Website's
+    live migrations in production; the canonical chain grants no base-table
+    access on them. Complete fresh-chain policy design is Phase 3's
+    mandate (documented, not a Phase 2D defect).
+  - Repo 1: `test:phase-2d` chain exit 0, lint PASS, build PASS,
+    typecheck NOT AVAILABLE (no script). Repo 2: typecheck PASS, lint FAIL
+    (3 pre-existing errors, unchanged, no repo-2 file modified), build
+    BLOCKED by fail-closed credential guard. Type generation BLOCKED (no
+    pipeline in either repo; requires live credentials).
+  - Full report: `docs/phase-2d-final-verification.md`.
+  - NEXT: apply M28–M35 to `qwaehqsmodekbgvnaavz` (exact manual steps in
+    the report), then Phase 3 (complete RLS/auth policy work incl.
+    profiles/organizations/salons RLS on fresh chains). Do not touch
+    M01–M35; new schema work must be additive migrations after M35.
+
+- **PHASE 2C — ACTUAL IMPLEMENTATION & FINAL VERIFICATION: COMPLETE.**
+  - M35 `20260821000801_m35_phase2c_canonical_theme_slugs.sql` (additive,
+    idempotent, single transaction): reconciles the Full-Service Family Salon
+    theme's public slug to **`full_service_family_salon`** (the Phase 2C
+    brief's explicit canonical slug, superseding Phase 2B's keep-as-is
+    decision). `theme_id` stays `family_full_service` — the stable internal
+    key used by both repos' type layers and seeds; no application references
+    change because nothing in either repo references `themes.slug`.
+    Reconciliation is deterministic (only from `slug IS NULL` or
+    `slug = theme_id` legacy states); `themes.slug` UNIQUE re-asserted; a
+    verification block raises unless all five canonical slugs exist exactly
+    once. Four-role mapping verified readable
+    (owner/staff = `organization_members.role`, customer/admin =
+    `profiles.platform_role`).
+  - **Verification**: `test-phase2c-final.mjs` 20/20 with
+    `NEXORA_MAIN_WEBSITE_PATH` (all seven required DB tests: duplicate
+    membership FAILS, duplicate slug FAILS, invalid FK FAILS, soft-deleted
+    service/product absent, `updated_at` auto-refresh, invalid
+    category/theme/salon FAILS, cross-tenant RLS denies); `test:phase-2c`
+    chain green; repo 1 lint + build green; repo 2 typecheck green; repo 2
+    lint/build fail/block exactly as before (pre-existing, no repo-2 file
+    modified). Type generation is BLOCKED for both repos (no supabase
+    CLI/config and no live credentials; repo 2 has no `Database` generic) —
+    hand-synced types verified by lint/typecheck.
+  - Full report: `docs/phase-2c-final-implementation.md`.
+  - NEXT: apply M28–M35 to the shared project `qwaehqsmodekbgvnaavz` via
+    Supabase CLI/SQL editor (exact manual steps in the report), then Phase 3
+    (auth/RBAC/RLS policy work). Do not touch M01–M34; new schema work must
+    be additive migrations after M35.
+
+- **PHASE 2B — FINAL DATABASE SCHEMA HARDENING & VERIFICATION: COMPLETE.**
+  - M34 `20260821000701_m34_phase2b_final_hardening.sql` (additive,
+    idempotent, post-M33): replaced every CASCADE FK from business-owned
+    tables to `salons` with RESTRICT (services, staff, offers, salon_hours,
+    salon_public_websites, business_locations, salon_media — discovered via
+    catalog so it works on both the live repo-2 schema and the M28 replay);
+    salon_media service/product composite FKs CASCADE → RESTRICT; canonical
+    TEXT+CHECK role constraints re-asserted; `deleted_at` asserted on
+    `staff` (Main Website marketplace query contract) plus the M33 set;
+    `organization_members.updated_at` added + `trg_phase2_set_updated_at`
+    attached where no existing BEFORE ROW trigger exists; canonical family
+    slug `family_full_service` kept (brief's `full_service_family_salon` is
+    an example name) with `themes.slug` uniqueness re-asserted; safe
+    security-barrier views `active_services`, `active_products`,
+    `active_service_categories` (public-safe columns only); index set
+    verified (services/products/categories/org_members/bookings/locations).
+  - **App-side fix**: `src/lib/salonMediaService.ts` `listPublicSalonMedia`
+    now filters `.is('deleted_at', null)` (public media catalog).
+  - **Validation**: `test:phase-2b` = validate:migrations + phase-2a suite +
+    `test-phase2b-hardening.mjs` (19/19 with `NEXORA_MAIN_WEBSITE_PATH`,
+    including the 8 mandatory final DB tests: duplicate membership FAILS,
+    duplicate theme slug FAILS, invalid FK FAILS, soft-deleted service and
+    product absent from active catalog, `updated_at` auto-refresh, cross-theme
+    category/service pair FAILS, cross-tenant RLS denies); repo 1 lint
+    (tsc --noEmit) green, build green; repo 2 typecheck green, repo 2 build
+    blocked by design (build scripts fail closed without real
+    `qwaehqsmodekbgvnaavz` Supabase credentials), repo 2 lint fails on 3
+    pre-existing errors (SplashOverlay.tsx:63 setState-in-effect;
+    nexora-app.tsx:6162 unescaped entities ×2).
+  - Full report: `docs/phase-2b-final-hardening.md`.
+  - NEXT: apply M34 to the shared project `qwaehqsmodekbgvnaavz` via Supabase
+    CLI/SQL editor (exact manual steps in the report), then Phase 3
+    (auth/RBAC/RLS policy work). Do not touch M01–M33; new schema work must
+    be additive migrations after M34.
+
+- **PHASE 2A — SCHEMA RECONCILIATION + DATABASE HARDENING: COMPLETE.**
+  - Re-inspected every claimed gap against both repositories and fixed the
+    confirmed ones in `supabase/migrations/20260821000601_m33_phase2a_hardening.sql`
+    (additive, idempotent, fail-closed). Details:
+    `docs/phase-2a-schema-reconciliation-hardening.md`.
+  - **Canonical decisions (verified, not assumed)**: `salons`/`salon_id` is the
+    one canonical entity/FK (the `businesses`/`business_id` surface lives only
+    in the never-applied M01–M27 draft layer); roles are ONE two-scope system
+    (`profiles.platform_role` global + `organization_members.role` tenant);
+    five themes stay canonical with `family_full_service` as the stable slug
+    (existing key, not the prompt's example variant).
+  - **M33 fixes**: canonical-naming guard (fails closed on any
+    `business_id` column in the 20 canonical tables); named UNIQUE constraint
+    `organization_members_organization_user_key` + deterministic duplicate
+    repair RPC (`phase2a_repair_membership_duplicates`, ctid-keyed — the join
+    table has no id column); `deleted_at` on `salon_media`,
+    `service_categories`, `product_categories` (salons/services/products
+    already had it); indexes `services_phase2a_salon_active_idx` +
+    `service_categories_phase2a_theme_active_idx` (EXPLAIN-verified);
+    `phase2a_foundation_health()` service_role RPC; RLS surface untouched.
+  - **Types**: `src/types/database.ts` gained `deleted_at` on
+    `SalonMediaRow`, `ServiceCategoryRow`, `ProductCategoryRow`.
+  - **Validation**: `test:phase-2a` = validate:migrations (27/27 ×2 + 21/21) +
+    phase1a (11/11 + 3/3) + phase2 (17/17) + phase2a (15/15, 17/17 with
+    `NEXORA_MAIN_WEBSITE_PATH` — Main Website contract + 93 DDL statements
+    apply on the hardened schema); `validate:main-website` 10/10; lint 0;
+    build green.
+  - NEXT: Phase 3 (auth/RBAC/RLS policy work). Do not touch M01–M33; new
+    schema work must be additive migrations after M33.
 
 - **PHASE 17.3 — UPCOMING APPOINTMENTS: COMPLETE (50 tests).**
   - The Upcoming Appointments section of the Owner Dashboard, over the

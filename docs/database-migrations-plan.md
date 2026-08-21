@@ -189,3 +189,124 @@ M02 SQL.
 
 **Next step:** live Supabase introspection → regenerate M02 → approved M01–M21
 application → P88 tests A–L + Phase tests M–S → P72 TypeScript types.
+
+---
+
+## Phase 1A + Phase 2 addendum (2026-08-21)
+
+The M01–M27 set above remains the immutable historical draft set and is still
+validated twice by `validate:migrations` (27/27, tests A–U). Since Phase 1A,
+the repository additionally ships the **shared-schema migration set** that
+targets the live canonical schema used by BOTH this app and the Main Website
+(ONE Supabase project):
+
+| Migration | File | Scope |
+|---|---|---|
+| M28 | `20260821000101_m28_phase1a_unified_salon_foundation.sql` | Identity/roles/membership reconciliation, themes + five-theme seed, categories, services provenance, products, locations, bookings, media, RLS surface |
+| M29 | `20260821000201_m29_phase1a_razorpay_foundation.sql` | Payment orders/payments/webhook RPC foundations |
+| M30 | `20260821000301_m30_phase1a_storage_foundation.sql` | Private `salon-media` bucket + tenant-scoped object policies |
+| M31 | `20260821000401_m31_phase1a_authoritative_booking_creation.sql` | Server-authoritative booking creation + idempotency keys |
+| M32 | `20260821000501_m32_phase2_canonical_foundation.sql` | Phase 2 canonical foundation: theme/category slugs, `salons.theme_id` + `phase2_set_salon_theme`, organization status/timestamps, membership `created_at`, location `created_at` backfill, service timestamps, safe `updated_at` triggers, product theme index, public-safe column grants |
+
+**Phase 2 rules honoured:** additive only, no edits to applied/older
+migrations, reproducible on a fresh database, unique constraints for stable
+slugs, no duplicate entities (`salons` is canonical; the five themes are
+seeded exactly once by M28), database-side timestamps, soft delete via
+`deleted_at` where history matters, RLS policy surface unchanged (deep RLS is
+Phase 3), bookings/payments/media systems deferred to Phases 4/5/later.
+
+Validation: `npm run test:phase2` (validate:migrations + test:phase1a +
+test:phase2), `npm run validate:main-website` (with
+`NEXORA_MAIN_WEBSITE_PATH` set), `npm run lint`, `npm run build`. Full Phase 2
+report: `docs/phase-2-unified-database-foundation.md`.
+
+---
+
+## Phase 2A addendum (2026-08-21)
+
+| Migration | File | Scope |
+|---|---|---|
+| M33 | `20260821000601_m33_phase2a_hardening.sql` | Phase 2A hardening: canonical-naming guard (fail closed on `business_id` drift), named `organization_members_organization_user_key` UNIQUE constraint + deterministic duplicate-repair RPC (`phase2a_repair_membership_duplicates`), `deleted_at` on `salon_media`/`service_categories`/`product_categories`, composite indexes `services_phase2a_salon_active_idx` + `service_categories_phase2a_theme_active_idx`, service_role-only `phase2a_foundation_health()` verification RPC |
+
+Canonical decisions recorded in `docs/phase-2a-schema-reconciliation-hardening.md`:
+`salons`/`salon_id` is the single canonical entity/FK (the draft M01–M27
+`businesses` model is a separate, never-applied legacy layer, preserved
+unchanged); roles are ONE two-scope system (`profiles.platform_role` global +
+`organization_members.role` tenant); the five themes are authoritative with
+`family_full_service` as the stable slug. M33 is additive and idempotent;
+RLS policy surface unchanged (Phase 3).
+
+Validation: `npm run test:phase-2a`, `npm run validate:main-website` (with
+`NEXORA_MAIN_WEBSITE_PATH` set), `npm run lint`, `npm run build`.
+
+---
+
+## Phase 2B addendum (2026-08-21)
+
+| Migration | File | Scope |
+|---|---|---|
+| M34 | `20260821000701_m34_phase2b_final_hardening.sql` | Phase 2B final hardening: FK delete rules (every CASCADE from business-owned tables to `salons` → RESTRICT, discovered via `pg_constraint` catalog; `salon_media` service/product composite CASCADE → RESTRICT; bookings/growth-partner commissions already RESTRICT); canonical TEXT+CHECK role constraints re-asserted (`profiles_platform_role_check` 5-value, `organization_members_role_check` owner/staff — no enum); `deleted_at` asserted on `staff` (Main Website marketplace query contract) plus the M33 set; `organization_members.updated_at` + `trg_phase2_set_updated_at` (attached where no existing BEFORE ROW trigger exists; profiles/organizations/salons/themes/categories/services/products/locations already covered by M28/M32); theme slug uniqueness re-asserted with canonical `family_full_service` kept; security-barrier views `active_services` / `active_products` / `active_service_categories` (public-safe columns, explicit active filters); index set verified — services `(salon_id, is_active)` WHERE deleted_at IS NULL (M33), products `(salon_id, is_active, display_order)` WHERE deleted_at IS NULL (M28), service_categories `(theme_id, is_active, sort_order, id)` WHERE deleted_at IS NULL (M33), organization_members named UNIQUE (M33), bookings `(salon_id, appointment_start, status)` (M28), business_locations partial `(latitude, longitude)` WHERE approved (M28; client-side Haversine is the real nearby search — a B-tree is not claimed as radius search and PostGIS is not enabled blindly) |
+
+Phase 2B decisions recorded in `docs/phase-2b-final-hardening.md`:
+`salons`/`salon_id` remains the one canonical entity (verified globally in
+both repositories — no `businesses` table or query exists outside the
+never-applied M01–M27 draft layer and legacy external-compat payload
+parsing); the canonical family-theme slug stays `family_full_service` (the
+brief's `full_service_family_salon` is an example name; `themes.slug`
+uniqueness is enforced); soft delete applies to mutable business entities
+only — payments, orders, webhooks, bookings, auth.users stay physically
+immutable; M34 is additive, idempotent, and replays cleanly on the M28–M33
+schema.
+
+Validation: `npm run test:phase-2b` (includes the 8 mandatory Phase 2B final
+database tests), `npm run test:phase2b` with `NEXORA_MAIN_WEBSITE_PATH` set
+(19/19), `npm run lint`, `npm run build`.
+
+---
+
+## Phase 2C addendum (2026-08-21)
+
+| Migration | File | Scope |
+|---|---|---|
+| M35 | `20260821000801_m35_phase2c_canonical_theme_slugs.sql` | Phase 2C canonical theme slugs: reconciles the Full-Service Family Salon theme's public slug to `full_service_family_salon` (theme_id stays the stable internal key `family_full_service`; nothing in either application references `themes.slug`, so no app reference changes); deterministic reconciliation only from known legacy states (`slug` NULL or `slug = theme_id`); `themes.slug` UNIQUE re-asserted; final verification block raises unless all five canonical slugs exist exactly once (`barber_mens_grooming`, `hair_studio_color_bar`, `beauty_skin_spa`, `full_service_family_salon`, `nail_lash_studio`) |
+
+Phase 2C supersedes the Phase 2B slug decision (M34 had kept
+`family_full_service` as the slug; the Phase 2C brief explicitly requires
+the public slug `full_service_family_salon`). M35 is additive, idempotent,
+single-transaction, and replays cleanly on the M28–M34 schema. Canonical
+entity, membership uniqueness, soft delete, FK RESTRICT rules, updated_at
+automation, role system and indexes from M28–M34 are unchanged and
+re-verified by the Phase 2C suite (`scripts/test-phase2c-final.mjs`,
+20/20 with `NEXORA_MAIN_WEBSITE_PATH` set).
+
+Validation: `npm run test:phase-2c`, `npm run test:phase2c` with
+`NEXORA_MAIN_WEBSITE_PATH` set, `npm run lint`, `npm run build`.
+
+---
+
+## Phase 2D addendum (2026-08-21)
+
+Phase 2D is the final validation + fix phase. No corrective migration was
+required: the M28–M35 chain verified complete against actual files and the
+PGlite-replayed schema. Verification artifact:
+`scripts/test-phase2d-final.mjs` (21/21 with
+`NEXORA_MAIN_WEBSITE_PATH`), covering the ten required behavior tests
+(A duplicate membership, B duplicate theme slug, C invalid FK, D invalid
+latitude, E invalid longitude, F/G soft-deleted service/product absent
+from active catalog, H updated_at auto-change, I invalid
+theme/category/salon, J cross-tenant RLS block), schema-chain FK
+existence, five canonical themes + unique slugs, salon→theme RESTRICT FK,
+zero orphan records, RLS enabled on all 12 chain-managed tables, zero
+anon/authenticated base grants on profiles/organizations/salons/
+organization_members, index inventory (9 required indexes), updated_at
+trigger inventory (10 tables × 1), no CASCADE from business-owned tables
+to salons, M34+M35 idempotent replay, Phase 1A/2A/2C regression, and the
+cross-repository Main Website DDL contract (93 statements apply cleanly).
+
+Notable decision: RLS on `profiles`/`organizations`/`salons` is provided
+by the Main Website's live migrations in production; the canonical chain
+grants no base-table access on those tables (verified), and complete
+policy design for fresh chains is deferred to Phase 3 per the phase brief.
+
+Validation: `npm run test:phase-2d`, `npm run test:phase2d` with
+`NEXORA_MAIN_WEBSITE_PATH` set, `npm run lint`, `npm run build`.

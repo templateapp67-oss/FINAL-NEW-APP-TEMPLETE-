@@ -622,11 +622,15 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-    console.log(`Health check: http://0.0.0.0:${PORT}/api/health`);
-    console.log(`25 screens active | allowedHosts: true | cors: true | offline fallback enabled`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+      console.log(`Health check: http://0.0.0.0:${PORT}/api/health`);
+      console.log(`25 screens active | allowedHosts: true | cors: true | offline fallback enabled`);
+    });
+  }
 }
 
 startServer();
+
+export default app;

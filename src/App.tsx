@@ -28,6 +28,7 @@ import type { ThemeId } from './lib/themeServices';
 import { getBrandConfig } from './config/brandConfig';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
+import { useUsageTracking } from './hooks/useUsageTracking';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
@@ -107,6 +108,14 @@ export default function App() {
       // fallback
     }
     return false;
+  });
+
+  useUsageTracking({
+    activeModule,
+    step,
+    dashboardTab,
+    salonName: data?.salonName || '',
+    slug: data?.websiteSlug || '',
   });
 
   const isInitialMount = useRef(true);

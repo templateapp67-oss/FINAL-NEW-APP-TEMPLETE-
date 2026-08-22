@@ -1,10 +1,79 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-22** (session `arena/01a02979-final-new-app-templete`, Step-5 local persistence fallback).
+> Last updated: **2026-08-22** (session `arena/01a029d0-final-new-app-templete`, dynamic referral system + `/signup` page; merged `main` 2200baf — safeStorage adopted, duplicate referral model consolidated).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Step 5 local persistence fallback (this PR)
+## Dynamic referral system & Sign-Up page (this PR)
+
+**Scope:** dynamic referral codes in the standard `NX-[WEBSITE_SHORT_NAME]-<YEAR>`
+format, referral links retargeted at the Sign-Up page, `?ref=` capture +
+auto-fill/lock on sign-up, working Story/Facebook/Poster sharing, and a
+live Referred-Salons dashboard (Pending / Registered / Active + wallet credits).
+
+- **Code generation — `src/lib/referral.ts` (new, single source of truth):**
+  `deriveSalonShortName()` (first meaningful word, stopword-aware, acronym
+  fallback, `SALON` last resort) + `getReferralCode()` → e.g. *Royal Hair
+  Studio* → `NX-ROYAL-2026`. Prefix comes from the white-label brand config
+  (`platform.referralPrefix`, default `NX`); year from the current date.
+  **The static `LUMINA-25` constant is gone** from the codebase.
+- **Referral link:** `buildReferralLink()` always produces
+  `https://final-new-app-templete.vercel.app/signup?ref=<CODE>` (origin via
+  `getAuthRedirectOrigin()` — canonical Vercel origin in dev/preview, real
+  origin in production). WhatsApp text, native share and all marketing copy
+  go through `buildReferralShareText()`, so the code can never drift.
+- **Router & storage — `src/main.tsx`:** `captureReferralFromUrl()` runs at
+  module load (before React): parses `ref` from `window.location.search`,
+  normalizes (`normalizeReferralCode` — uppercase, `[A-Z0-9-]` only, 2–40
+  chars) and persists to `localStorage['nexora_referral_code']`. Slug
+  resolution stays pathname-only, so `/royal-hair-studio?ref=…` never 404s.
+  New first-class route `pathname === '/signup'` → `<SignUpPage />`.
+- **Sign-Up page — `src/components/SignUpPage.tsx` (new):** standalone
+  `/signup` page (email + password + optional salon name + Supabase
+  confirmation flow mirroring the modal). On mount it reads
+  `nexora_referral_code` and **pre-fills the Referral Code input, locked
+  (readonly) and highlighted** with an "Applied from invite" badge. On
+  successful sign-up the entry is recorded via `recordReferralSignup()` and
+  the code stays in storage for attribution. `LoginModal` sign-up records
+  the same stored code, so both creation paths track referrals.
+- **Social sharing fixed — `ShareReferralPremium.tsx` + `src/lib/referralCanvas.ts` (new):**
+  - **Story:** modal renders a 1080×1920 canvas card (salon name, reward
+    copy, code, link), then `navigator.share()` with the PNG file when
+    supported — download fallback otherwise.
+  - **Facebook:** direct `https://www.facebook.com/sharer/sharer.php?u=<encoded referral link>`
+    popup.
+  - **Poster:** 1200×630 canvas banner (salon name, reward details, dynamic
+    code, sign-up link) → PNG download. Pure HTML5 Canvas — no new deps.
+  - **Invite Friends** button now opens the real native share sheet
+    (clipboard fallback).
+- **Referral Dashboard (Screen 24, `ShareReferralPremium`):** now driven by
+  `src/lib/referralDashboard.ts` (new). Live "Referred Salons" table —
+  status `Pending → Registered → Active`, per-status wallet credits
+  (₹0/₹250/₹750), accumulated totals in the stat cards + hero wallet card,
+  real-time via storage events + `nexora-referral-updated` custom event.
+  Reads the referral context (`ownCode` from the salon name, `referredByCode`
+  from `nexora_referral_code`) and shows "joined via code …" when present.
+  Registry lives in `localStorage['nexora_referral_registry']` (seeded with
+  demo rows flagged `Demo`); server-safe no-ops without a browser.
+- **Merge consolidation (2200baf on main):** a parallel commit landed on
+  `main` while this PR was open — it added `safeStorage.ts` (quota-safe
+  localStorage wrappers, adopted here: `referral.ts` + `referralDashboard.ts`
+  now go through `safeGetItem`/`safeSetItem`/`safeRemoveItem`), an inline
+  unvalidated `?ref=` capture in `main.tsx` (superseded by the module-level
+  `captureReferralFromUrl()`, which normalizes/validates and runs before
+  render — the inline block was dropped), and a second referral
+  implementation (`ReferralDashboard.tsx` + `referralService.ts` with static
+  `NX-GROWTH-2026`/`NX-OWNER-2026` codes and
+  `published/in_progress/pending/verified` statuses). That duplicate was
+  **retired** in this PR because it contradicts the agreed referral spec
+  (dynamic `NX-[SHORT]-<YEAR>` codes, Pending/Registered/Active statuses,
+  `/signup?ref=` flow) and would have left two conflicting referral models
+  in the tree. `safeStorage.ts` itself is kept and used.
+- **Test:** `npm run test:referral` (20 checks, static + runtime). Verified
+  green this session: `npm run lint` (tsc), `node verify-22-screens.js`,
+  `test:auth`, `test:phase-17.1`.
+
+## Step 5 local persistence fallback (previous PR)
 
 **Live bug addressed:** Step 5 showed "Unable to load saved services." /
 "Unable to add this service." because the Step-5 RPC surface (M40) is still
@@ -2011,6 +2080,7 @@ wiring step must upsert each owner's existing draft/progress payload.
 ```bash
 npm run lint                # TypeScript type check (tsc --noEmit)
 npm run test:auth           # Auth modal and login reliability regression tests
+npm run test:referral       # Dynamic referral codes, /signup?ref= capture, sharing, live dashboard, safeStorage (20 tests)
 node verify-22-screens.js   # Static verification of all 25 screens & features
 npm run generate:theme-seed # regenerate M18 from the TypeScript source
 npm run validate:migrations # source-check M18 + apply M01–M24 twice + tests A–T

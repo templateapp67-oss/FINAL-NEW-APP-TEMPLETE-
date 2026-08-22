@@ -28,7 +28,8 @@ import {
   Layers,
   ChevronRight,
   Download,
-  Upload
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { 
   SalonData, 
@@ -40,11 +41,12 @@ import {
   DEFAULT_WEEKLY_SCHEDULE 
 } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { compressImageToMaxFileSize } from '../lib/imageCompression';
 
 interface Props {
   data: SalonData;
   setData: (d: SalonData) => void;
-  onSave?: () => void;
+  onSave?: (d?: SalonData) => void;
   onBackToWizard?: () => void;
 }
 
@@ -127,6 +129,8 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
   const [customSkillInput, setCustomSkillInput] = useState('');
   const [formBio, setFormBio] = useState('');
   const [isGeneratingBio, setIsGeneratingBio] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Form Errors
   const [formErrors, setFormErrors] = useState<{ name?: string; role?: string }>({});
@@ -207,28 +211,40 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
     setIsFormOpen(true);
   };
 
-  const handlePhotoFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     setPhotoError(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // File size limit: 2MB (2,097,152 bytes)
-    if (file.size > 2 * 1024 * 1024) {
-      setPhotoError('Image size must be less than 2MB');
-      e.target.value = ''; // clear input
+    // Pre-check size to avoid obvious huge files if necessary, 
+    // but the compression tool handles it anyway.
+    if (file.size > 10 * 1024 * 1024) {
+      setPhotoError('Image must be less than 10MB');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result && typeof event.target.result === 'string') {
-        setFormPhoto(event.target.result);
-      }
-    };
-    reader.onerror = () => {
-      setPhotoError('Failed to read image file');
-    };
-    reader.readAsDataURL(file);
+    setIsUploadingPhoto(true);
+    try {
+      // Compress to ~50KB and 400px max for avatars to save localStorage space
+      const compressedFile = await compressImageToMaxFileSize(file, 0.05, 400);
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result && typeof event.target.result === 'string') {
+          setFormPhoto(event.target.result);
+        }
+        setIsUploadingPhoto(false);
+      };
+      reader.onerror = () => {
+        setPhotoError('Failed to read image file');
+        setIsUploadingPhoto(false);
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (err) {
+      console.error('Image compression failed:', err);
+      setPhotoError('Failed to process image');
+      setIsUploadingPhoto(false);
+    }
   };
 
   // Copy Monday to all working days
@@ -320,6 +336,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
       return;
     }
 
+    setIsSaving(true);
     const newOrUpdatedMember: TeamMember = {
       id: editingMemberId || 'staff-' + Date.now(),
       name: formName.trim(),
@@ -332,45 +349,57 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
       hidePhoneFromPublic: formHidePhone,
       schedule: formSchedule,
       specialties: formSkills.length ? formSkills : ['Hair Care'],
-      imageUrl: formPhoto || PRESET_AVATARS[0],
+      imageUrl: formPhoto,
       bio: formBio.trim(),
       rating: editingMemberId 
         ? (data.team.find(m => m.id === editingMemberId)?.rating || 4.9) 
         : 5.0
     };
 
+    let nextData: SalonData;
     if (editingMemberId) {
       const updated = data.team.map(m => m.id === editingMemberId ? newOrUpdatedMember : m);
-      setData({ ...data, team: updated });
+      nextData = { ...data, team: updated };
     } else {
-      setData({ ...data, team: [...data.team, newOrUpdatedMember] });
+      nextData = { ...data, team: [...data.team, newOrUpdatedMember] };
     }
 
+    // Force immediate global state sync and persistence call
+    setData(nextData);
     setIsFormOpen(false);
-    if (onSave) onSave();
+    
+    if (onSave) {
+      onSave(nextData);
+    }
+    
+    // Reset saving state after a delay to match toast
+    setTimeout(() => setIsSaving(false), 800);
   };
 
   // Delete Staff Member
   const handleDeleteMember = (id: string) => {
     if (confirm('Are you sure you want to remove this staff member?')) {
       const updated = data.team.filter(m => m.id !== id);
-      setData({ ...data, team: updated });
-      if (onSave) onSave();
+      const nextData = { ...data, team: updated };
+      setData(nextData);
+      if (onSave) onSave(nextData);
     }
   };
 
   // Quick Status Switch
   const handleQuickStatusChange = (id: string, newStatus: StaffStatus) => {
     const updated = data.team.map(m => m.id === id ? { ...m, status: newStatus } : m);
-    setData({ ...data, team: updated });
-    if (onSave) onSave();
+    const nextData = { ...data, team: updated };
+    setData(nextData);
+    if (onSave) onSave(nextData);
   };
 
   // Update Commission directly in Payroll table
   const handleUpdateCommission = (id: string, newComm: number) => {
     const updated = data.team.map(m => m.id === id ? { ...m, commission: newComm } : m);
-    setData({ ...data, team: updated });
-    if (onSave) onSave();
+    const nextData = { ...data, team: updated };
+    setData(nextData);
+    if (onSave) onSave(nextData);
   };
 
   return (
@@ -920,7 +949,14 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                     Staff Photo
                   </label>
                   <div className="flex items-center gap-4 mb-3">
-                    <img src={formPhoto} alt="Selected" className="w-16 h-16 rounded-full object-cover border-2 border-[#ac0053] shrink-0" />
+                    <div className="relative">
+                      <img src={formPhoto} alt="Selected" className="w-16 h-16 rounded-full object-cover border-2 border-[#ac0053] shrink-0" />
+                      {isUploadingPhoto && (
+                        <div className="absolute inset-0 bg-white/60 rounded-full flex items-center justify-center">
+                          <Loader2 className="w-6 h-6 text-[#ac0053] animate-spin" />
+                        </div>
+                      )}
+                    </div>
                     <div>
                       <div className="text-xs font-semibold text-gray-600 mb-1.5">Select Preset Avatar or Upload Photo</div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -928,6 +964,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                           <button
                             key={i}
                             type="button"
+                            disabled={isUploadingPhoto}
                             onClick={() => {
                               setFormPhoto(url);
                               setPhotoError(null);
@@ -941,13 +978,14 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                         ))}
 
                         {/* File Upload Option */}
-                        <label className="cursor-pointer bg-white hover:bg-gray-50 border border-gray-200 hover:border-[#ac0053] text-gray-700 hover:text-[#ac0053] text-xs font-bold h-9 px-3 rounded-xl transition-all flex items-center gap-1.5">
+                        <label className={`cursor-pointer bg-white hover:bg-gray-50 border border-gray-200 hover:border-[#ac0053] text-gray-700 hover:text-[#ac0053] text-xs font-bold h-9 px-3 rounded-xl transition-all flex items-center gap-1.5 ${isUploadingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
                           <Upload className="w-3.5 h-3.5" />
-                          <span>Upload Photo</span>
+                          <span>{isUploadingPhoto ? 'Processing...' : 'Upload Photo'}</span>
                           <input
                             type="file"
                             accept="image/*"
                             className="hidden"
+                            disabled={isUploadingPhoto}
                             onChange={handlePhotoFileChange}
                           />
                         </label>
@@ -1290,16 +1328,25 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                 <button
                   type="button"
                   onClick={() => setIsFormOpen(false)}
-                  className="px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                  disabled={isSaving || isUploadingPhoto}
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   form="staff-form"
-                  className="px-6 py-2.5 text-sm font-semibold bg-[#ac0053] text-white hover:bg-[#ba005b] rounded-xl transition-all shadow-sm"
+                  disabled={isSaving || isUploadingPhoto}
+                  className="px-6 py-2.5 text-sm font-semibold bg-[#ac0053] text-white hover:bg-[#ba005b] rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 min-w-[140px] disabled:bg-gray-400"
                 >
-                  {editingMemberId ? 'Update Staff Member' : 'Add Staff Member'}
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    editingMemberId ? 'Update Staff Member' : 'Add Staff Member'
+                  )}
                 </button>
               </div>
 

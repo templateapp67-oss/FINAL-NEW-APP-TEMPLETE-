@@ -10,7 +10,7 @@
  * ratios differ (9:16 shorts / 16:9 long). Theme isolation is enforced by
  * `videoItemsForTheme` — no cross-theme content.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AlertTriangle, ExternalLink, Heart, Loader2, Play, Trophy, Video } from 'lucide-react';
 import type { SalonData } from '../types';
@@ -80,8 +80,8 @@ function useBrokenThumbs() {
   return { broken, mark };
 }
 
-function renderVideoCard(
-  item: VideoGalleryItem,
+interface VideoCardProps {
+  item: VideoGalleryItem;
   opts: {
     mode: ViewportMode;
     tileRatio: string;
@@ -96,19 +96,36 @@ function renderVideoCard(
     onPlay: (item: VideoGalleryItem) => void;
     onOpen: (item: VideoGalleryItem) => void;
     accent: string;
-    /** PHASE 15.8 — like state for this card. */
     likes: VideoLikeSummary;
     likePending: boolean;
     likeError: VideoLikeError | null;
     onLike: (item: VideoGalleryItem) => void;
     likeErrorText: (error: VideoLikeError) => string;
-  },
-) {
+  };
+}
+
+const VideoCard: React.FC<VideoCardProps> = ({ item, opts }) => {
+  const [isHovered, setIsHovered] = useState(false);
   const hasThumb = !!item.thumbnailUrl && !opts.thumbBroken;
   const kindLabel = item.kind === 'short' ? opts.chrome.shortBadge : opts.chrome.longBadge;
+
+  // Derive an autoplay embed URL for hover preview
+  const previewUrl = useMemo(() => {
+    if (!item.embedUrl) return null;
+    try {
+      const url = new URL(item.embedUrl);
+      url.searchParams.set('autoplay', '1');
+      url.searchParams.set('mute', '1');
+      url.searchParams.set('controls', '0');
+      url.searchParams.set('loop', '1');
+      return url.toString();
+    } catch (e) {
+      return null;
+    }
+  }, [item.embedUrl]);
+
   return (
     <article
-      key={item.id}
       data-testid="site-social-item"
       data-video-gallery-item={item.id}
       data-social-id={item.id}
@@ -126,14 +143,17 @@ function renderVideoCard(
       aria-label={`${opts.chrome.openExternal}: ${item.title}`}
       className={`relative overflow-hidden group min-w-0 border cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${opts.radius}`}
       style={{ borderColor: opts.cardLine, aspectRatio: opts.tileRatio, contain: 'content' }}
-      onClick={() => opts.onOpen(item)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={() => opts.onPlay(item)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          opts.onOpen(item);
+          opts.onPlay(item);
         }
       }}
     >
+      {/* Base Layer: Thumbnail or Fallback */}
       {hasThumb ? (
         <div className="absolute inset-0" data-testid="site-video-gallery-thumb">
           <SiteImage
@@ -142,18 +162,7 @@ function renderVideoCard(
             context="video"
             aspectRatio={opts.tileRatio}
             sizes={videoSizes(opts.mode)}
-            className="w-full h-full transition-transform duration-500 group-hover:scale-105"
-            onError={opts.onThumbError}
-          />
-          {/* Keep the Phase 10.12 social-thumb contract for existing tests. */}
-          <img
-            src={item.thumbnailUrl}
-            alt=""
-            aria-hidden
-            loading="lazy"
-            decoding="async"
-            data-testid="site-social-thumb"
-            className="sr-only"
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
             onError={opts.onThumbError}
           />
         </div>
@@ -168,109 +177,112 @@ function renderVideoCard(
         </div>
       )}
 
-      <div className="absolute inset-0 pointer-events-none" style={{ background: opts.overlay }} />
+      {/* Hover Layer: Autoplay Preview */}
+      {isHovered && previewUrl && (
+        <div className="absolute inset-0 z-10 bg-black animate-in fade-in duration-300">
+          <iframe
+            src={previewUrl}
+            className="w-full h-full pointer-events-none"
+            allow="autoplay; encrypted-media"
+            title={item.title}
+            loading="lazy"
+          />
+        </div>
+      )}
 
+      {/* Scrim Layer */}
+      <div className="absolute inset-0 z-20 pointer-events-none" style={{ background: opts.overlay }} />
+
+      {/* Top Left: Kind Badge */}
       <span
         data-testid="site-video-kind-badge"
-        className="absolute top-2 left-2 z-10 text-[8px] font-extrabold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded"
+        className="absolute top-2 left-2 z-30 text-[8px] font-extrabold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded shadow-sm"
         style={{ backgroundColor: opts.accent, color: '#141414' }}
       >
         {kindLabel}
       </span>
 
-      <div className="absolute bottom-3 left-3 right-3 text-white space-y-1.5">
-        <p className="text-[9px] font-bold uppercase tracking-[0.16em] opacity-80">
-          {opts.chrome.platforms[item.platform]}
-          {item.channelName ? ` · ${item.channelName}` : ''}
-        </p>
-        <p className="text-xs font-bold line-clamp-2" data-testid="site-video-card-title">{item.title}</p>
-        {item.description && item.origin === 'owner' && (
-          <p className="text-[10px] opacity-80 line-clamp-2" data-testid="site-video-card-description">
-            {item.description}
-          </p>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          {item.embedUrl && (
+      {/* Bottom Layout: Info (Left) + Actions (Right) */}
+      <div className="absolute inset-0 z-30 p-3 flex flex-col justify-end pointer-events-none">
+        <div className="flex items-end justify-between gap-3">
+          {/* Info Block */}
+          <div className="flex-1 min-w-0 pb-1">
+            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-white opacity-80 truncate">
+              {opts.chrome.platforms[item.platform]}
+              {item.channelName ? ` · ${item.channelName}` : ''}
+            </p>
+            <h4 className="text-xs font-bold text-white line-clamp-2 mt-0.5" data-testid="site-video-card-title">
+              {item.title}
+            </h4>
+          </div>
+
+          {/* Action Stack (Vertical) */}
+          <div className="flex flex-col items-center gap-3 shrink-0 pointer-events-auto">
+            {/* Like Button */}
+            <div className="flex flex-col items-center">
+              <button
+                type="button"
+                data-testid="site-video-like"
+                data-liked={opts.likes.likedByActor ? 'true' : 'false'}
+                disabled={opts.likePending}
+                className="site-touch p-2 rounded-full transition-all hover:bg-white/20 text-white"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  opts.onLike(item);
+                }}
+              >
+                {opts.likePending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Heart
+                    className="w-4 h-4"
+                    fill={opts.likes.likedByActor ? 'currentColor' : 'none'}
+                    style={{ color: opts.likes.likedByActor ? opts.accent : 'currentColor' }}
+                  />
+                )}
+              </button>
+              <span className="text-[10px] font-bold text-white -mt-1 drop-shadow-md" data-testid="site-video-like-count">
+                {formatLikeCount(opts.likes.total)}
+              </span>
+            </div>
+
+            {/* View Original Button */}
             <button
               type="button"
-              data-testid="site-social-play"
-              aria-label={`${opts.chrome.play} ${item.title}`}
-              className={opts.viewClass}
-              style={opts.viewStyle}
+              data-testid="site-social-view"
+              aria-label={opts.chrome.view}
+              className="site-touch p-2 rounded-full transition-all hover:bg-white/20 text-white"
               onClick={(event) => {
                 event.stopPropagation();
-                opts.onPlay(item);
+                opts.onOpen(item);
               }}
             >
-              <Play className="w-3 h-3 inline mr-1" /> {opts.chrome.play}
+              <ExternalLink className="w-4 h-4" />
             </button>
-          )}
-          <button
-            type="button"
-            data-testid="site-social-view"
-            aria-label={`${opts.chrome.view} ${item.title}`}
-            className={opts.viewClass}
-            style={opts.viewStyle}
-            onClick={(event) => {
-              event.stopPropagation();
-              opts.onOpen(item);
-            }}
-          >
-            <ExternalLink className="w-3 h-3 inline mr-1" /> {opts.chrome.view}
-          </button>
 
-          {/* PHASE 15.8 — Like button + live like count on every video. */}
-          <button
-            type="button"
-            data-testid="site-video-like"
-            data-video-id={item.id}
-            data-liked={opts.likes.likedByActor ? 'true' : 'false'}
-            aria-pressed={opts.likes.likedByActor}
-            aria-busy={opts.likePending}
-            disabled={opts.likePending}
-            aria-label={`${opts.likes.likedByActor ? opts.chrome.liked : opts.chrome.like}: ${item.title}`}
-            className={`${opts.viewClass} disabled:opacity-60`}
-            style={
-              opts.likes.likedByActor
-                ? { ...opts.viewStyle, backgroundColor: opts.accent, color: '#141414' }
-                : opts.viewStyle
-            }
-            onClick={(event) => {
-              event.stopPropagation();
-              opts.onLike(item);
-            }}
-          >
-            {opts.likePending ? (
-              <Loader2 className="w-3 h-3 inline mr-1 animate-spin" aria-hidden />
-            ) : (
-              <Heart
-                className="w-3 h-3 inline mr-1"
-                aria-hidden
-                fill={opts.likes.likedByActor ? 'currentColor' : 'none'}
-              />
+            {/* Play Button (Small indicator) */}
+            {item.embedUrl && (
+              <button
+                type="button"
+                data-testid="site-social-play"
+                className="site-touch p-2 rounded-full transition-all hover:bg-white/20 text-white"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  opts.onPlay(item);
+                }}
+              >
+                <Play className="w-4 h-4 fill-current" />
+              </button>
             )}
-            {opts.likes.likedByActor ? opts.chrome.liked : opts.chrome.like}
-            <span
-              data-testid="site-video-like-count"
-              data-count={String(opts.likes.total)}
-              className="ml-1 font-extrabold"
-            >
-              {formatLikeCount(opts.likes.total)}
-            </span>
-          </button>
+          </div>
         </div>
 
-        {opts.likePending && (
-          <p data-testid="site-video-like-pending" className="text-[9px] opacity-80" aria-live="polite">
-            {opts.chrome.likeSaving}
-          </p>
-        )}
+        {/* Error/Pending messages overlayed minimally */}
         {opts.likeError && (
           <p
             data-testid="site-video-like-error"
-            data-error={opts.likeError}
             role="alert"
-            className="text-[9px] font-semibold"
+            className="text-[8px] font-bold text-white mt-1 text-center bg-black/40 px-2 py-0.5 rounded-full"
           >
             {opts.likeErrorText(opts.likeError)}
           </p>
@@ -279,6 +291,8 @@ function renderVideoCard(
     </article>
   );
 }
+
+
 
 export default function SiteVideoGallery({ themeId, data, mode }: Props) {
   const locale = useSiteLocale();
@@ -445,7 +459,7 @@ export default function SiteVideoGallery({ themeId, data, mode }: Props) {
     item.kind === 'short' ? config.shortTileRatio : config.longTileRatio;
 
   const chipBase =
-    'site-touch text-[10px] font-bold uppercase tracking-[0.12em] px-3 py-1.5 border transition-colors';
+    'site-touch text-[9px] font-bold uppercase tracking-[0.12em] px-2 py-1 border transition-colors';
   const chipActive = {
     backgroundColor: visual.accent,
     color: '#141414',
@@ -495,7 +509,7 @@ export default function SiteVideoGallery({ themeId, data, mode }: Props) {
                 key={source.platform}
                 type="button"
                 data-testid={`site-social-source-${source.platform}`}
-                className={`site-touch inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold ${visual.radius || ''}`}
+                className={`site-touch inline-flex items-center gap-1.5 px-2 py-1 text-[9px] font-bold ${visual.radius || ''}`}
                 style={{
                   backgroundColor: visual.chipBg,
                   color: visual.textStrong,
@@ -570,33 +584,37 @@ export default function SiteVideoGallery({ themeId, data, mode }: Props) {
               data-kind-filter={kindFilter}
               className={`grid gap-4 ${siteGrid(mode, config.grid)}`}
             >
-              {visible.map((item) =>
-                renderVideoCard(item, {
-                  mode,
-                  tileRatio: tileRatioFor(item),
-                  radius: visual.radius,
-                  cardLine: visual.cardLine,
-                  overlay: visual.overlay,
-                  viewClass: visual.viewClass,
-                  viewStyle: visual.viewStyle,
-                  chrome,
-                  thumbBroken: !!broken[item.id],
-                  onThumbError: () => mark(item.id),
-                  onPlay: playVideo,
-                  onOpen: openOriginal,
-                  accent: visual.accent,
-                  likes: likeSummaries[item.id] || {
-                    videoId: item.id,
-                    total: 0,
-                    weekly: 0,
-                    likedByActor: false,
-                  },
-                  likePending: pendingLikeId === item.id,
-                  likeError: likeErrors[item.id] || null,
-                  onLike: likeVideo,
-                  likeErrorText,
-                }),
-              )}
+              {visible.map((item) => (
+                <VideoCard
+                  key={item.id}
+                  item={item}
+                  opts={{
+                    mode,
+                    tileRatio: tileRatioFor(item),
+                    radius: visual.radius,
+                    cardLine: visual.cardLine,
+                    overlay: visual.overlay,
+                    viewClass: visual.viewClass,
+                    viewStyle: visual.viewStyle,
+                    chrome,
+                    thumbBroken: !!broken[item.id],
+                    onThumbError: () => mark(item.id),
+                    onPlay: playVideo,
+                    onOpen: openOriginal,
+                    accent: visual.accent,
+                    likes: likeSummaries[item.id] || {
+                      videoId: item.id,
+                      total: 0,
+                      weekly: 0,
+                      likedByActor: false,
+                    },
+                    likePending: pendingLikeId === item.id,
+                    likeError: likeErrors[item.id] || null,
+                    onLike: likeVideo,
+                    likeErrorText,
+                  }}
+                />
+              ))}
             </div>
 
             {/* PHASE 15.8 — Weekly Top Videos (theme-scoped, Shorts + Long). */}

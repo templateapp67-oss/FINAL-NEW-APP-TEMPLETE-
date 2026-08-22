@@ -5,6 +5,7 @@ import TemplateRenderer from '../components/TemplateRenderer';
 import ShareReferralPremium from '../components/ShareReferralPremium';
 import BrandingWhiteLabel from '../components/BrandingWhiteLabel';
 import TemplateSelectionDashboard from '../components/TemplateSelectionDashboard';
+import ThemeSwitcher from '../components/ThemeSwitcher';
 import OwnerAvatar from '../components/OwnerAvatar';
 import { ThemeId } from '../lib/themeServices';
 import { SALON_NAME_FONTS, SALON_NAME_COLORS } from '../lib/brandIdentity';
@@ -2256,7 +2257,14 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                         <h4 className="font-bold text-gray-900 text-xs uppercase tracking-wider">Live Sandbox Preview</h4>
                       </div>
 
-                      <div className="flex bg-gray-100 p-0.5 rounded-xl border border-gray-200 text-[11px] font-bold">
+                      <div className="flex items-center gap-2">
+                        <ThemeSwitcher 
+                          variant="minimal"
+                          currentTheme={normalizeThemeId(data.templateId)} 
+                          onThemeChange={(id) => onThemeChange ? onThemeChange(id) : setData(prev => ({ ...prev, templateId: id }))} 
+                        />
+
+                        <div className="flex bg-gray-100 p-0.5 rounded-xl border border-gray-200 text-[11px] font-bold">
                         <button
                           type="button"
                           onClick={() => setMode('desktop')}
@@ -2277,6 +2285,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                         </button>
                       </div>
                     </div>
+                  </div>
 
                     {/* Actual iframe/rendering sandbox box */}
                     <div className="bg-gray-100 rounded-3xl p-3 border border-gray-200/80 shadow-lg relative overflow-hidden flex justify-center items-center" style={{ minHeight: '620px' }}>

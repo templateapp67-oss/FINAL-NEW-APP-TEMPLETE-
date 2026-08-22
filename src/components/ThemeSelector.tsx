@@ -41,6 +41,15 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
       image: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?q=80&w=600&auto=format&fit=crop',
     },
     {
+      id: 'hair_studio_color_bar' as ThemeId,
+      name: 'Hair Studio & Color Bar',
+      category: 'Premium Studio',
+      tagline: 'Modern studio, minimalist monochrome + rose-gold, premium editorial aesthetics.',
+      accent: '#b76e79',
+      badgeBg: 'bg-[#f4e5e7] text-[#9d5a63]',
+      image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=600&auto=format&fit=crop',
+    },
+    {
       id: 'beauty_skin_spa' as ThemeId,
       name: 'Beauty, Skin & Spa',
       category: 'Spa & Wellness',

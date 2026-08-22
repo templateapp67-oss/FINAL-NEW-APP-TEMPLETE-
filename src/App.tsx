@@ -222,6 +222,13 @@ export default function App() {
     }));
   };
 
+  const handleThemeSwitchPreview = (nextTheme: ThemeId) => {
+    setData(prev => ({
+      ...prev,
+      templateId: nextTheme,
+    }));
+  };
+
   const nextStep = () => setStep(s => {
     const next = Math.min(MAX_STEP_INDEX, s + 1);
     setData(prev => ({ ...prev, lastCompletedStep: Math.max(prev.lastCompletedStep || 0, s) }));
@@ -243,9 +250,14 @@ export default function App() {
     const isSalonSnapshot =
       typeof nextDataOrMessage === 'object' &&
       nextDataOrMessage !== null &&
-      'salonName' in nextDataOrMessage &&
-      'services' in nextDataOrMessage;
-    const dataToSave = isSalonSnapshot ? nextDataOrMessage : data;
+      'salonName' in nextDataOrMessage;
+    
+    const dataToSave = isSalonSnapshot ? (nextDataOrMessage as SalonData) : data;
+    
+    if (isSalonSnapshot) {
+      setData(dataToSave);
+    }
+    
     setSaveStatus('saving');
     try {
       localStorage.setItem(
@@ -266,12 +278,17 @@ export default function App() {
         })
       );
     } catch (e) {
-      console.error(e);
+      console.error('Save failed:', e);
+      showToast('Storage full! Try removing some photos.');
     }
     setTimeout(() => {
       setSaveStatus('saved');
-      showToast('Changes Saved');
-    }, 200);
+      if (typeof nextDataOrMessage === 'string') {
+        showToast(nextDataOrMessage);
+      } else {
+        showToast('Changes Saved');
+      }
+    }, 800);
   };
 
   // Universal 25-screen navigator
@@ -347,7 +364,7 @@ export default function App() {
             onOpenStaffManagement={() => setActiveModule('staff-management')}
             forcedActiveTab={dashboardTab as any}
             onTabChange={(tab: any) => setDashboardTab(tab)}
-            onThemeChange={handleThemeChange}
+            onThemeChange={handleThemeSwitchPreview}
           />
         </main>
         <AnimatePresence>
@@ -600,7 +617,7 @@ export default function App() {
           
           {/* FIXED STEPS 12-15 - Previously not rendering */}
           {step === 11 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 12 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 12 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeSwitchPreview} />}
           {step === 13 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 14 && <StepPublishSuccess data={data} setData={setData} onNext={() => {
             setData(prev => ({ ...prev, publishState: 'published' }));

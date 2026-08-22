@@ -7,13 +7,14 @@ import { SalonData, TeamMember, AppAccessRole, StaffStatus, WeeklySchedule, DEFA
 import PreviewPane from '../components/PreviewPane';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, FormEvent, useRef, DragEvent } from 'react';
+import { compressImageToMaxFileSize } from '../lib/imageCompression';
 
 interface Props {
   data: SalonData;
   setData: (d: SalonData) => void;
   onNext: () => void;
   onPrev: () => void;
-  onSave?: () => void;
+  onSave?: (d?: SalonData) => void;
   onOpenStaffManagement?: () => void;
 }
 
@@ -117,6 +118,8 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
   // AI loading state
   const [generatingIds, setGeneratingIds] = useState<Record<string, boolean>>({});
   const [isGeneratingFormBio, setIsGeneratingFormBio] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Helper to get effective role string
   const getEffectiveRole = (pRole: string, cRole: string) => {
@@ -154,16 +157,31 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
     syncLiveEdit({ imageUrl: newUrl });
   };
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      if (dataUrl) {
-        handleUpdateImage(dataUrl);
-      }
-    };
-    reader.readAsDataURL(file);
+    
+    setIsUploadingPhoto(true);
+    try {
+      // Compress to ~50KB and 400px max for avatars
+      const compressedFile = await compressImageToMaxFileSize(file, 0.05, 400);
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (dataUrl) {
+          handleUpdateImage(dataUrl);
+        }
+        setIsUploadingPhoto(false);
+      };
+      reader.onerror = () => {
+        console.error('Failed to read image file');
+        setIsUploadingPhoto(false);
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (err) {
+      console.error('Image upload/compression failed:', err);
+      setIsUploadingPhoto(false);
+    }
   };
 
   const handleDrop = (e: DragEvent) => {
@@ -301,8 +319,9 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
         const updatedTeam = data.team.map(m =>
           m.id === member.id ? { ...m, bio: result.bio } : m
         );
-        setData({ ...data, team: updatedTeam });
-        if (onSave) onSave();
+        const nextData = { ...data, team: updatedTeam };
+        setData(nextData);
+        if (onSave) onSave(nextData);
       }
     } catch (err) {
       console.error('Failed to generate bio:', err);
@@ -315,7 +334,9 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
     e.preventDefault();
     if (!name.trim()) return;
 
+    setIsSaving(true);
     const effectiveRole = getEffectiveRole(primaryRole, customRole);
+    let nextData: SalonData;
 
     if (editingId) {
       const updatedTeam = data.team.map(member => 
@@ -337,7 +358,7 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
             }
           : member
       );
-      setData({ ...data, team: updatedTeam });
+      nextData = { ...data, team: updatedTeam };
     } else {
       const newMember: TeamMember = {
         id: 'team-' + Date.now(),
@@ -354,19 +375,26 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
         assignedServiceIds,
         schedule
       };
-      setData({ ...data, team: [...data.team, newMember] });
+      nextData = { ...data, team: [...data.team, newMember] };
     }
 
+    setData(nextData);
     resetForm();
-    if (onSave) onSave();
+    
+    if (onSave) {
+      onSave(nextData);
+    }
+    
+    setTimeout(() => setIsSaving(false), 800);
   };
 
   const handleDelete = (id: string) => {
-    setData({
+    const nextData = {
       ...data,
       team: data.team.filter(m => m.id !== id)
-    });
-    if (onSave) onSave();
+    };
+    setData(nextData);
+    if (onSave) onSave(nextData);
   };
 
   const moveStaff = (index: number, direction: 'up' | 'down') => {
@@ -376,8 +404,9 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
     const temp = newTeam[index];
     newTeam[index] = newTeam[targetIndex];
     newTeam[targetIndex] = temp;
-    setData({ ...data, team: newTeam });
-    if (onSave) onSave();
+    const nextData = { ...data, team: newTeam };
+    setData(nextData);
+    if (onSave) onSave(nextData);
   };
 
   // Schedule action helpers
@@ -544,20 +573,29 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
                             alt="Staff Preview" 
                             className="w-16 h-16 rounded-full object-cover border-2 border-[#ac0053] shadow-xs" 
                           />
+                          {isUploadingPhoto && (
+                            <div className="absolute inset-0 bg-white/60 rounded-full flex items-center justify-center">
+                              <Loader2 className="w-5 h-5 text-[#ac0053] animate-spin" />
+                            </div>
+                          )}
                           <div className="absolute -bottom-1 -right-1 bg-[#ac0053] text-white p-1 rounded-full shadow-xs">
                             <Check className="w-3 h-3" />
                           </div>
                         </div>
                       ) : (
                         <div className="w-16 h-16 rounded-full bg-[#ffd9e1]/40 text-[#ac0053] flex items-center justify-center shrink-0">
-                          <Upload className="w-6 h-6" />
+                          {isUploadingPhoto ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
                         </div>
                       )}
 
                       <div className="text-center sm:text-left">
                         <div className="text-xs font-bold text-gray-800 flex items-center justify-center sm:justify-start gap-1.5">
-                          <Upload className="w-3.5 h-3.5 text-[#ac0053]" /> 
-                          <span>[ + Upload Staff Photo ] or drag & drop</span>
+                          {isUploadingPhoto ? (
+                            <Loader2 className="w-3.5 h-3.5 text-[#ac0053] animate-spin" />
+                          ) : (
+                            <Upload className="w-3.5 h-3.5 text-[#ac0053]" /> 
+                          )}
+                          <span>{isUploadingPhoto ? 'Processing Image...' : '[ + Upload Staff Photo ] or drag & drop'}</span>
                         </div>
                         <p className="text-[11px] text-gray-500 mt-0.5">
                           High resolution portrait. Updates live preview immediately.
@@ -943,15 +981,24 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
                     <button 
                       type="button" 
                       onClick={resetForm} 
-                      className="px-4 py-2 text-xs font-semibold text-[#5f5e5e] hover:bg-gray-100 rounded-xl"
+                      disabled={isSaving || isUploadingPhoto}
+                      className="px-4 py-2 text-xs font-semibold text-[#5f5e5e] hover:bg-gray-100 rounded-xl disabled:opacity-50"
                     >
                       Cancel
                     </button>
                     <button 
                       type="submit" 
-                      className="px-6 py-2.5 text-xs bg-[#ac0053] text-white font-bold rounded-xl hover:bg-[#ba005b] shadow-xs"
+                      disabled={isSaving || isUploadingPhoto}
+                      className="px-6 py-2.5 text-xs bg-[#ac0053] text-white font-bold rounded-xl hover:bg-[#ba005b] shadow-xs flex items-center justify-center gap-2 min-w-[140px] disabled:bg-gray-400"
                     >
-                      {editingId ? 'Update Staff Member' : 'Save Staff Member'}
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        editingId ? 'Update Staff Member' : 'Save Staff Member'
+                      )}
                     </button>
                   </div>
                 </motion.form>

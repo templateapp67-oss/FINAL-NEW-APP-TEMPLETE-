@@ -42,9 +42,10 @@ import {
   readPaymentRecords,
   readPaymentRecordsForBusiness,
 } from './siteBookingPayment';
-import type { BookingStatus, PaymentRecord, PaymentStatus } from './siteBookingPayment';
+import type { BookingStatus, PaymentRecord, PaymentStatus, PaymentOption } from './siteBookingPayment';
 import { bookingBrowserId } from './siteBookingFlow';
 import { PAYMENT_STORE_KEY, PAYMENT_STORE_VERSION } from './siteBookingPayment';
+import { isSupabaseConfigured } from './supabaseClient';
 
 /* ------------------------------------------------------------------ */
 /* Actor resolution (mirrors 14.6 gallery / 15.6 video management)     */
@@ -159,7 +160,132 @@ export function readSalonBookings(
   if (!actorAllowsBusiness(actor, businessId)) {
     return { ok: false, reason: 'permission-denied' };
   }
-  return { ok: true, records: readPaymentRecordsForBusiness(businessId, themeId) };
+  const records = readPaymentRecordsForBusiness(businessId, themeId);
+  if (records.length === 0 && (businessId.startsWith('mock-') || !isSupabaseConfigured)) {
+    return { ok: true, records: generateMockBookings(businessId, themeId) };
+  }
+  return { ok: true, records };
+}
+
+/**
+ * PHASE 17.1 — Mock booking generator for dashboard preview.
+ * Returns a stable set of mock bookings for "today" and "upcoming".
+ */
+function generateMockBookings(businessId: string, themeId: string): PaymentRecord[] {
+  const now = new Date();
+  const todayKey = now.toISOString().split('T')[0];
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowKey = tomorrow.toISOString().split('T')[0];
+
+  const mockRecords: PaymentRecord[] = [
+    {
+      id: 'mock-b1',
+      bookingId: 'NX-10482',
+      idempotencyKey: 'mock-i1',
+      businessId,
+      themeId: themeId as any,
+      customerId: 'mock-c1',
+      customer: { name: 'Aditi Sharma', mobile: '+91 98765 43210', email: 'aditi@example.com' },
+      serviceId: 's1',
+      serviceName: 'Hair Styling & Cut',
+      services: [{ serviceId: 's1', serviceName: 'Hair Styling & Cut', price: 1200, durationMinutes: 60 }],
+      dateKey: todayKey,
+      startMinutes: 600, // 10:00 AM
+      endMinutes: 660,   // 11:00 AM
+      bookingStatus: 'confirmed',
+      paymentStatus: 'paid',
+      paymentOption: 'advance',
+      paymentMethod: 'card',
+      payAtSalon: false,
+      baseAmount: 1200,
+      amountDue: 500, // Advance paid
+      remainingAmount: 700,
+      currency: 'INR',
+      createdAt: Date.now() - 3600000,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'mock-b2',
+      bookingId: 'NX-10483',
+      idempotencyKey: 'mock-i2',
+      businessId,
+      themeId: themeId as any,
+      customerId: 'mock-c2',
+      customer: { name: 'Rahul Verma', mobile: '+91 91234 56789' },
+      serviceId: 's2',
+      serviceName: 'Luxury Spa Pedicure',
+      services: [{ serviceId: 's2', serviceName: 'Luxury Spa Pedicure', price: 850, durationMinutes: 60 }],
+      dateKey: todayKey,
+      startMinutes: 690, // 11:30 AM
+      endMinutes: 750,   // 12:30 PM
+      bookingStatus: 'pay_at_salon',
+      paymentStatus: 'pending',
+      paymentOption: 'pay_at_salon',
+      paymentMethod: 'salon',
+      payAtSalon: true,
+      baseAmount: 850,
+      amountDue: 0,
+      remainingAmount: 850,
+      currency: 'INR',
+      createdAt: Date.now() - 7200000,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'mock-b3',
+      bookingId: 'NX-10484',
+      idempotencyKey: 'mock-i3',
+      businessId,
+      themeId: themeId as any,
+      customerId: 'mock-c3',
+      customer: { name: 'Priya Singh', mobile: '+91 99887 76655' },
+      serviceId: 's3',
+      serviceName: 'Bridal Makeup',
+      services: [{ serviceId: 's3', serviceName: 'Bridal Makeup', price: 5000, durationMinutes: 180 }],
+      dateKey: tomorrowKey,
+      startMinutes: 540, // 9:00 AM
+      endMinutes: 720,   // 12:00 PM
+      bookingStatus: 'confirmed',
+      paymentStatus: 'paid',
+      paymentOption: 'advance',
+      paymentMethod: 'upi',
+      payAtSalon: false,
+      baseAmount: 5000,
+      amountDue: 1500,
+      remainingAmount: 3500,
+      currency: 'INR',
+      createdAt: Date.now() - 86400000,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'mock-b4',
+      bookingId: 'NX-10485',
+      idempotencyKey: 'mock-i4',
+      businessId,
+      themeId: themeId as any,
+      customerId: 'mock-c1', // Returning customer
+      customer: { name: 'Aditi Sharma', mobile: '+91 98765 43210' },
+      serviceId: 's4',
+      serviceName: 'Nail Art',
+      services: [{ serviceId: 's4', serviceName: 'Nail Art', price: 600, durationMinutes: 60 }],
+      dateKey: tomorrowKey,
+      startMinutes: 840, // 2:00 PM
+      endMinutes: 900,   // 3:00 PM
+      bookingStatus: 'pending_payment',
+      paymentStatus: 'pending',
+      paymentOption: 'full',
+      paymentMethod: 'card',
+      payAtSalon: false,
+      baseAmount: 600,
+      amountDue: 0,
+      remainingAmount: 600,
+      currency: 'INR',
+      createdAt: Date.now() - 100000,
+      updatedAt: Date.now(),
+    },
+  ];
+
+  return mockRecords;
 }
 
 /* ------------------------------------------------------------------ */

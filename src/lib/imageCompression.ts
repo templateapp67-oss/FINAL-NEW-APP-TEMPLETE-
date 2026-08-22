@@ -48,6 +48,9 @@ export const compressImageToMaxFileSize = async (
 
         let quality = 0.9;
         const compress = () => {
+          // Force JPEG for compression if quality reduction is needed
+          const mimeType = (quality < 0.9 || file.type === 'image/png') ? 'image/jpeg' : file.type;
+          
           canvas.toBlob(
             (blob) => {
               if (!blob) {
@@ -55,17 +58,26 @@ export const compressImageToMaxFileSize = async (
                 return;
               }
               
-              if (blob.size <= maxSizeBytes || quality <= 0.1) {
-                resolve(new File([blob], file.name, {
-                  type: file.type,
+              if (blob.size <= maxSizeBytes || (quality <= 0.1 && width <= maxWidthOrHeight / 2)) {
+                resolve(new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+                  type: 'image/jpeg',
                   lastModified: Date.now(),
                 }));
-              } else {
+              } else if (quality > 0.1) {
                 quality -= 0.1;
+                compress();
+              } else {
+                // If quality is already low, try reducing dimensions further
+                width = Math.round(width * 0.7);
+                height = Math.round(height * 0.7);
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+                quality = 0.5; // Reset quality for new dimensions
                 compress();
               }
             },
-            file.type === 'image/png' ? 'image/png' : 'image/jpeg',
+            'image/jpeg',
             quality
           );
         };

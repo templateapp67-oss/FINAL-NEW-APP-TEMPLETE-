@@ -41,7 +41,7 @@ export function socialVisuals(themeId: SiteHeaderThemeId, appearance: WebsiteApp
       radius: '',
       headingClass: 'text-2xl md:text-3xl font-black uppercase tracking-[0.05em]',
       eyebrowClass: 'text-[10px] font-bold uppercase tracking-[0.35em]',
-      viewClass: 'site-touch px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.16em]',
+      viewClass: 'site-touch px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em]',
       viewStyle: { backgroundColor: t.gold, color: '#141414' },
       overlay: 'linear-gradient(to top, rgba(0,0,0,0.85), transparent)',
     };
@@ -58,7 +58,7 @@ export function socialVisuals(themeId: SiteHeaderThemeId, appearance: WebsiteApp
       radius: '',
       headingClass: 'text-2xl md:text-3xl font-serif',
       eyebrowClass: 'text-[10px] uppercase tracking-[0.4em] font-semibold',
-      viewClass: 'site-touch px-3 py-1.5 text-[9px] uppercase tracking-[0.18em] font-semibold border',
+      viewClass: 'site-touch px-2 py-1 text-[9px] uppercase tracking-[0.18em] font-semibold border',
       viewStyle: { borderColor: t.rose, color: '#ffffff', backgroundColor: 'transparent' },
       overlay: 'linear-gradient(to top, rgba(25,24,23,0.85), transparent)',
     };
@@ -75,7 +75,7 @@ export function socialVisuals(themeId: SiteHeaderThemeId, appearance: WebsiteApp
       radius: 'rounded-[1.5rem]',
       headingClass: 'text-2xl md:text-3xl font-serif',
       eyebrowClass: 'text-[10px] uppercase tracking-[0.4em] font-semibold',
-      viewClass: 'site-touch px-3 py-1.5 rounded-full text-[9px] uppercase tracking-[0.16em] font-semibold',
+      viewClass: 'site-touch px-2 py-1 rounded-full text-[9px] uppercase tracking-[0.16em] font-semibold',
       viewStyle: { backgroundColor: t.emerald, color: '#ffffff' },
       overlay: 'linear-gradient(to top, rgba(21,89,74,0.85), transparent)',
     };
@@ -92,7 +92,7 @@ export function socialVisuals(themeId: SiteHeaderThemeId, appearance: WebsiteApp
       radius: 'rounded-[1.5rem]',
       headingClass: 'text-2xl md:text-3xl font-extrabold tracking-[-0.03em]',
       eyebrowClass: 'text-[10px] font-extrabold uppercase tracking-[0.24em]',
-      viewClass: 'site-touch rounded-xl px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.12em]',
+      viewClass: 'site-touch rounded-xl px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em]',
       viewStyle: { backgroundColor: t.teal, color: '#ffffff' },
       overlay: 'linear-gradient(to top, rgba(18,56,91,0.80), transparent)',
     };
@@ -108,7 +108,7 @@ export function socialVisuals(themeId: SiteHeaderThemeId, appearance: WebsiteApp
     radius: 'rounded-[1.5rem]',
     headingClass: 'text-2xl md:text-3xl font-extrabold tracking-[-0.02em]',
     eyebrowClass: 'text-[9px] font-extrabold uppercase tracking-[0.28em]',
-    viewClass: 'site-touch rounded-full px-3 py-1.5 text-[8px] font-extrabold uppercase tracking-[0.16em]',
+    viewClass: 'site-touch rounded-full px-2 py-1 text-[8px] font-extrabold uppercase tracking-[0.16em]',
     viewStyle: { backgroundColor: t.pink, color: '#ffffff' },
     overlay: 'linear-gradient(to top, rgba(33,27,36,0.80), transparent)',
   };

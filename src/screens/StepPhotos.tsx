@@ -1,7 +1,7 @@
 import { 
   ArrowLeft, ArrowRight, Plus, Edit2, Trash2, X, Image as ImageIcon, Monitor, 
   Sparkles, Upload, Check, ChevronLeft, ChevronRight, Wand2, Eye, RefreshCw,
-  ArrowLeftRight, ShieldAlert
+  ArrowLeftRight, ShieldAlert, Loader2
 } from 'lucide-react';
 import { SalonData, GalleryImage } from '../types';
 import PreviewPane from '../components/PreviewPane';
@@ -34,7 +34,7 @@ interface Props {
   setData: (d: SalonData) => void;
   onNext: () => void;
   onPrev: () => void;
-  onSave?: () => void;
+  onSave?: (d?: SalonData) => void;
 }
 
 const DEMO_GALLERY_PRESETS: GalleryImage[] = [
@@ -96,6 +96,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   // PHASE 14.6 — upload progress + error (with retry)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [beforeUploadProgress, setBeforeUploadProgress] = useState<number | null>(null);
   const beforeInputRef = useRef<HTMLInputElement>(null);
 
@@ -130,46 +131,64 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
     setTimeout(() => setFeedback(null), 2500);
   };
 
-  const persistSinglePhoto = async (file: File, mediaType: 'logo' | 'hero') => {
-    if (!file || !file.type.startsWith('image/')) return;
-    if (isSupabaseConfigured) {
-      setUploadError(null);
-      setUploadProgress(20);
-      try {
-        const resolution = await resolveOwnerSalonId();
-        if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
-        const media = await uploadSalonMedia({
-          salonId: resolution.salonId,
-          file,
-          mediaType,
-          title: file.name.replace(/\.[^/.]+$/, ''),
-          status: 'active',
-        });
-        if (!media.signedUrl) throw new Error('The uploaded image preview could not be created.');
-        setData(mediaType === 'logo'
-          ? { ...data, logoUrl: media.signedUrl }
-          : { ...data, heroImageUrl: media.signedUrl });
-        setUploadProgress(100);
-        showFeedback(mediaType === 'logo' ? 'Logo uploaded securely' : 'Main photo uploaded securely');
-        if (onSave) onSave();
-      } catch (error) {
-        setUploadError(error instanceof Error ? error.message : 'Unable to upload this image.');
-      } finally {
-        setUploadProgress(null);
+  const persistSinglePhoto = async (rawFile: File, mediaType: 'logo' | 'hero') => {
+    if (!rawFile || !rawFile.type.startsWith('image/')) return;
+    setIsProcessing(true);
+    try {
+      // Auto-resize to 0.25MB max for localStorage friendliness
+      const file = await compressImageToMaxFileSize(rawFile, 0.25);
+      if (file.size < rawFile.size) {
+        showFeedback(`Resized to ${formatFileSize(file.size)}`);
+      } else {
+        showFeedback(`Uploading ${formatFileSize(file.size)}...`);
       }
-      return;
-    }
 
-    // Explicit offline/demo fallback only. Configured deployments use Storage.
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const url = event.target?.result as string;
-      if (!url) return;
-      setData(mediaType === 'logo' ? { ...data, logoUrl: url } : { ...data, heroImageUrl: url });
-      showFeedback(mediaType === 'logo' ? 'Logo updated successfully' : 'Main photo updated successfully');
-      if (onSave) onSave();
-    };
-    reader.readAsDataURL(file);
+      if (isSupabaseConfigured) {
+        setUploadError(null);
+        setUploadProgress(20);
+        try {
+          const resolution = await resolveOwnerSalonId();
+          if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
+          const media = await uploadSalonMedia({
+            salonId: resolution.salonId,
+            file,
+            mediaType,
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            status: 'active',
+          });
+          if (!media.signedUrl) throw new Error('The uploaded image preview could not be created.');
+          const nextData = mediaType === 'logo'
+            ? { ...data, logoUrl: media.signedUrl }
+            : { ...data, heroImageUrl: media.signedUrl };
+          setData(nextData);
+          setUploadProgress(100);
+          showFeedback(mediaType === 'logo' ? 'Logo uploaded securely' : 'Main photo uploaded securely');
+          if (onSave) onSave(nextData);
+        } catch (error) {
+          setUploadError(error instanceof Error ? error.message : 'Unable to upload this image.');
+        } finally {
+          setUploadProgress(null);
+        }
+        return;
+      }
+
+      // Explicit offline/demo fallback only. Configured deployments use Storage.
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const url = event.target?.result as string;
+        if (!url) return;
+        const nextData = mediaType === 'logo' ? { ...data, logoUrl: url } : { ...data, heroImageUrl: url };
+        setData(nextData);
+        showFeedback(mediaType === 'logo' ? 'Logo updated successfully' : 'Main photo updated successfully');
+        if (onSave) onSave(nextData);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Photo persistence failed:', err);
+      showFeedback('Failed to process image');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleLogoFile = (file: File) => { void persistSinglePhoto(file, 'logo'); };
@@ -179,10 +198,12 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   const handleGalleryFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (list.length === 0) return;
-    setUploadError(null);
-    setUploadProgress(0);
+    setIsProcessing(true);
+    try {
+      setUploadError(null);
+      setUploadProgress(0);
 
-    if (isSupabaseConfigured) {
+      if (isSupabaseConfigured) {
       const uploaded: Awaited<ReturnType<typeof uploadSalonMedia>>[] = [];
       try {
         const resolution = await resolveOwnerSalonId();
@@ -214,9 +235,10 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
           status: 'active',
           moderation: 'pending',
         }));
-        setData({ ...data, gallery: [...currentGallery, ...newItems] });
+        const nextData = { ...data, gallery: [...currentGallery, ...newItems] };
+        setData(nextData);
         showFeedback(`Uploaded ${newItems.length} photo(s) for moderation`);
-        if (onSave) onSave();
+        if (onSave) onSave(nextData);
       } catch (error) {
         // Preserve all-or-nothing UI semantics. Best-effort delete any objects
         // persisted earlier in this batch when a later upload fails.
@@ -230,7 +252,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
 
     const valid: { file: File; url: string }[] = [];
     for (const rawFile of list) {
-      const file = await compressImageToMaxFileSize(rawFile, 5);
+      const file = await compressImageToMaxFileSize(rawFile, 0.2);
       if (file.size < rawFile.size) {
         showFeedback(`Resized ${formatFileSize(rawFile.size)} to ${formatFileSize(file.size)}`);
       } else {
@@ -267,11 +289,18 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
         // PHASE 14.7 — new uploads enter moderation as pending.
         moderation: 'pending',
       }));
-      setData({ ...data, gallery: [...currentGallery, ...newItems] });
+      const nextData = { ...data, gallery: [...currentGallery, ...newItems] };
+      setData(nextData);
       showFeedback(`Added ${newItems.length} photo(s) to gallery`);
-      if (onSave) onSave();
+      if (onSave) onSave(nextData);
     }
-    setUploadProgress(null);
+    } catch (err) {
+      console.error('Gallery files processing failed:', err);
+      showFeedback('Failed to process gallery images');
+    } finally {
+      setUploadProgress(null);
+      setIsProcessing(false);
+    }
   };
 
   // Drag & drop handlers
@@ -301,14 +330,15 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
 
   // Use Demo Photos Action
   const handleUseDemoPhotos = () => {
-    setData({
+    const nextData = {
       ...data,
       heroImageUrl: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?q=80&w=1000&auto=format&fit=crop',
-      heroPosition: 'Center',
+      heroPosition: 'Center' as const,
       gallery: DEMO_GALLERY_PRESETS
-    });
+    };
+    setData(nextData);
     showFeedback('Applied demo stock photo gallery!');
-    if (onSave) onSave();
+    if (onSave) onSave(nextData);
   };
 
   // Remove gallery image
@@ -324,8 +354,9 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
       }
     }
     const updated = current.filter(img => img.id !== id);
-    setData({ ...data, gallery: updated });
-    if (onSave) onSave();
+    const nextData = { ...data, gallery: updated };
+    setData(nextData);
+    if (onSave) onSave(nextData);
   };
 
   // Reorder gallery images (persists displayOrder)
@@ -337,8 +368,9 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
     current[index] = current[target];
     current[target] = temp;
     const ordered = applyGalleryDisplayOrder(current, current.map((img) => img.id));
-    setData({ ...data, gallery: ordered });
-    if (onSave) onSave();
+    const nextData = { ...data, gallery: ordered };
+    setData(nextData);
+    if (onSave) onSave(nextData);
   };
 
   // Open the extended edit modal for an image
@@ -392,10 +424,11 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
       }
       return img;
     });
-    setData({ ...data, gallery: current });
+    const nextData = { ...data, gallery: current };
+    setData(nextData);
     setEditingImageId(null);
     showFeedback('Photo details saved');
-    if (onSave) onSave();
+    if (onSave) onSave(nextData);
   };
 
   const galleryList = data.gallery || [];
@@ -513,20 +546,29 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                       alt="Salon Logo"
                       className="w-20 h-20 object-contain rounded-lg border border-gray-200 p-2 bg-white shadow-xs"
                     />
+                    {isProcessing && (
+                      <div className="absolute inset-0 bg-white/60 rounded-lg flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 text-[#ac0053] animate-spin" />
+                      </div>
+                    )}
                     <div className="absolute -bottom-1 -right-1 bg-[#ac0053] text-white p-1 rounded-full shadow-xs">
                       <Check className="w-3 h-3" />
                     </div>
                   </div>
                 ) : (
                   <div className="w-16 h-16 rounded-full bg-[#ffd9e1]/50 text-[#ac0053] flex items-center justify-center shrink-0">
-                    <Upload className="w-6 h-6" />
+                    {isProcessing ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
                   </div>
                 )}
 
                 <div className="text-center sm:text-left">
                   <div className="text-xs font-bold text-gray-900 flex items-center justify-center sm:justify-start gap-1.5">
-                    <Upload className="w-3.5 h-3.5 text-[#ac0053]" />
-                    <span>{data.logoUrl ? 'Change Salon Logo' : '+ Add Logo'}</span>
+                    {isProcessing ? (
+                      <Loader2 className="w-3.5 h-3.5 text-[#ac0053] animate-spin" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5 text-[#ac0053]" />
+                    )}
+                    <span>{isProcessing ? 'Processing Image...' : (data.logoUrl ? 'Change Salon Logo' : '+ Add Logo')}</span>
                   </div>
                   <p className="text-[11px] text-gray-500 mt-0.5">
                     Click to browse or drag & drop transparent logo. Displays in header.
@@ -561,7 +603,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
               </div>
 
               <p className="text-xs text-gray-600 leading-relaxed">
-                This is the first image clients will see. Choose a wide shot of your interior or a stunning portrait.
+                This is the first image clients will see. Choose a wide shot of your interior or a stunning portrait. Files auto-resized to 5MB max.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4">

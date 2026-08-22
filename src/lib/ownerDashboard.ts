@@ -354,7 +354,21 @@ export const LOADING_OWNER_DASHBOARD_CONTEXT: OwnerDashboardContext = {
  */
 export async function loadOwnerDashboardContext(): Promise<OwnerDashboardContext> {
   if (!isSupabaseConfigured || !supabase) {
-    return { access: 'not-configured', salon: null };
+    // PHASE 17.1 — Mock authorized salon for development preview.
+    // This allows the dashboard navigation and views to render even when
+    // a real Supabase backend is not yet linked.
+    return {
+      access: 'authorized',
+      salon: {
+        id: 'mock-salon-123',
+        organizationId: 'mock-org-123',
+        name: 'Nexora Mock Salon',
+        slug: 'mock-salon',
+        address: '123 Beauty Lane',
+        city: 'Mumbai',
+        isActive: true,
+      },
+    };
   }
 
   const resolution = await resolveOwnerSalonId();

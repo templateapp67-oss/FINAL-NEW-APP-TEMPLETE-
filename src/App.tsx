@@ -198,6 +198,10 @@ export default function App() {
       setSaveStatus('saving');
       void saveOwnerWebsiteDraft(data)
         .then((saved) => {
+          if (!saved) {
+            setSaveStatus('saved');
+            return;
+          }
           setData((current) => current.salonId === saved.salonId
             ? current
             : { ...current, salonId: saved.salonId, websiteSlug: saved.slug, publishState: saved.isPublished ? 'published' : 'draft' });
@@ -350,7 +354,7 @@ export default function App() {
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
         />
-        <main className="flex-1 flex overflow-hidden">
+        <main className="flex-1 flex overflow-hidden min-h-0 w-full">
           {/* Force Landing into dashboard mode by ensuring published and passing forcedActiveTab */}
           <Landing
             data={{

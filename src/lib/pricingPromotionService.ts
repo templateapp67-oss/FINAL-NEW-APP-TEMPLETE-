@@ -110,7 +110,13 @@ const safeDatabaseMessage = (error: unknown, fallback: string): PricingPromotion
   const raw = error && typeof error === 'object' && 'message' in error
     ? String((error as { message?: unknown }).message ?? '')
     : '';
-  if (raw) console.error('Pricing/promotion RPC failed:', error);
+  if (raw) {
+    if (isMissingRpcSurfaceError(error)) {
+      console.warn('Pricing/promotion RPC missing from schema (fallback active):', error);
+    } else {
+      console.error('Pricing/promotion RPC failed:', error);
+    }
+  }
   const safe = /log in|salon|not found|does not belong|must|required|discount|date|target|cannot|active theme/i.test(raw);
   return new PricingPromotionError(safe ? raw : fallback);
 };

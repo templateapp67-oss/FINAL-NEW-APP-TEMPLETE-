@@ -262,6 +262,7 @@ export function buildCanonicalUrl(data: SalonData): string {
 
 /** OG Image from actual salon media — never invented. */
 export function buildOgImage(data: SalonData): string | null {
+  if (data.socialShareImageUrl && data.socialShareImageUrl.trim()) return data.socialShareImageUrl.trim();
   if (data.heroImageUrl && data.heroImageUrl.trim()) return data.heroImageUrl.trim();
   if (data.gallery && data.gallery[0]?.url) return data.gallery[0].url;
   if (data.logoUrl && data.logoUrl.trim()) return data.logoUrl.trim();

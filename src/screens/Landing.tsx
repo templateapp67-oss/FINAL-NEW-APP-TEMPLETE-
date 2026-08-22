@@ -974,10 +974,10 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
   const todayActiveBookings = appointments.filter(a => a.status !== 'Cancelled').length;
 
   return (
-    <div className="h-screen bg-[#f9f8f6] flex flex-col md:flex-row font-sans text-gray-900 overflow-hidden relative">
+    <div className="h-full w-full bg-[#f9f8f6] flex flex-col md:flex-row font-sans text-gray-900 overflow-hidden relative min-h-0">
       
       {/* LEFT SIDEBAR: Premium Docked Menu */}
-      <nav className="hidden md:flex flex-col h-screen w-64 shrink-0 bg-white border-r border-gray-200 py-6 z-30 select-none shadow-xs justify-between">
+      <nav className="hidden md:flex flex-col h-full w-64 shrink-0 bg-white border-r border-gray-200 py-6 z-30 select-none shadow-xs justify-between overflow-y-auto">
         <div>
           <div className="px-6 mb-6">
             <div className="flex items-center gap-2 text-[#ac0053] mb-1">
@@ -1147,7 +1147,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
       </nav>
 
       {/* MAIN LAYOUT: Top navbar + scrollable dynamic center viewport */}
-      <div className="flex-1 flex flex-col overflow-hidden h-full">
+      <div className="flex-1 flex flex-col overflow-hidden h-full min-w-0 min-h-0">
         
         {/* TOP BAR GREETING & VIEW SITE BUTTON */}
         <header className="h-16 bg-white border-b border-gray-200 shrink-0 flex items-center justify-between px-6 z-10 shadow-2xs">
@@ -1229,7 +1229,10 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
         </header>
 
         {/* VIEWPORT CONTENT CONTAINER */}
-        <div className="flex-grow overflow-y-auto p-4 md:p-8 pb-20">
+        <div 
+          className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 min-h-0"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           
           {/* MOBILE NAVIGATION PILLS */}
           <div className="flex md:hidden bg-white p-1 rounded-xl border border-gray-200 overflow-x-auto gap-1 mb-4 shrink-0 no-scrollbar">
@@ -3574,6 +3577,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
               >
                 <BrandingWhiteLabel
                   data={data}
+                  setData={setData}
                   onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
                 />
               </motion.div>

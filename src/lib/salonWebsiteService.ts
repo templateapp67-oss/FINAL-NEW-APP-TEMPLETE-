@@ -71,9 +71,9 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
   salonId: string;
   slug: string;
   isPublished: boolean;
-}> {
+} | null> {
   const resolution = await resolveOwnerSalonId();
-  if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to save this website.');
+  if (resolution.status !== 'resolved') return null;
   const client = requireSupabase();
   const config = websiteConfigFromSalonData(data);
   const { data: existing, error: readError } = await client

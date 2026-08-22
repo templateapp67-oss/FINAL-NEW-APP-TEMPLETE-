@@ -435,6 +435,14 @@ export interface SalonData {
   websiteSlug?: string;
   publishState?: PublishState;
   publishedUrl?: string;
+  /** Optional custom SEO meta description entered by the owner. */
+  metaDescription?: string;
+  /** Optional custom SEO / social share image (OG Image) URL entered by the owner. */
+  socialShareImageUrl?: string;
+  /** Optional custom SEO site / page title entered by the owner. */
+  metaTitle?: string;
+  /** Optional custom SEO keywords entered by the owner. */
+  metaKeywords?: string;
   lastCompletedStep?: number;
 }
 

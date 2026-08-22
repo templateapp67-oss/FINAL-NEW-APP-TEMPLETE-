@@ -134,7 +134,13 @@ const rpcError = (error: unknown, fallback: string): SavedServiceError => {
     : '';
 
   // Always keep the full detail in the console for developers…
-  if (raw) console.error('Saved service RPC failed:', error);
+  if (raw) {
+    if (isMissingRpcSurfaceError(error)) {
+      console.warn('Saved service RPC missing from schema (local fallback active):', error);
+    } else {
+      console.error('Saved service RPC failed:', error);
+    }
+  }
 
   // …but only surface messages we deliberately authored.
   if (raw && SAFE_MESSAGE_PATTERNS.some((pattern) => pattern.test(raw))) {

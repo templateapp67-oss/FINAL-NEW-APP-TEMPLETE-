@@ -73,7 +73,13 @@ const safe = (error: unknown, fallback: string): ServiceSafetyError => {
   const raw = error && typeof error === 'object' && 'message' in error
     ? String((error as { message?: unknown }).message ?? '')
     : '';
-  if (raw) console.error('Service safety RPC failed:', error);
+  if (raw) {
+    if (isMissingRpcSurfaceError(error)) {
+      console.warn('Service safety RPC missing from schema (fallback active):', error);
+    } else {
+      console.error('Service safety RPC failed:', error);
+    }
+  }
   if (/log in|salon|not found|upcoming|active booking|pending|archive|package|catalog/i.test(raw)) {
     return new ServiceSafetyError(raw);
   }

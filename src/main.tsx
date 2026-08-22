@@ -53,7 +53,15 @@ function RootRouter() {
 
   useEffect(() => {
     async function resolveRoute() {
-      if (pathname === '/auth/callback') {
+      const authParams = new URLSearchParams(window.location.search);
+      const hasAuthResponse = Boolean(
+        authParams.get('code') || authParams.get('error') || authParams.get('error_description'),
+      );
+
+      // Supabase falls back to its configured Site URL when a requested
+      // redirect is not allow-listed. Accept auth codes at `/` as well as the
+      // dedicated callback path so a valid email link never opens the wizard.
+      if (pathname === '/auth/callback' || (pathname === '/' && hasAuthResponse)) {
         setRoute('auth_callback');
         setLoading(false);
         return;

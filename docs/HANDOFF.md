@@ -1892,8 +1892,9 @@ For real authentication and owner session management:
 2. **Supabase Dashboard → Authentication → Providers**:
    - **Email** provider must be enabled.
 3. **Supabase Dashboard → Authentication → URL Configuration**:
-   - Add your app/preview URL (`https://{port}-{sandboxId}.e2b.app` or custom domain)
-     to **Redirect URLs** and **Site URL**.
+   - Set **Site URL** to the stable public deployment (never `localhost` in production).
+   - Add `https://<stable-domain>/**` to **Redirect URLs** so callback query parameters are accepted.
+   - Set `VITE_AUTH_REDIRECT_ORIGIN=https://<stable-domain>` for local and temporary preview builds; confirmation emails then return to the stable deployment instead of an unreachable preview/localhost origin.
 4. **Email Confirmation**:
    - If *Confirm email* is enabled in Supabase, users will receive a verification link upon
      signing up. The form displays a confirmation notice and instructs the user to check their email.

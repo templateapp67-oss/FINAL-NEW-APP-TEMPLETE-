@@ -216,6 +216,7 @@ node verify-22-screens.js   # static verification of all 25 screens/features
 |----------|-------|---------|
 | `VITE_SUPABASE_URL` | browser (Vite) | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | browser (Vite) | Supabase anon/public key |
+| `VITE_AUTH_REDIRECT_ORIGIN` | browser (Vite) | Stable public app origin for email confirmation, OAuth, and recovery links; never use localhost or a temporary preview host in deployment |
 | `GEMINI_API_KEY` | server | enables real Gemini bio/copy generation (fallback otherwise) |
 | `NOMINATIM_APP_IDENTIFIER` | server (optional) | overrides built-in Nominatim User-Agent |
 | `NOMINATIM_REFERER` | server (optional) | overrides built-in Nominatim Referer |

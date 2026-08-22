@@ -30,17 +30,44 @@ export default function AuthCallbackPage() {
         return;
       }
       const code = params.get('code');
+      let exchangeErrorMessage: string | null = null;
       if (code) {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError && !/already.*exchang/i.test(exchangeError.message)) {
-          // Fall through: maybe the session already exists (e.g. the user
-          // re-opened the confirmation link after it was already used).
-          console.error('Code exchange failed:', exchangeError.message);
+        try {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError && !/already.*exchang/i.test(exchangeError.message)) {
+            exchangeErrorMessage = exchangeError.message;
+            // A confirmation email can be requested in a preview but opened on
+            // the canonical domain. In that case the PKCE verifier remains in
+            // preview-domain storage even though Supabase already confirmed the
+            // email before redirecting here.
+            console.error('Code exchange failed:', exchangeError.message);
+          }
+        } catch (exchangeError) {
+          exchangeErrorMessage =
+            exchangeError instanceof Error ? exchangeError.message : 'Code exchange failed.';
+          console.error('Code exchange failed:', exchangeErrorMessage);
         }
       }
       const { data, error: sessionError } = await supabase.auth.getSession();
       if (!sessionError && data.session) {
         window.location.replace(safeNext(params.get('next')));
+        return;
+      }
+
+      // A cross-origin preview → canonical-domain confirmation cannot reuse the
+      // preview's PKCE verifier. Supabase has already consumed the email token
+      // before issuing this code, so show the confirmed/log-in state rather
+      // than rejecting the user because no session could be created here.
+      const isSignupCallback =
+        params.get('flow') === 'signup' || window.location.pathname === '/';
+      if (
+        code &&
+        isSignupCallback &&
+        exchangeErrorMessage &&
+        /code verifier|pkce/i.test(exchangeErrorMessage)
+      ) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setState({ kind: 'confirmed' });
         return;
       }
 

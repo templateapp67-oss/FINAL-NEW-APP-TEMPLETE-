@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import {
+  oauthRedirect,
+  passwordResetRedirect,
+  signupConfirmationRedirect,
+} from './authRedirect';
 
 /**
  * Thin wrapper over the existing Supabase Auth (email/password, which the
@@ -138,9 +143,7 @@ export async function signUpWithPassword(
     };
   }
   try {
-    const emailRedirectTo = typeof window !== 'undefined'
-      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent('/dashboard')}`
-      : undefined;
+    const emailRedirectTo = signupConfirmationRedirect();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -177,9 +180,7 @@ export async function resendConfirmationEmail(
     };
   }
   try {
-    const emailRedirectTo = typeof window !== 'undefined'
-      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent('/dashboard')}`
-      : undefined;
+    const emailRedirectTo = signupConfirmationRedirect();
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email: email.trim(),
@@ -207,7 +208,7 @@ export async function signInWithGoogle(next = '/dashboard'): Promise<{ error: st
     return { error: 'Authentication is not configured.' };
   }
   const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard';
-  const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
+  const redirectTo = oauthRedirect(safeNext);
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo, skipBrowserRedirect: false },
@@ -219,7 +220,7 @@ export async function sendPasswordReset(email: string): Promise<{ error: string 
   if (!supabase || typeof window === 'undefined') {
     return { error: 'Authentication is not configured.' };
   }
-  const redirectTo = `${window.location.origin}/reset-password`;
+  const redirectTo = passwordResetRedirect();
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
   return { error: error?.message || null };
 }

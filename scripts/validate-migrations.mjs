@@ -20,7 +20,7 @@ const migrationFiles = (await readdir(migrationsDir))
   .sort();
 
 const historicalMigrationFiles = migrationFiles.filter(
-  (name) => !name.includes('_phase1a_') && !name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_') && !name.includes('_phase3a_') && !name.includes('_phase3b_') && !name.includes('_m38_') && !name.includes('_reconciliation_'),
+  (name) => !name.includes('_phase1a_') && !name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_') && !name.includes('_phase3a_') && !name.includes('_phase3b_') && !name.includes('_m38_') && !name.includes('_reconciliation_') && !name.includes('_m39_') && !name.includes('_owner_publish_'),
 );
 const phase1aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase1a_'));
 const phase2MigrationFiles = migrationFiles.filter((name) => name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_'));
@@ -58,6 +58,10 @@ const m38MigrationFiles = migrationFiles.filter((name) => name.includes('_m38_')
 assert.deepEqual(m38MigrationFiles, [
   '20260822000101_m38_reconciliation_fix.sql',
 ], 'expected the M38 reconciliation fix (Design B; not part of the M01–M27 history)');
+const m39MigrationFiles = migrationFiles.filter((name) => name.includes('_m39_') || name.includes('_owner_publish_'));
+assert.deepEqual(m39MigrationFiles, [
+  '20260822000201_m39_owner_publish_website.sql',
+], 'expected the M39 owner self-publish RPC (Design B; not part of the M01–M27 history)');
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 

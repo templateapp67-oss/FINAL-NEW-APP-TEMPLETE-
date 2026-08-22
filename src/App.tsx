@@ -611,7 +611,7 @@ export default function App() {
               handleSave();
               setActiveModule('dashboard');
               setDashboardTab('overview');
-              showToast('Draft saved — publication still requires backend approval');
+              showToast('Website published');
               return;
             }
             setData(prev => ({ ...prev, publishState: 'published' }));

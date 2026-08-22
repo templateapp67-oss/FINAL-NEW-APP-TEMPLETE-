@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { isHistoricalMigration } from './lib/migrationFiles.mjs';
 
 const THEMES = [
   'barber_mens_grooming',
@@ -24,7 +25,10 @@ const THEMES = [
 ];
 
 const migrationsDir = join(process.cwd(), 'supabase', 'migrations');
-const migrationFiles = (await readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+// Design-A history only (M01–M27); see scripts/lib/migrationFiles.mjs.
+const migrationFiles = (await readdir(migrationsDir))
+  .filter((f) => f.endsWith('.sql') && isHistoricalMigration(f))
+  .sort();
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 
 await db.exec(`

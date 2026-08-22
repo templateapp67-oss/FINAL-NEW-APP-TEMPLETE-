@@ -65,6 +65,7 @@ const {
   bookingBrowserId,
 } = await import('../src/lib/siteBookingFlow.ts');
 const { setBookingDraftStoreForTests, readBookingDraft } = await import('../src/lib/siteBookingDraft.ts');
+const { setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 const {
   setPaymentStoreForTests,
   setPaymentScenarioForTests,
@@ -848,6 +849,9 @@ section('Empty / error states for services, dates, slots and bookings');
 
   await test('bookings (owner): empty + loading + error states still render', async () => {
     resetState();
+    // Online mode: the Phase 17.1 mock-bookings preview otherwise fills the
+    // empty store and the true empty state never renders.
+    setSupabaseConfiguredForTests(true);
     const AUTHORIZED = { permission: 'authorized' };
     const props = { actor: AUTHORIZED, businessId: 'public-site', themeId: 'beauty_skin_spa', onShowToast: () => {} };
     setWebsiteSectionFlagsForTests({ booking: 'loading' });
@@ -862,6 +866,7 @@ section('Empty / error states for services, dates, slots and bookings');
     seedRecords([]);
     utils = render(React.createElement(BookingManagementPanel, props));
     assert.ok(Boolean(utils.getByTestId('booking-management-empty')), 'owner empty state missing');
+    setSupabaseConfiguredForTests(null);
     cleanup();
     window.localStorage.clear();
   });

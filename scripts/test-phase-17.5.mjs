@@ -23,7 +23,7 @@ const {
   readOwnerCustomers,
   sortCustomerBookingHistory,
 } = await import('../src/lib/ownerCustomers.ts');
-const { resolveBookingActor } = await import('../src/lib/bookingManagement.ts');
+const { resolveBookingActor, setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 const { PAYMENT_STORE_KEY, PAYMENT_EVENT } = await import('../src/lib/siteBookingPayment.ts');
 const { default: OwnerCustomers } = await import('../src/components/OwnerCustomers.tsx');
 const { default: OwnerDashboard } = await import('../src/components/OwnerDashboard.tsx');
@@ -92,6 +92,7 @@ function reset() {
   cleanup();
   localStorage.clear();
   sequence = 0;
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }

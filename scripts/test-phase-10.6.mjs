@@ -648,7 +648,8 @@ section('UI — five-theme entry-flow journey');
 
     await test(`${theme.id}: mobile-first structure (single column, sticky action bar)`, () => {
       const body = utils.getByTestId('booking-body');
-      const bar = utils.getByTestId('booking-back').parentElement;
+      const bar = utils.getByTestId('booking-back').closest('.booking-action-bar')
+        ?? utils.getByTestId('booking-back').parentElement;
       assert.ok(body.className.includes('grid-cols-1'), 'must start single-column (mobile first)');
       assert.ok(body.className.includes('lg:grid-cols-12'), 'desktop summary column missing');
       assert.ok(bar.className.includes('border-t'), 'sticky bottom action bar missing');

@@ -64,6 +64,29 @@ async function runAllTests() {
     assert.ok(loginModalSrc.includes('needsConfirmation'), 'Missing needsConfirmation handling');
   });
 
+  await test('LoginModal surfaces the full email-confirmation flow instead of a dead-end', () => {
+    assert.ok(loginModalSrc.includes('resendConfirmationEmail'), 'Missing resendConfirmationEmail import');
+    assert.ok(loginModalSrc.includes('data-testid="auth-confirm-email-panel"'), 'Missing confirm-email panel');
+    assert.ok(loginModalSrc.includes('data-testid="auth-confirm-email-address"'), 'Missing confirmed email address display');
+    assert.ok(loginModalSrc.includes('data-testid="auth-resend-email-btn"'), 'Missing resend confirmation button');
+    assert.ok(loginModalSrc.includes('data-testid="auth-resend-email-status"'), 'Missing resend status area');
+    assert.ok(loginModalSrc.includes('data-testid="auth-confirm-email-login-btn"'), 'Missing "confirmed — log in" action');
+    assert.ok(loginModalSrc.includes('data-testid="auth-confirm-email-different-btn"'), 'Missing "use a different email" action');
+    assert.ok(loginModalSrc.includes('>Confirm your email<'), 'Missing confirm-your-email heading');
+  });
+
+  await test('LoginModal turns the raw "Email not confirmed" sign-in error into the confirmation panel', () => {
+    assert.ok(loginModalSrc.includes('needsConfirmation'), 'needsConfirmation not destructured from signInWithPassword');
+    assert.ok(loginModalSrc.includes('setUnconfirmedEmail(mail)'), 'Unconfirmed email is not captured for the panel');
+  });
+
+  await test('AuthCallbackPage celebrates a confirmed email instead of failing', () => {
+    const callbackSrc = fs.readFileSync('src/components/AuthCallbackPage.tsx', 'utf8');
+    assert.ok(callbackSrc.includes('Email confirmed!'), 'Missing email-confirmed success state');
+    assert.ok(callbackSrc.includes('email_confirmed_at'), 'Missing email_confirmed_at check');
+    assert.ok(callbackSrc.includes("Log in to your dashboard"), 'Missing dashboard CTA after confirmation');
+  });
+
   await test('LoginModal has Log In and Sign Up tabs with clear mode switching', () => {
     assert.ok(loginModalSrc.includes("setMode('login')") || loginModalSrc.includes("switchMode('login')"), 'Missing switch to login');
     assert.ok(loginModalSrc.includes("setMode('signup')") || loginModalSrc.includes("switchMode('signup')"), 'Missing switch to signup');
@@ -123,7 +146,7 @@ async function runAllTests() {
   // 4. Runtime auth helper behavior when unconfigured
   await test('Runtime auth helpers return readable missing-env errors without crashing', async () => {
     // Dynamic import through tsx
-    const { signInWithPassword, signUpWithPassword } = await import('../src/lib/useAuth.ts');
+    const { signInWithPassword, signUpWithPassword, resendConfirmationEmail } = await import('../src/lib/useAuth.ts');
     const { isSupabaseConfigured, supabase } = await import('../src/lib/supabaseClient.ts');
 
     assert.equal(isSupabaseConfigured, false, 'isSupabaseConfigured should be false when env is absent');
@@ -131,10 +154,14 @@ async function runAllTests() {
 
     const signInRes = await signInWithPassword('owner@example.com', 'mypassword');
     assert.ok(signInRes.error?.includes('Authentication is not configured'), 'signInWithPassword did not return expected error');
+    assert.equal(signInRes.needsConfirmation, false, 'signInWithPassword should not flag confirmation when unconfigured');
 
     const signUpRes = await signUpWithPassword('owner@example.com', 'mypassword');
     assert.ok(signUpRes.error?.includes('Authentication is not configured'), 'signUpWithPassword did not return expected error');
     assert.equal(signUpRes.needsConfirmation, false);
+
+    const resendRes = await resendConfirmationEmail('owner@example.com');
+    assert.ok(resendRes.error?.includes('Authentication is not configured'), 'resendConfirmationEmail did not return expected error');
   });
 
   // 5. Check that the draft migrations remain intact and unexecuted

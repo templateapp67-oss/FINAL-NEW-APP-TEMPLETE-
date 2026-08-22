@@ -83,7 +83,7 @@ await test('foreign-theme video is never projected into another theme', () => {
 });
 
 console.log('\n▸ Responsive card/player interaction');
-await test('clicking a card opens its exact validated original URL', () => {
+await test('view-original control opens the exact validated original URL', () => {
   cleanup();
   const data = structuredClone(initialData);
   const original = 'https://youtu.be/dQw4w9WgXcQ?t=27';
@@ -92,7 +92,12 @@ await test('clicking a card opens its exact validated original URL', () => {
   dom.window.open = (...args) => { opened = args; return null; };
   const ui = render(React.createElement(SiteVideoGallery, { themeId: 'barber_mens_grooming', data, mode: 'mobile' }));
   const card = ui.container.querySelector('[data-social-id="click-me"]');
-  assert.ok(card); fireEvent.click(card);
+  assert.ok(card);
+  // Cards play on click; the dedicated View-Original control opens the exact
+  // validated original platform URL in a new tab.
+  const viewBtn = card.querySelector('[data-testid="site-social-view"]');
+  assert.ok(viewBtn, 'view-original control missing');
+  fireEvent.click(viewBtn);
   assert.deepEqual(opened, [original, '_blank', 'noopener,noreferrer']);
   assert.match(card.textContent, /Original clip/); assert.match(card.textContent, /Original channel/); assert.match(card.textContent, /Long/);
 });

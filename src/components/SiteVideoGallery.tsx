@@ -214,6 +214,14 @@ const VideoCard: React.FC<VideoCardProps> = ({ item, opts }) => {
             <h4 className="text-xs font-bold text-white line-clamp-2 mt-0.5" data-testid="site-video-card-title">
               {item.title}
             </h4>
+            {item.description ? (
+              <p
+                className="text-[10px] text-white/85 line-clamp-2 mt-0.5"
+                data-testid="site-video-card-description"
+              >
+                {item.description}
+              </p>
+            ) : null}
           </div>
 
           {/* Action Stack (Vertical) */}
@@ -223,7 +231,10 @@ const VideoCard: React.FC<VideoCardProps> = ({ item, opts }) => {
               <button
                 type="button"
                 data-testid="site-video-like"
+                data-video-id={item.id}
                 data-liked={opts.likes.likedByActor ? 'true' : 'false'}
+                aria-pressed={opts.likes.likedByActor ? 'true' : 'false'}
+                aria-label={opts.chrome.like}
                 disabled={opts.likePending}
                 className="site-touch p-2 rounded-full transition-all hover:bg-white/20 text-white"
                 onClick={(event) => {
@@ -241,7 +252,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ item, opts }) => {
                   />
                 )}
               </button>
-              <span className="text-[10px] font-bold text-white -mt-1 drop-shadow-md" data-testid="site-video-like-count">
+              <span className="text-[10px] font-bold text-white -mt-1 drop-shadow-md" data-testid="site-video-like-count" data-count={opts.likes.total}>
                 {formatLikeCount(opts.likes.total)}
               </span>
             </div>
@@ -265,6 +276,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ item, opts }) => {
               <button
                 type="button"
                 data-testid="site-social-play"
+                aria-label={opts.chrome.play}
                 className="site-touch p-2 rounded-full transition-all hover:bg-white/20 text-white"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -282,6 +294,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ item, opts }) => {
           <p
             data-testid="site-video-like-error"
             role="alert"
+            data-error={opts.likeError}
             className="text-[8px] font-bold text-white mt-1 text-center bg-black/40 px-2 py-0.5 rounded-full"
           >
             {opts.likeErrorText(opts.likeError)}

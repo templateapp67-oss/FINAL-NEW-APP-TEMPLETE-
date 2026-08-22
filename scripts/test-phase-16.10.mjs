@@ -1293,6 +1293,7 @@ section('J. Static hygiene — no secrets, placeholder env, no invented stores')
       'nexora_site_booking_holds',
       'nexora_site_payment_records',
       'nexora_site_reviews',
+      'nexora_usage_analytics', // useUsageTracking — wizard/dashboard analytics (never identity)
       'nexora_video_likes',
     ]);
     const files = (await readdir('src', { recursive: true })).filter((f) => /\.(ts|tsx)$/.test(f));

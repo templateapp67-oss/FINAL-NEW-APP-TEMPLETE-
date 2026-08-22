@@ -73,6 +73,7 @@ const {
   bookingManageDeniedKey,
   readMyBookings,
   readSalonBookings,
+  setSupabaseConfiguredForTests,
   ownerAllowedTransitions,
   ownerUpdateBookingStatus,
   customerCancelBooking,
@@ -551,6 +552,9 @@ section('Owner panel UI — details, actions, isolation, states');
 
   await test('loading / error / empty states via the shared seam', async () => {
     resetState();
+    // Online mode: without it, the Phase 17.1 mock-bookings preview fills the
+    // empty store, so the true empty state would never render.
+    setSupabaseConfiguredForTests(true);
     setWebsiteSectionFlagsForTests({ booking: 'loading' });
     let { utils } = renderOwnerPanel(AUTHORIZED, 'public-site', 'beauty_skin_spa');
     assert.ok(utils.getByTestId('booking-management-loading'));
@@ -561,6 +565,7 @@ section('Owner panel UI — details, actions, isolation, states');
     setWebsiteSectionFlagsForTests({});
     await act(async () => { fireEvent.click(utils.getByTestId('booking-management-retry')); });
     assert.ok(utils.getByTestId('booking-management-empty'), 'recovers into the (empty) list');
+    setSupabaseConfiguredForTests(null);
     cleanup();
   });
 

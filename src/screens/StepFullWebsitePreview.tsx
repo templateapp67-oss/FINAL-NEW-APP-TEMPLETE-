@@ -4,6 +4,7 @@ import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Monitor, Smartphone, Tablet, Eye, Sparkles, Layout, Compass, Info } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
 import { publicWebsiteHref, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
+import type { ThemeId } from '../lib/themeServices';
 
 interface Props {
   data: SalonData;
@@ -12,6 +13,8 @@ interface Props {
   onPrev: () => void;
   onSave?: () => void;
   onEditSection?: (section: string) => void;
+  /** Live theme switcher — updates the previewed template without touching the wizard data. */
+  onThemeChange?: (nextTheme: ThemeId) => void;
 }
 
 export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) {

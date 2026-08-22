@@ -65,7 +65,7 @@ const {
   formatGroupDate,
 } = await import('../src/lib/ownerUpcomingAppointments.ts');
 const { ownerDashboardText, ownerDashboardCount } = await import('../src/lib/ownerDashboardI18n.ts');
-const { resolveBookingActor } = await import('../src/lib/bookingManagement.ts');
+const { resolveBookingActor, setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 const { setSiteAppearance, setSiteLocale, SITE_HEADER_THEME_IDS } = await import('../src/lib/siteNavigation.ts');
 const { setSalonClockForTests } = await import('../src/lib/salonStatus.ts');
 const { PAYMENT_STORE_KEY, PAYMENT_EVENT, setPaymentStoreForTests } =
@@ -175,6 +175,7 @@ function resetState() {
   window.localStorage.clear();
   setPaymentStoreForTests(null);
   setSalonClockForTests(NOW);
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }
@@ -740,7 +741,9 @@ await test('the existing booking layers are unchanged by 17.3', () => {
 await test('no schema change was introduced by 17.3', () => {
   assert.ok(!/create\s+table|alter\s+table|drop\s+table/i.test(UP_SRC + UP_UI + ROW_UI));
   const migrations = fs.readdirSync('supabase/migrations');
-  assert.ok(!migrations.some((f) => /m28|17[._-]3/i.test(f)), 'no new migration file');
+  // M28 is the pre-existing Phase 1a foundation, not a migration introduced
+  // here — only flag phase-named files.
+  assert.ok(!migrations.some((f) => /17[._-]3/i.test(f)), 'no new migration file');
 });
 
 /* ================================================================== */

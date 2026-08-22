@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   sendPasswordReset,
+  resendConfirmationEmail,
   signInWithGoogle,
   signInWithPassword,
   signUpWithPassword,
@@ -52,6 +53,14 @@ export default function LoginModal({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Email-confirmation flow: after signup (or a blocked sign-in) the user is
+  // shown a "confirm your email" panel instead of a dead-end error.
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendStatus, setResendStatus] = useState<
+    { kind: 'sent' | 'error'; message: string } | null
+  >(null);
+
   // Reset transient state and honour the button that opened the form.
   useEffect(() => {
     if (!open) return;
@@ -59,6 +68,9 @@ export default function LoginModal({
     setError(null);
     setNotice(null);
     setBusy(false);
+    setUnconfirmedEmail(null);
+    setResendBusy(false);
+    setResendStatus(null);
   }, [open, initialMode]);
 
   // Handle Escape key
@@ -94,6 +106,29 @@ export default function LoginModal({
     setMode(newMode);
     setError(null);
     setNotice(null);
+    setUnconfirmedEmail(null);
+    setResendBusy(false);
+    setResendStatus(null);
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!unconfirmedEmail) return;
+    setResendBusy(true);
+    setResendStatus(null);
+    const result = await resendConfirmationEmail(unconfirmedEmail);
+    setResendBusy(false);
+    setResendStatus(
+      result.error
+        ? { kind: 'error', message: result.error }
+        : { kind: 'sent', message: 'Confirmation email sent — check your inbox (and spam folder).' },
+    );
+  };
+
+  const handleConfirmedAndLogin = () => {
+    setUnconfirmedEmail(null);
+    setResendBusy(false);
+    setResendStatus(null);
+    setMode('login');
   };
 
   const handlePasswordReset = async () => {
@@ -145,9 +180,18 @@ export default function LoginModal({
 
     try {
       if (mode === 'login') {
-        const { error: err } = await signInWithPassword(mail, password);
+        const { error: err, needsConfirmation } = await signInWithPassword(mail, password);
         setBusy(false);
         if (err) {
+          if (needsConfirmation) {
+            // Account exists but the email link was never clicked — switch to
+            // the confirmation panel with a resend option instead of the raw
+            // "Email not confirmed" error.
+            setError(null);
+            setNotice(null);
+            setUnconfirmedEmail(mail);
+            return;
+          }
           setError(err);
           return;
         }
@@ -165,7 +209,11 @@ export default function LoginModal({
       }
       setPassword('');
       if (needsConfirmation) {
-        setNotice('Account created! Please check your email to confirm your account, then log in.');
+        // Account created — Supabase emailed a confirmation link. Guide the
+        // user through confirming instead of dropping them at a dead end.
+        setError(null);
+        setNotice(null);
+        setUnconfirmedEmail(mail);
         setMode('login');
         return;
       }
@@ -223,6 +271,83 @@ export default function LoginModal({
           </button>
         </div>
 
+        {/* Email confirmation panel — shown after signup or when a sign-in is
+            blocked because the confirmation link was never clicked. */}
+        {unconfirmedEmail ? (
+          <div
+            data-testid="auth-confirm-email-panel"
+            className="mt-5 rounded-2xl border border-rose-100 bg-rose-50/50 p-5 text-center"
+          >
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ac0053]/10">
+              <MailCheck className="h-6 w-6 text-[#ac0053]" />
+            </div>
+            <h3 className="mt-3 text-sm font-bold text-[#1a1c1c]">Confirm your email</h3>
+            <p className="mt-1.5 text-xs leading-relaxed text-gray-600">
+              We sent a confirmation link to{' '}
+              <span
+                data-testid="auth-confirm-email-address"
+                className="font-semibold break-all text-[#1a1c1c]"
+              >
+                {unconfirmedEmail}
+              </span>
+              . Click the link in the email to activate your account — then come
+              back and log in below.
+            </p>
+
+            <button
+              type="button"
+              data-testid="auth-resend-email-btn"
+              onClick={() => void handleResendConfirmation()}
+              disabled={resendBusy}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#ac0053]/30 bg-white px-4 py-2.5 text-xs font-semibold text-[#ac0053] transition-colors hover:bg-[#ac0053]/5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {resendBusy ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Sending...</span>
+                </>
+              ) : (
+                <>
+                  <Mail className="h-3.5 w-3.5" />
+                  <span>Resend confirmation email</span>
+                </>
+              )}
+            </button>
+
+            {resendStatus && (
+              <p
+                data-testid="auth-resend-email-status"
+                className={`mt-2.5 rounded-lg px-3 py-2 text-[11px] font-medium ${
+                  resendStatus.kind === 'sent'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-rose-50 text-rose-700'
+                }`}
+              >
+                {resendStatus.message}
+              </p>
+            )}
+
+            <button
+              type="button"
+              data-testid="auth-confirm-email-login-btn"
+              onClick={handleConfirmedAndLogin}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#ac0053] px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#ba005b]"
+            >
+              <LogIn className="h-3.5 w-3.5" />
+              <span>I&apos;ve confirmed my email — Log in</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="auth-confirm-email-different-btn"
+              onClick={() => switchMode('signup')}
+              className="mt-2 text-[11px] font-semibold text-gray-500 transition-colors hover:text-[#ac0053]"
+            >
+              Use a different email
+            </button>
+          </div>
+        ) : (
+          <>
         {/* Mode switcher tabs */}
         <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
           <button
@@ -432,6 +557,8 @@ export default function LoginModal({
             </button>
           </div>
         </form>
+          </>
+        )}
       </div>
     </div>
   );

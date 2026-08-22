@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { isHistoricalMigration } from './lib/migrationFiles.mjs';
 import { fetchThemeServiceCatalog } from '../src/lib/themeCatalogService.ts';
 import {
   createSavedServiceWithClient,
@@ -37,7 +38,12 @@ const THEMES = [
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const migrationsDir = join(root, 'supabase', 'migrations');
-const migrationFiles = (await readdir(migrationsDir)).filter((n) => n.endsWith('.sql')).sort();
+// Design-A history only (M01–M27). The Design-B chain (M28+) targets the
+// salon-keyed canonical schema and its preflight rejects the business-keyed
+// world this suite exercises — replaying it here would fail by design.
+const migrationFiles = (await readdir(migrationsDir))
+  .filter((n) => n.endsWith('.sql') && isHistoricalMigration(n))
+  .sort();
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 

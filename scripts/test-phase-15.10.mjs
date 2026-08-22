@@ -546,15 +546,18 @@ await test('the 15.4 paste→record flow keeps URL, id, thumbnail, title, descri
 });
 
 await test('server exposes /api/video-metadata and uses the public oEmbed endpoint (no API key, no service role)', async () => {
+  // server.ts wires the routes; the video-metadata handler lives in api-routes.ts.
   const server = await readFile('server.ts', 'utf8');
-  const serverCode = server.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  assert.match(server, /app\.post\('\/api\/video-metadata'/, 'route exists');
-  assert.match(server, /youtube\.com\/oembed/, 'public oEmbed used');
+  const routes = await readFile('api-routes.ts', 'utf8');
+  const source = `${server}\n${routes}`;
+  const serverCode = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.match(source, /app\.post\('\/api\/video-metadata'/, 'route exists');
+  assert.match(source, /youtube\.com\/oembed/, 'public oEmbed used');
   // Env-based server keys are fine; hardcoded key VALUES are not.
-  assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(server), 'no Google API key value');
+  assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(source), 'no Google API key value');
   assert.ok(!/api[_-]?key\s*[:=]\s*['"`][^'"`]{12,}['"`]/i.test(serverCode), 'no key literal assigned');
   assert.ok(!/service_role|service-role/i.test(serverCode), 'no service-role credential');
-  assert.match(server, /process\.env\.GEMINI_API_KEY/, 'Gemini key comes from env only');
+  assert.match(source, /process\.env\.GEMINI_API_KEY/, 'Gemini key comes from env only');
   // Client metadata module also never embeds a key.
   const client = await readFile('src/lib/videoUrlMetadata.ts', 'utf8');
   assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(client), 'client has no key value');
@@ -1070,11 +1073,15 @@ await test('like counts render accurately on every card after likes (all five th
     assert.equal(likeButtons.length, 10, `${themeId} like buttons`);
     const likedCard = el.querySelector(`[data-testid="site-video-like"][data-video-id="${video.id}"]`);
     assert.equal(likedCard.dataset.liked, 'true', `${themeId} liked state`);
-    const count = likedCard.querySelector('[data-testid="site-video-like-count"]');
+    // The count label is a sibling of the button inside the card's action column.
+    const count = likedCard.parentElement.querySelector('[data-testid="site-video-like-count"]');
     assert.equal(count.dataset.count, '1', `${themeId} count`);
     const other = el.querySelector(`[data-testid="site-video-like"][data-video-id="${themeVideoCatalog(themeId)[1].id}"]`);
     assert.equal(other.dataset.liked, 'false');
-    assert.equal(other.querySelector('[data-testid="site-video-like-count"]').dataset.count, '0');
+    assert.equal(
+      other.parentElement.querySelector('[data-testid="site-video-like-count"]').dataset.count,
+      '0',
+    );
   }
 });
 

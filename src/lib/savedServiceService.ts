@@ -1,6 +1,19 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DatabaseCatalogThemeId } from './themeCatalogService';
+import {
+  getFallbackThemeCatalog,
+  peekThemeCatalog,
+  type DatabaseCatalogThemeId,
+  type ThemeServiceCatalog,
+} from './themeCatalogService';
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
+import { isMissingRpcSurfaceError } from './rpcSurface';
+import {
+  insertLocalSavedService,
+  listLocalSavedServices,
+  removeLocalSavedServiceEverywhere,
+  updateLocalSavedServiceEverywhere,
+  updateLocalSavedServiceRow,
+} from './localSavedServices';
 import { mapContentTranslations as mapTranslations, mapServiceMedia as mapMedia } from './locale';
 import type { ServiceMedia, ServiceTranslation } from '../types';
 
@@ -130,6 +143,233 @@ const rpcError = (error: unknown, fallback: string): SavedServiceError => {
   return new SavedServiceError(fallback);
 };
 
+// ----------------------------------------------------------------------------
+// Local fallback (docs/step5-services-audit.md §6).
+//
+// Engaged ONLY when the live project provably lacks the Step-5 RPC surface —
+// PostgREST PGRST202 / "Could not find the function … in the schema cache" —
+// which is the exact state of a deployment where the M40 migration has not
+// been applied yet (or a static prototype with no database at all). In that
+// state every Step-5 call deterministically 404s, so persisting to
+// localStorage keeps onboarding functional instead of dead-ending on
+// "Unable to load saved services." / "Unable to add this service.".
+//
+// Every other failure (auth, validation, 500s, network blips) keeps the
+// existing masked-error behavior — a healthy database is never silently
+// bypassed. The `*WithClient` functions are unchanged except for flipping
+// the session marker, so request-boundary tests keep their strict semantics.
+// ----------------------------------------------------------------------------
+
+let savedServiceRpcSurfaceMissing = false;
+
+/** Records proof that the live project does not expose the Step-5 RPCs. */
+const noteRpcSurfaceProbe = (error: unknown): void => {
+  if (isMissingRpcSurfaceError(error)) savedServiceRpcSurfaceMissing = true;
+};
+
+/** Test seam — restores the initial "unknown" probe state. */
+export function resetSavedServiceRpcProbeForTests(): void {
+  savedServiceRpcSurfaceMissing = false;
+}
+
+/** Placeholder tenant for locally persisted rows; never a real salon UUID. */
+const LOCAL_SAVED_BUSINESS_ID = 'local-salon';
+
+const resolveLocalCatalog = (themeId: DatabaseCatalogThemeId): ThemeServiceCatalog =>
+  peekThemeCatalog(themeId) ?? getFallbackThemeCatalog(themeId);
+
+const newLocalServiceId = (): string =>
+  `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Local equivalent of `loadSavedServicesForTheme`. */
+export function loadSavedServicesLocal(themeId: DatabaseCatalogThemeId): SavedService[] {
+  return listLocalSavedServices(themeId);
+}
+
+/** Local equivalent of `savePredefinedServices`, mirroring M20/M40 semantics. */
+export function savePredefinedServicesLocal(
+  themeId: DatabaseCatalogThemeId,
+  predefinedServiceIds: string[],
+): SavePredefinedServicesResult {
+  const uniqueIds = Array.from(new Set(predefinedServiceIds.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    throw new SavedServiceError('Select at least one suggested service.');
+  }
+  const catalog = resolveLocalCatalog(themeId);
+
+  const services: SavedService[] = [];
+  let insertedCount = 0;
+  let existingCount = 0;
+  for (const id of uniqueIds) {
+    const predefined = catalog.predefinedServices.find((service) => service.id === id);
+    if (!predefined) {
+      throw new SavedServiceError('The selected service does not belong to this theme and category.');
+    }
+    const existing = listLocalSavedServices(themeId)
+      .find((row) => row.predefinedServiceId === predefined.id);
+    if (existing) {
+      existingCount += 1;
+      services.push(existing);
+      continue;
+    }
+    insertedCount += 1;
+    services.push(insertLocalSavedService(themeId, {
+      id: newLocalServiceId(),
+      businessId: LOCAL_SAVED_BUSINESS_ID,
+      themeId: catalog.theme.id,
+      themeKey: themeId,
+      categoryId: predefined.categoryId,
+      predefinedServiceId: predefined.id,
+      name: predefined.name,
+      category: predefined.category,
+      description: predefined.description,
+      price: predefined.price,
+      duration: predefined.duration,
+      status: 'active',
+      featured: false,
+      translations: [],
+    }));
+  }
+
+  return {
+    businessId: LOCAL_SAVED_BUSINESS_ID,
+    themeId,
+    requestedCount: uniqueIds.length,
+    insertedCount,
+    existingCount,
+    services,
+  };
+}
+
+/** Local equivalent of `create_saved_service`, mirroring the M40 validation. */
+export function createSavedServiceLocal(
+  themeId: DatabaseCatalogThemeId,
+  input: NewSavedService,
+): SavedService {
+  const name = input.name.trim();
+  if (!name) throw new SavedServiceError('Service name is required.');
+  if (!input.categoryId) throw new SavedServiceError('Select a category for this service.');
+  if (!Number.isFinite(input.price) || input.price < 0) {
+    throw new SavedServiceError('Service price cannot be negative.');
+  }
+  if (!Number.isFinite(input.duration) || input.duration <= 0) {
+    throw new SavedServiceError('Service duration must be positive.');
+  }
+
+  const catalog = resolveLocalCatalog(themeId);
+  const category = catalog.categories.find((item) => item.id === input.categoryId)
+    ?? catalog.categories.find((item) => item.name === input.categoryId);
+  if (!category) {
+    throw new SavedServiceError('The selected category does not belong to this theme.');
+  }
+
+  const rows = listLocalSavedServices(themeId);
+  if (input.predefinedServiceId) {
+    const predefined = catalog.predefinedServices.find(
+      (service) => service.id === input.predefinedServiceId && service.categoryId === category.id,
+    );
+    if (!predefined) {
+      throw new SavedServiceError('The selected service does not belong to this theme and category.');
+    }
+    if (rows.some((row) => row.predefinedServiceId === predefined.id)) {
+      throw new SavedServiceError('This service is already saved for your salon.');
+    }
+  }
+  if (rows.some(
+    (row) => row.status !== 'archived'
+      && row.name.trim().toLowerCase() === name.toLowerCase(),
+  )) {
+    throw new SavedServiceError('A service with this name is already saved for this theme.');
+  }
+
+  return insertLocalSavedService(themeId, {
+    id: newLocalServiceId(),
+    businessId: LOCAL_SAVED_BUSINESS_ID,
+    themeId: catalog.theme.id,
+    themeKey: themeId,
+    categoryId: category.id,
+    predefinedServiceId: input.predefinedServiceId ?? null,
+    name,
+    category: category.name,
+    description: input.description ?? '',
+    price: input.price,
+    duration: Math.round(input.duration),
+    status: input.status ?? 'active',
+    featured: false,
+    translations: [],
+  });
+}
+
+/**
+ * Local equivalent of `update_saved_service`. Applies mutable fields only —
+ * theme, category, predefined link and ownership are never touched, exactly
+ * like the RPC contract.
+ */
+export function updateSavedServiceLocal(
+  themeId: DatabaseCatalogThemeId,
+  serviceId: string,
+  changes: SavedServiceChanges,
+): SavedService {
+  if (changes.name !== undefined && !changes.name.trim()) {
+    throw new SavedServiceError('Service name is required.');
+  }
+  if (changes.price !== undefined && (!Number.isFinite(changes.price) || changes.price < 0)) {
+    throw new SavedServiceError('Service price cannot be negative.');
+  }
+  if (changes.duration !== undefined && (!Number.isFinite(changes.duration) || changes.duration <= 0)) {
+    throw new SavedServiceError('Service duration must be positive.');
+  }
+  const updated = updateLocalSavedServiceRow(themeId, serviceId, (row) => ({
+    ...row,
+    name: changes.name === undefined ? row.name : changes.name.trim(),
+    description: changes.description === undefined ? row.description : changes.description,
+    price: changes.price === undefined ? row.price : changes.price,
+    duration: changes.duration === undefined ? row.duration : Math.round(changes.duration),
+    status: changes.status === undefined ? row.status : changes.status,
+  }));
+  if (!updated) throw new SavedServiceError('The requested service was not found for your salon.');
+  return updated;
+}
+
+/** Local equivalent of `set_saved_service_status`. */
+export function setSavedServiceStatusLocal(
+  themeId: DatabaseCatalogThemeId,
+  serviceId: string,
+  status: SavedServiceStatus,
+): SavedService {
+  const updated = updateLocalSavedServiceRow(themeId, serviceId, (row) => ({ ...row, status }));
+  if (!updated) throw new SavedServiceError('The requested service was not found for your salon.');
+  return updated;
+}
+
+/** Local equivalent of `set_saved_service_active`. */
+export function setSavedServiceActiveLocal(
+  themeId: DatabaseCatalogThemeId,
+  serviceId: string,
+  isActive: boolean,
+): SavedService {
+  const updated = updateLocalSavedServiceRow(themeId, serviceId, (row) => ({
+    ...row,
+    // Activating an archived row revives it to active; "deactivating" an
+    // archived row keeps it archived (mirrors is_active/deleted_at semantics).
+    status: isActive ? 'active' : (row.status === 'archived' ? 'archived' : 'inactive'),
+  }));
+  if (!updated) throw new SavedServiceError('The requested service was not found for your salon.');
+  return updated;
+}
+
+/** Local equivalent of `delete_saved_service` (idempotent, like the UI flow). */
+export function deleteSavedServiceLocal(serviceId: string): string {
+  removeLocalSavedServiceEverywhere(serviceId);
+  return serviceId;
+}
+
+/** Local equivalent of `archive_saved_service` (serviceSafetyService fallback). */
+export function archiveSavedServiceLocal(serviceId: string): string {
+  updateLocalSavedServiceEverywhere(serviceId, (row) => ({ ...row, status: 'archived' }));
+  return serviceId;
+}
+
 const mapSavedService = (
   rawValue: unknown,
   expectedBusinessId: string,
@@ -192,6 +432,7 @@ export async function savePredefinedServicesWithClient(
     p_predefined_service_ids: uniqueIds,
   });
   if (error) {
+    noteRpcSurfaceProbe(error);
     console.error('Save predefined services RPC failed:', error);
     const message = typeof error.message === 'string' && /log in|salon|permission/i.test(error.message)
       ? error.message
@@ -262,7 +503,17 @@ export async function savePredefinedServices(
       })),
     };
   }
-  return savePredefinedServicesWithClient(requireSupabase(), themeId, predefinedServiceIds);
+  if (savedServiceRpcSurfaceMissing) {
+    return savePredefinedServicesLocal(themeId, predefinedServiceIds);
+  }
+  try {
+    return await savePredefinedServicesWithClient(requireSupabase(), themeId, predefinedServiceIds);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return savePredefinedServicesLocal(themeId, predefinedServiceIds);
+    }
+    throw error;
+  }
 }
 
 export async function loadSavedServicesForThemeWithClient(
@@ -272,7 +523,10 @@ export async function loadSavedServicesForThemeWithClient(
   const { data, error } = await client.rpc('get_saved_services_for_theme', {
     p_theme_id: themeId,
   });
-  if (error) throw rpcError(error, 'Unable to load saved services.');
+  if (error) {
+    noteRpcSurfaceProbe(error);
+    throw rpcError(error, 'Unable to load saved services.');
+  }
   const payload = asRecord(data, 'saved services response');
   if (asString(payload.theme_id, 'saved services theme_id') !== themeId) {
     throw new SavedServiceError('The database returned saved services for a different theme.');
@@ -288,7 +542,17 @@ export async function loadSavedServicesForTheme(
   if (!isSupabaseConfigured) {
     return [];
   }
-  return loadSavedServicesForThemeWithClient(requireSupabase(), themeId);
+  if (savedServiceRpcSurfaceMissing) {
+    return loadSavedServicesLocal(themeId);
+  }
+  try {
+    return await loadSavedServicesForThemeWithClient(requireSupabase(), themeId);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return loadSavedServicesLocal(themeId);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -334,7 +598,10 @@ export async function createSavedServiceWithClient(
     p_predefined_service_id: input.predefinedServiceId ?? null,
     p_status: input.status ?? 'active',
   });
-  if (error) throw rpcError(error, 'Unable to add this service.');
+  if (error) {
+    noteRpcSurfaceProbe(error);
+    throw rpcError(error, 'Unable to add this service.');
+  }
   const raw = asRecord(data, 'created saved service');
   return mapSavedService(raw, asString(raw.business_id, 'created business_id'), themeId);
 }
@@ -362,7 +629,17 @@ export async function createSavedService(
       translations: [],
     };
   }
-  return createSavedServiceWithClient(requireSupabase(), themeId, input);
+  if (savedServiceRpcSurfaceMissing) {
+    return createSavedServiceLocal(themeId, input);
+  }
+  try {
+    return await createSavedServiceWithClient(requireSupabase(), themeId, input);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return createSavedServiceLocal(themeId, input);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -403,7 +680,10 @@ export async function updateSavedServiceWithClient(
     p_duration_minutes: changes.duration === undefined ? null : Math.round(changes.duration),
     p_status: changes.status ?? null,
   });
-  if (error) throw rpcError(error, 'Unable to update this service.');
+  if (error) {
+    noteRpcSurfaceProbe(error);
+    throw rpcError(error, 'Unable to update this service.');
+  }
   const raw = asRecord(data, 'updated saved service');
   return mapSavedService(raw, asString(raw.business_id, 'updated business_id'), themeId);
 }
@@ -432,7 +712,17 @@ export async function updateSavedService(
       translations: [],
     };
   }
-  return updateSavedServiceWithClient(requireSupabase(), themeId, serviceId, changes);
+  if (savedServiceRpcSurfaceMissing) {
+    return updateSavedServiceLocal(themeId, serviceId, changes);
+  }
+  try {
+    return await updateSavedServiceWithClient(requireSupabase(), themeId, serviceId, changes);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return updateSavedServiceLocal(themeId, serviceId, changes);
+    }
+    throw error;
+  }
 }
 
 /** Update Price only. */
@@ -473,7 +763,10 @@ export async function setSavedServiceStatusWithClient(
     p_service_id: serviceId,
     p_status: status,
   });
-  if (error) throw rpcError(error, 'Unable to change service status.');
+  if (error) {
+    noteRpcSurfaceProbe(error);
+    throw rpcError(error, 'Unable to change service status.');
+  }
   const raw = asRecord(data, 'saved service status');
   return mapSavedService(raw, asString(raw.business_id, 'status business_id'), themeId);
 }
@@ -502,7 +795,17 @@ export async function setSavedServiceStatus(
       translations: [],
     };
   }
-  return setSavedServiceStatusWithClient(requireSupabase(), themeId, serviceId, status);
+  if (savedServiceRpcSurfaceMissing) {
+    return setSavedServiceStatusLocal(themeId, serviceId, status);
+  }
+  try {
+    return await setSavedServiceStatusWithClient(requireSupabase(), themeId, serviceId, status);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return setSavedServiceStatusLocal(themeId, serviceId, status);
+    }
+    throw error;
+  }
 }
 
 /** Activate / Deactivate shortcut. */
@@ -516,7 +819,10 @@ export async function setSavedServiceActiveWithClient(
     p_service_id: serviceId,
     p_is_active: isActive,
   });
-  if (error) throw rpcError(error, 'Unable to change service status.');
+  if (error) {
+    noteRpcSurfaceProbe(error);
+    throw rpcError(error, 'Unable to change service status.');
+  }
   const raw = asRecord(data, 'saved service status');
   return mapSavedService(raw, asString(raw.business_id, 'status business_id'), themeId);
 }
@@ -545,7 +851,17 @@ export async function setSavedServiceActive(
       translations: [],
     };
   }
-  return setSavedServiceActiveWithClient(requireSupabase(), themeId, serviceId, isActive);
+  if (savedServiceRpcSurfaceMissing) {
+    return setSavedServiceActiveLocal(themeId, serviceId, isActive);
+  }
+  try {
+    return await setSavedServiceActiveWithClient(requireSupabase(), themeId, serviceId, isActive);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return setSavedServiceActiveLocal(themeId, serviceId, isActive);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -559,7 +875,10 @@ export async function deleteSavedServiceWithClient(
   const { data, error } = await client.rpc('delete_saved_service', {
     p_service_id: serviceId,
   });
-  if (error) throw rpcError(error, 'Unable to delete this saved service.');
+  if (error) {
+    noteRpcSurfaceProbe(error);
+    throw rpcError(error, 'Unable to delete this saved service.');
+  }
   if (data !== serviceId) throw new SavedServiceError('The database deleted a different service.');
   return serviceId;
 }
@@ -569,5 +888,15 @@ export async function deleteSavedService(serviceId: string): Promise<string> {
   if (!isSupabaseConfigured) {
     return serviceId;
   }
-  return deleteSavedServiceWithClient(requireSupabase(), serviceId);
+  if (savedServiceRpcSurfaceMissing) {
+    return deleteSavedServiceLocal(serviceId);
+  }
+  try {
+    return await deleteSavedServiceWithClient(requireSupabase(), serviceId);
+  } catch (error) {
+    if (savedServiceRpcSurfaceMissing) {
+      return deleteSavedServiceLocal(serviceId);
+    }
+    throw error;
+  }
 }

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DatabaseCatalogThemeId } from './themeCatalogService';
 import { requireSupabase } from './supabaseClient';
+import { isMissingRpcSurfaceError } from './rpcSurface';
+import { archiveSavedServiceLocal } from './savedServiceService';
 
 export interface ServiceSafetyLock {
   serviceId: string;
@@ -48,7 +50,26 @@ const asNumber = (value: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * Flips when PostgREST proves the safety RPC surface is not deployed
+ * (PGRST202 — see rpcSurface.ts and docs/step5-services-audit.md §6). Reads
+ * then fail soft (unlocked lock, empty audit) so a pre-M40 deployment never
+ * blocks deleting a locally persisted service; archive routes to the local
+ * store for the same reason.
+ */
+let safetyRpcSurfaceMissing = false;
+
+const noteRpcSurfaceProbe = (error: unknown): void => {
+  if (isMissingRpcSurfaceError(error)) safetyRpcSurfaceMissing = true;
+};
+
+/** Test seam — restores the initial "unknown" probe state. */
+export function resetSafetyRpcProbeForTests(): void {
+  safetyRpcSurfaceMissing = false;
+}
+
 const safe = (error: unknown, fallback: string): ServiceSafetyError => {
+  noteRpcSurfaceProbe(error);
   const raw = error && typeof error === 'object' && 'message' in error
     ? String((error as { message?: unknown }).message ?? '')
     : '';
@@ -81,8 +102,25 @@ export async function loadServiceSafetyLockWithClient(
   return mapSafetyLock(data);
 }
 
-export function loadServiceSafetyLock(serviceId: string): Promise<ServiceSafetyLock> {
-  return loadServiceSafetyLockWithClient(requireSupabase(), serviceId);
+/** Unlocked lock for locally persisted rows — they can have no bookings. */
+const unlockedLocalLock = (serviceId: string): ServiceSafetyLock => ({
+  serviceId,
+  upcomingAppointments: 0,
+  activeBookings: 0,
+  pendingTransactions: 0,
+  packageLinks: 0,
+  locked: false,
+  canDelete: true,
+});
+
+export async function loadServiceSafetyLock(serviceId: string): Promise<ServiceSafetyLock> {
+  if (safetyRpcSurfaceMissing) return unlockedLocalLock(serviceId);
+  try {
+    return await loadServiceSafetyLockWithClient(requireSupabase(), serviceId);
+  } catch (error) {
+    if (safetyRpcSurfaceMissing) return unlockedLocalLock(serviceId);
+    throw error;
+  }
 }
 
 export async function archiveSavedServiceWithClient(
@@ -95,8 +133,14 @@ export async function archiveSavedServiceWithClient(
   return asString(raw.id, 'archived service id');
 }
 
-export function archiveSavedService(serviceId: string): Promise<string> {
-  return archiveSavedServiceWithClient(requireSupabase(), serviceId);
+export async function archiveSavedService(serviceId: string): Promise<string> {
+  if (safetyRpcSurfaceMissing) return archiveSavedServiceLocal(serviceId);
+  try {
+    return await archiveSavedServiceWithClient(requireSupabase(), serviceId);
+  } catch (error) {
+    if (safetyRpcSurfaceMissing) return archiveSavedServiceLocal(serviceId);
+    throw error;
+  }
 }
 
 export async function loadThemeServiceAuditWithClient(
@@ -130,8 +174,14 @@ export async function loadThemeServiceAuditWithClient(
   });
 }
 
-export function loadThemeServiceAudit(themeId: DatabaseCatalogThemeId): Promise<ServiceAuditEntry[]> {
-  return loadThemeServiceAuditWithClient(requireSupabase(), themeId);
+export async function loadThemeServiceAudit(themeId: DatabaseCatalogThemeId): Promise<ServiceAuditEntry[]> {
+  if (safetyRpcSurfaceMissing) return [];
+  try {
+    return await loadThemeServiceAuditWithClient(requireSupabase(), themeId);
+  } catch (error) {
+    if (safetyRpcSurfaceMissing) return [];
+    throw error;
+  }
 }
 
 export async function checkThemeIntegrityWithClient(
@@ -147,6 +197,12 @@ export async function checkThemeIntegrityWithClient(
   return { ok: payload.ok === true, issueCount: asNumber(payload.issue_count) };
 }
 
-export function checkThemeIntegrity(themeId: DatabaseCatalogThemeId) {
-  return checkThemeIntegrityWithClient(requireSupabase(), themeId);
+export async function checkThemeIntegrity(themeId: DatabaseCatalogThemeId) {
+  if (safetyRpcSurfaceMissing) return { ok: true, issueCount: 0 };
+  try {
+    return await checkThemeIntegrityWithClient(requireSupabase(), themeId);
+  } catch (error) {
+    if (safetyRpcSurfaceMissing) return { ok: true, issueCount: 0 };
+    throw error;
+  }
 }

@@ -30,6 +30,27 @@ export function isDatabaseCatalogTheme(themeId: ThemeId): themeId is DatabaseCat
   return DATABASE_THEME_SET.has(themeId);
 }
 
+/**
+ * The catalog the theme most recently RESOLVED to — the RPC-mapped catalog
+ * when the live function exists, otherwise the static fallback. The Step-5
+ * local saved-service fallback resolves category names and predefined-service
+ * details through this cache so its rows always carry the exact ids the UI
+ * form submitted. Read-only peek; never triggers a fetch.
+ */
+const resolvedCatalogs = new Map<string, ThemeServiceCatalog>();
+
+export function peekThemeCatalog(themeId: DatabaseCatalogThemeId): ThemeServiceCatalog | undefined {
+  return resolvedCatalogs.get(themeId);
+}
+
+function rememberThemeCatalog(
+  themeId: DatabaseCatalogThemeId,
+  catalog: ThemeServiceCatalog,
+): ThemeServiceCatalog {
+  resolvedCatalogs.set(themeId, catalog);
+  return catalog;
+}
+
 export function getFallbackThemeCatalog(themeId: DatabaseCatalogThemeId): ThemeServiceCatalog {
   const themeDatabaseId = `static-${themeId}`;
   const rawCategories = THEME_CATEGORIES[themeId] || [];
@@ -223,10 +244,10 @@ export async function fetchThemeServiceCatalog(
 
   if (error) {
     console.warn('Theme catalog RPC unavailable, using local theme catalog fallback:', error);
-    return getFallbackThemeCatalog(themeId);
+    return rememberThemeCatalog(themeId, getFallbackThemeCatalog(themeId));
   }
   if (!data) {
-    return getFallbackThemeCatalog(themeId);
+    return rememberThemeCatalog(themeId, getFallbackThemeCatalog(themeId));
   }
 
   const payload = asRecord(data, 'theme catalog');
@@ -276,7 +297,7 @@ export async function fetchThemeServiceCatalog(
     return { ...canonical, suggestedLabel: mapped.suggestedLabel, suggestedSortOrder: mapped.suggestedSortOrder };
   });
 
-  return {
+  return rememberThemeCatalog(themeId, {
     theme: {
       id: themeDatabaseId,
       themeId: returnedThemeId as DatabaseCatalogThemeId,
@@ -289,13 +310,13 @@ export async function fetchThemeServiceCatalog(
     categories,
     predefinedServices,
     suggestedServices,
-  };
+  });
 }
 
 export async function loadThemeServiceCatalog(themeId: DatabaseCatalogThemeId): Promise<ThemeServiceCatalog> {
   try {
     return await fetchThemeServiceCatalog(requireSupabase(), themeId);
   } catch {
-    return getFallbackThemeCatalog(themeId);
+    return rememberThemeCatalog(themeId, getFallbackThemeCatalog(themeId));
   }
 }

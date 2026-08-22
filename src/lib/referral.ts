@@ -17,6 +17,7 @@
 
 import { getBrandConfig } from '../config/brandConfig';
 import { getAuthRedirectOrigin } from './authRedirect';
+import { safeGetItem, safeSetItem, safeRemoveItem } from './safeStorage';
 
 /** localStorage key the whole app reads for an incoming referral code. */
 export const REFERRAL_STORAGE_KEY = 'nexora_referral_code';
@@ -108,9 +109,8 @@ export function normalizeReferralCode(raw: string | null | undefined): string | 
 
 /** Read the stored referral code (set by an incoming `?ref=` link). */
 export function readStoredReferralCode(): string | null {
-  if (typeof window === 'undefined') return null;
   try {
-    return normalizeReferralCode(localStorage.getItem(REFERRAL_STORAGE_KEY));
+    return normalizeReferralCode(safeGetItem(REFERRAL_STORAGE_KEY));
   } catch {
     return null;
   }
@@ -118,12 +118,14 @@ export function readStoredReferralCode(): string | null {
 
 /** Persist a referral code so the Sign-Up page can auto-fill it. */
 export function storeReferralCode(code: string | null): boolean {
-  if (typeof window === 'undefined') return false;
   const normalized = normalizeReferralCode(code);
   try {
-    if (normalized) localStorage.setItem(REFERRAL_STORAGE_KEY, normalized);
-    else localStorage.removeItem(REFERRAL_STORAGE_KEY);
-    return Boolean(normalized);
+    if (normalized) {
+      safeSetItem(REFERRAL_STORAGE_KEY, normalized);
+      return true;
+    }
+    safeRemoveItem(REFERRAL_STORAGE_KEY);
+    return false;
   } catch {
     return false;
   }

@@ -64,6 +64,9 @@ function RootRouter() {
   const normalizedPath = pathname.replace(/^\/+/, '').split('/')[0] || '';
 
   useEffect(() => {
+    // NOTE: the `?ref=` capture lives at module scope (captureReferralFromUrl,
+    // top of this file) so the code is stored BEFORE this router runs — it is
+    // normalized/validated there and must not be duplicated (or bypassed) here.
     async function resolveRoute() {
       const authParams = new URLSearchParams(window.location.search);
       const hasAuthResponse = Boolean(

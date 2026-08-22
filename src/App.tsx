@@ -32,6 +32,7 @@ import { useUsageTracking } from './hooks/useUsageTracking';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { safeSetItem, safeGetItem } from './lib/safeStorage';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
@@ -46,7 +47,7 @@ export default function App() {
   const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (typeof parsed.step === 'number' && parsed.step >= 0 && parsed.step <= MAX_STEP_INDEX) {
@@ -61,7 +62,7 @@ export default function App() {
 
   const [data, setData] = useState<SalonData>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.data) {
@@ -76,7 +77,7 @@ export default function App() {
 
   const [activeModule, setActiveModule] = useState<'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard'>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (
@@ -85,7 +86,7 @@ export default function App() {
           parsed.activeModule === 'owner-dashboard'
         ) return parsed.activeModule;
       }
-      const dashboardTab = localStorage.getItem(DASHBOARD_TAB_KEY);
+      const dashboardTab = safeGetItem(DASHBOARD_TAB_KEY);
       if (dashboardTab && data.publishState === 'published') return 'dashboard';
     } catch {}
     return 'wizard';
@@ -93,7 +94,7 @@ export default function App() {
 
   const [dashboardTab, setDashboardTab] = useState<DashboardTab>(() => {
     try {
-      const saved = localStorage.getItem(DASHBOARD_TAB_KEY) as DashboardTab | null;
+      const saved = safeGetItem(DASHBOARD_TAB_KEY) as DashboardTab | null;
       if (saved && DASHBOARD_TABS.includes(saved)) return saved;
     } catch {}
     return 'overview';
@@ -103,7 +104,7 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [showResumeBanner, setShowResumeBanner] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         return typeof parsed.step === 'number' && parsed.step > 0;
@@ -151,7 +152,7 @@ export default function App() {
   // Persist dashboard tab
   useEffect(() => {
     try {
-      localStorage.setItem(DASHBOARD_TAB_KEY, dashboardTab);
+      safeSetItem(DASHBOARD_TAB_KEY, dashboardTab);
     } catch {}
   }, [dashboardTab]);
 
@@ -166,7 +167,7 @@ export default function App() {
     const timer = setTimeout(() => {
       try {
         const lastCompletedStep = Math.max(data.lastCompletedStep || 0, step > 0 ? step - 1 : 0);
-        localStorage.setItem(
+        safeSetItem(
           STORAGE_KEY,
           JSON.stringify({
             step,
@@ -264,7 +265,7 @@ export default function App() {
     
     setSaveStatus('saving');
     try {
-      localStorage.setItem(
+      safeSetItem(
         STORAGE_KEY,
         JSON.stringify({
           step,

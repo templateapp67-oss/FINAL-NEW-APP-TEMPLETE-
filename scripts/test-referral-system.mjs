@@ -78,9 +78,15 @@ await test('referral links always target the Sign-Up page with ?ref=<CODE>', () 
 
 await test('router captures ?ref= from window.location.search into localStorage[nexora_referral_code]', () => {
   assert.ok(referralSrc.includes('URLSearchParams(window.location.search)'), 'must parse the ref query parameter');
-  assert.ok(referralSrc.includes('localStorage'), 'must persist via localStorage');
   assert.ok(referralSrc.includes("REFERRAL_STORAGE_KEY = 'nexora_referral_code'"), 'storage key must be nexora_referral_code');
   assert.ok(mainSrc.includes('captureReferralFromUrl()'), 'main.tsx must capture the ref at startup');
+});
+
+await test('referral storage uses the safeStorage quota-safe wrappers', () => {
+  assert.ok(referralSrc.includes("from './safeStorage'"), 'referral.ts must use safeStorage');
+  assert.ok(referralSrc.includes('safeSetItem') && referralSrc.includes('safeGetItem') && referralSrc.includes('safeRemoveItem'), 'safe get/set/remove must be used');
+  assert.ok(dashboardSrc.includes("from './safeStorage'"), 'referralDashboard.ts must use safeStorage');
+  assert.ok(dashboardSrc.includes('safeSetItem') && dashboardSrc.includes('safeGetItem'), 'registry must use safe get/set');
 });
 
 await test('slug parsing stays pathname-only (query params never cause 404 / Salon Not Found)', () => {
@@ -177,14 +183,16 @@ await test('referral link points at the Sign-Up page with the ref param', () => 
 });
 
 await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouched)', () => {
-  // Minimal browser shims for the capture path.
+  // Minimal browser shims for the capture path. The window shim carries
+  // localStorage too, so safeStorage exercises the real storage path.
   const backing = new Map();
-  globalThis.localStorage = {
+  const storage = {
     getItem: (k) => (backing.has(k) ? backing.get(k) : null),
     setItem: (k, v) => backing.set(k, String(v)),
     removeItem: (k) => backing.delete(k),
   };
-  globalThis.window = { location: { search: '?ref=nx-royal-2026&next=1' } };
+  globalThis.localStorage = storage;
+  globalThis.window = { location: { search: '?ref=nx-royal-2026&next=1' }, localStorage: storage };
   const stored = captureReferralFromUrl();
   assert.equal(stored, 'NX-ROYAL-2026');
   assert.equal(backing.get('nexora_referral_code'), 'NX-ROYAL-2026');
@@ -207,14 +215,16 @@ await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouche
 // Fresh browser shims with event support for the registry layer.
 {
   const backing = new Map();
-  globalThis.localStorage = {
+  const storage = {
     getItem: (k) => (backing.has(k) ? backing.get(k) : null),
     setItem: (k, v) => backing.set(k, String(v)),
     removeItem: (k) => backing.delete(k),
   };
+  globalThis.localStorage = storage;
   const listeners = new Map();
   globalThis.window = {
     location: { search: '' },
+    localStorage: storage,
     addEventListener: (t, cb) => {
       if (!listeners.has(t)) listeners.set(t, []);
       listeners.get(t).push(cb);

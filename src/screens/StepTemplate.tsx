@@ -5,6 +5,7 @@ import ThemeSelector from '../components/ThemeSelector';
 import { normalizeThemeId } from '../lib/themeServices';
 import { CheckCircle2, ArrowRight, ArrowLeft, Eye, Layout, Monitor, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
+import { safeSetItem, safeGetItem } from '../lib/safeStorage';
 
 interface Props {
   data: SalonData;
@@ -34,13 +35,13 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
       setData(prev => {
         const nextData = { ...prev, templateId: id, services: prev.services || [], packages: prev.packages || [] };
         try {
-          const raw = localStorage.getItem('nexora_onboarding_state');
+          const raw = safeGetItem('nexora_onboarding_state');
           if (raw) {
             const parsed = JSON.parse(raw);
             parsed.data = nextData;
-            localStorage.setItem('nexora_onboarding_state', JSON.stringify(parsed));
+            safeSetItem('nexora_onboarding_state', JSON.stringify(parsed));
           } else {
-            localStorage.setItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
+            safeSetItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
           }
         } catch (e) {
           console.error('Failed to persist theme change', e);

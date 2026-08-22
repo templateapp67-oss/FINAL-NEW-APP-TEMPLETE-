@@ -348,66 +348,13 @@ export function applyBrandConfigToDocument(config: BrandConfig = getBrandConfig(
   injectBrandCssVariables(config);
 }
 
+import { safeSetItem, safeGetItem, safeRemoveItem } from '../lib/safeStorage';
+
 let memoryBrandConfig: BrandConfig | null = null;
 
-/** Sanitize and safely persist brand config to localStorage with quota-exceeded fallback */
+/** Sanitize and safely persist brand config to storage */
 function persistBrandConfigSafely(config: BrandConfig): void {
-  if (typeof window === 'undefined') return;
-
-  // 1. First attempt: direct storage
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    return;
-  } catch (err: any) {
-    const isQuota =
-      err?.name === 'QuotaExceededError' ||
-      err?.code === 22 ||
-      err?.number === -2147024882 ||
-      String(err).toLowerCase().includes('quota');
-    if (!isQuota) {
-      console.warn('Could not persist brand config to localStorage:', err);
-      return;
-    }
-  }
-
-  // 2. Second attempt: clear non-critical expendable cache keys to free space
-  try {
-    localStorage.removeItem('nexora_usage_analytics');
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    return;
-  } catch {
-    /* continue to compact fallback */
-  }
-
-  // 3. Third attempt: compact large inline base64 images from storage payload (memory cache keeps them intact)
-  try {
-    const compacted: BrandConfig = {
-      ...config,
-      platform: {
-        ...config.platform,
-        // If favicon is a huge data URL > 5KB, omit from localStorage payload
-        faviconUrl:
-          config.platform.faviconUrl &&
-          config.platform.faviconUrl.startsWith('data:') &&
-          config.platform.faviconUrl.length > 5000
-            ? ''
-            : config.platform.faviconUrl,
-      },
-      seo: {
-        ...config.seo,
-        // If ogImage is a huge data URL > 10KB, omit from localStorage payload
-        ogImage:
-          config.seo.ogImage &&
-          config.seo.ogImage.startsWith('data:') &&
-          config.seo.ogImage.length > 10000
-            ? DEFAULT_BRAND_CONFIG.seo.ogImage
-            : config.seo.ogImage,
-      },
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(compacted));
-  } catch (finalErr) {
-    console.warn('Brand config saved in memory (localStorage quota reached):', finalErr);
-  }
+  safeSetItem(STORAGE_KEY, JSON.stringify(config));
 }
 
 /** Get active brand config (persisted overrides merged with default) */
@@ -416,7 +363,7 @@ export function getBrandConfig(): BrandConfig {
   if (typeof window === 'undefined') return DEFAULT_BRAND_CONFIG;
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeGetItem(STORAGE_KEY);
     if (!raw) {
       memoryBrandConfig = DEFAULT_BRAND_CONFIG;
       return DEFAULT_BRAND_CONFIG;
@@ -484,7 +431,7 @@ export function resetBrandConfig(): BrandConfig {
   memoryBrandConfig = DEFAULT_BRAND_CONFIG;
   try {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEY);
+      safeRemoveItem(STORAGE_KEY);
       window.dispatchEvent(new CustomEvent('brand-config-changed', { detail: DEFAULT_BRAND_CONFIG }));
     }
   } catch {

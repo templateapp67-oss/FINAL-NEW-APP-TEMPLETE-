@@ -21,6 +21,7 @@
  */
 
 import { readStoredReferralCode } from './referral';
+import { safeGetItem, safeSetItem } from './safeStorage';
 
 export type ReferralStatus = 'Pending' | 'Registered' | 'Active';
 
@@ -123,7 +124,7 @@ function normalizeEntry(raw: unknown): ReferralEntry | null {
 
 function persist(entries: ReferralEntry[]): void {
   try {
-    localStorage.setItem(REFERRAL_REGISTRY_KEY, JSON.stringify(entries));
+    safeSetItem(REFERRAL_REGISTRY_KEY, JSON.stringify(entries));
   } catch (err) {
     console.warn('Could not persist referral registry:', err);
   }
@@ -135,9 +136,8 @@ function emitUpdated(): void {
 }
 
 function loadRegistry(): ReferralEntry[] {
-  if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(REFERRAL_REGISTRY_KEY);
+    const raw = safeGetItem(REFERRAL_REGISTRY_KEY);
     if (!raw) {
       const seed = demoSeed();
       persist(seed);

@@ -1,6 +1,6 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-22** (session `arena/01a029d0-final-new-app-templete`, dynamic referral system + `/signup` page).
+> Last updated: **2026-08-22** (session `arena/01a029d0-final-new-app-templete`, dynamic referral system + `/signup` page; merged `main` 2200baf — safeStorage adopted, duplicate referral model consolidated).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
@@ -55,7 +55,21 @@ live Referred-Salons dashboard (Pending / Registered / Active + wallet credits).
   from `nexora_referral_code`) and shows "joined via code …" when present.
   Registry lives in `localStorage['nexora_referral_registry']` (seeded with
   demo rows flagged `Demo`); server-safe no-ops without a browser.
-- **Test:** `npm run test:referral` (19 checks, static + runtime). Verified
+- **Merge consolidation (2200baf on main):** a parallel commit landed on
+  `main` while this PR was open — it added `safeStorage.ts` (quota-safe
+  localStorage wrappers, adopted here: `referral.ts` + `referralDashboard.ts`
+  now go through `safeGetItem`/`safeSetItem`/`safeRemoveItem`), an inline
+  unvalidated `?ref=` capture in `main.tsx` (superseded by the module-level
+  `captureReferralFromUrl()`, which normalizes/validates and runs before
+  render — the inline block was dropped), and a second referral
+  implementation (`ReferralDashboard.tsx` + `referralService.ts` with static
+  `NX-GROWTH-2026`/`NX-OWNER-2026` codes and
+  `published/in_progress/pending/verified` statuses). That duplicate was
+  **retired** in this PR because it contradicts the agreed referral spec
+  (dynamic `NX-[SHORT]-<YEAR>` codes, Pending/Registered/Active statuses,
+  `/signup?ref=` flow) and would have left two conflicting referral models
+  in the tree. `safeStorage.ts` itself is kept and used.
+- **Test:** `npm run test:referral` (20 checks, static + runtime). Verified
   green this session: `npm run lint` (tsc), `node verify-22-screens.js`,
   `test:auth`, `test:phase-17.1`.
 
@@ -2066,7 +2080,7 @@ wiring step must upsert each owner's existing draft/progress payload.
 ```bash
 npm run lint                # TypeScript type check (tsc --noEmit)
 npm run test:auth           # Auth modal and login reliability regression tests
-npm run test:referral       # Dynamic referral codes, /signup?ref= capture, sharing, live dashboard (19 tests)
+npm run test:referral       # Dynamic referral codes, /signup?ref= capture, sharing, live dashboard, safeStorage (20 tests)
 node verify-22-screens.js   # Static verification of all 25 screens & features
 npm run generate:theme-seed # regenerate M18 from the TypeScript source
 npm run validate:migrations # source-check M18 + apply M01–M24 twice + tests A–T

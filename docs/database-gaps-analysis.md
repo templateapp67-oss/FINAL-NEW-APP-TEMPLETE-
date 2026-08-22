@@ -5,20 +5,16 @@
 > (`supabase/migrations/M01–M38`), and (3) the application code that actually
 > talks to the database (`src/lib/*`, `src/types/database.ts`, `server/*`).
 >
-> **Method:** static, repo-only. No live Supabase connection was available in
-> this workspace (only `.env.example` placeholders), so live introspection —
-> which the spec itself declares mandatory (§0, §4.2, §5.25) — is still the
-> top unresolved item and is flagged below as such.
+> **Method:** repo analysis + PGlite smoke + a Dashboard SQL Editor apply of
+> M38. Full live catalog introspection (every column/constraint dump) is
+> still not done from this workspace — there is no Management API token here.
 >
 > **Generated:** 2026-08-22 · updated on `arena/01a0277c-final-new-app-templete`
 >
-> **Resolution note:** the missing base objects (§2) and the live membership
-> guard (§5.6) are addressed *in-repo* by
-> `supabase/migrations/20260822000101_m38_reconciliation_fix.sql`. That
-> migration is idempotent, additive, and safe to run in the Supabase Dashboard
-> SQL editor (it disables the live guard only around a trusted backfill and
-> restores it exactly). **It has not been applied to the live project from
-> this workspace.**
+> **Resolution note:** M38 was applied on the live project via the Supabase
+> SQL Editor (`docs/m38-run-in-supabase.sql`). `storage.objects` ALTER/GRANT
+> is skipped when the editor role is not the table owner (42501);
+> `supabase_storage_admin` keeps that table. Everything else in M38 committed.
 >
 > ## Verification ledger (do not skip)
 >
@@ -26,14 +22,13 @@
 > |---|---|---|
 > | PGlite M38 smoke (`npm run test:m38`) | **31/31 PASS** | Fresh bootstrap; live-like `status` + membership guard; M28–M37 after M38; public slug lookup; booking RPC; salon-media isolation; `verify_phase3b_rls()` |
 > | Historical Design-A suite (`npm run validate:migrations`) | **21/21 PASS** | M38 is excluded from the M01–M27 history (correct — Design B) |
-> | Live apply (`npm run db:apply:live:m38`) | **NOT APPLIED** | `SUPABASE_ACCESS_TOKEN` unset (exit 2). No `DATABASE_URL` / service-role key. Outbound HTTPS to `*.supabase.co` previously failed with `SSL_ERROR_SYSCALL`. |
-> | Live `verify_m38_reconciliation()` | **NOT RUN** | Blocked by the apply gate above. |
-> | Live RLS / public website / booking / media | **NOT VERIFIED ON LIVE TABLES** | Exercised only against a PGlite reconstruction of the live-like schema. |
+> | Live apply | **APPLIED** (SQL Editor, 2026-08-22) | First attempts failed (partial paste; then `42501 must be owner of table objects`). Owner-guarded M38 then committed. |
+> | Live `verify_m38_reconciliation()` | **14/14 PASS** | `profiles`, `organizations`, `organization_members`, `salons`, `salon_public_websites` (+ columns), `salon_media`, `salon-media` bucket, `owner_salon_ids`, `nexora_owner_salon_ids` (delegates), membership guard restored, RLS enabled, `anon` SELECT on SPW. |
+> | Live booking / media upload E2E as real tenants | **NOT RUN ON LIVE** | Proven on PGlite only. |
 >
-> **This document is not 100% live-resolved.** Treating it as such would be
-> false. Re-run `SUPABASE_ACCESS_TOKEN=sbp_… npm run db:apply:live:m38` from a
-> network that can reach `api.supabase.com`, then replace the live rows in
-> this table with the printed `verify_m38_reconciliation()` results.
+> M38's own surface is live-green. The Design A/B fork, `staff` shape, generated
+> types, and live booking/media E2E are still open. This is **not** “100% of
+> the product database is done.”
 
 ---
 
@@ -88,15 +83,16 @@ for the four identity/tenant/website roots; it does not dissolve the fork.
 These are objects the running application **expects**. Before M38 they were
 created by **no** committed migration and only existed in the live shared
 project. M38 now bootstraps the identity / tenant / website roots with
-`CREATE TABLE IF NOT EXISTS` so a fresh database is self-describing. Live
-existence is still unconfirmed from this workspace.
+`CREATE TABLE IF NOT EXISTS` so a fresh database is self-describing.
+Live `verify_m38_reconciliation()` (2026-08-22) confirmed the four roots,
+`salon_media`, the `salon-media` bucket, and the anon SELECT grant.
 
 | # | Object | Referenced by | Status after M38 |
 |---|---|---|---|
-| M-1 | `public.salons` | `ownerSalon.ts`, `salonLocationService.ts`, `nearbySalons.ts` | **In-repo closed.** Created by M38 §1.4. Live apply not run. |
-| M-2 | `public.organization_members` | `ownerSalon.ts` | **In-repo closed.** Created by M38 §1.3. Live apply not run. |
-| M-3 | `public.organizations` | (ownership chain) | **In-repo closed.** Created by M38 §1.2. Live apply not run. |
-| M-4 | `public.salon_public_websites` | `salonWebsiteService.ts`, `PublicSalonView.tsx`, `main.tsx` | **In-repo closed.** Created by M38 §1.5 + `GRANT SELECT` to `anon`/`authenticated` (RLS still filters published rows). Live apply not run. |
+| M-1 | `public.salons` | `ownerSalon.ts`, `salonLocationService.ts`, `nearbySalons.ts` | **Live-verified.** M38 §1.4 + verify `salons`. |
+| M-2 | `public.organization_members` | `ownerSalon.ts` | **Live-verified.** M38 §1.3 + verify `organization_members` / guard restored. |
+| M-3 | `public.organizations` | (ownership chain) | **Live-verified.** M38 §1.2 + verify `organizations`. |
+| M-4 | `public.salon_public_websites` | `salonWebsiteService.ts`, `PublicSalonView.tsx`, `main.tsx` | **Live-verified.** Columns + `anon` SELECT grant (`spw_anon_select`). |
 | M-5 | `public.staff` | M28 preflight (`staff.salon_id`) | **Still open by design.** M38 deliberately does not invent a staff shape; M34/M37 already `to_regclass` guard it. |
 | M-6 | `public.salons.address/latitude/longitude` vs `business_locations` | `salonLocationService.ts` vs `AGENTS.md` | **Unchanged** doc/code drift (see §5.3). |
 | M-7 | Supabase-CLI-generated types | `src/types/database.ts` (hand-written subset) | **Still open.** `npm run db:types:gen` needs a live project. |
@@ -173,7 +169,7 @@ volume of **defined-but-unreferenced** surface, most of it belonging to Design A
 
 | Code constant | Code value | Defined in migrations |
 |---|---|---|
-| `ownerSalon.ts` `OWNER_SALON_IDS_FN` | `owner_salon_ids` | **In-repo closed by M38 §6.** `nexora_owner_salon_ids()` is now a one-line delegate to `owner_salon_ids()`. Live not re-verified. |
+| `ownerSalon.ts` `OWNER_SALON_IDS_FN` | `owner_salon_ids` | **Live-verified.** `owner_salon_ids`, `nexora_owner_salon_ids`, and `nexora_alias_delegates` all `ok = true`. |
 
 **Defined but unreferenced by code (notable Design-A / dead surface):**
 
@@ -293,12 +289,11 @@ escalation stays blocked. M38 also ships a documented snippet for safely
 provisioning a *new* owner membership in the SQL editor (the
 `owner-location-setup.sql` STEP 3 replacement).
 
-> PGlite reconstructs this guard and confirms M38 disables it only around the
-> trusted backfill, then restores it (`npm run test:m38`). The live function
-> source has **not** been read from the real project. If the live project names
-> its guard differently, the `p.proname` filter in M38 §2b (and the lookup
-> snippet) must be updated to match:
-> `select pg_get_functiondef('private.protect_organization_membership_fields()'::regprocedure);`.
+> Live `membership_guard_restored = true` (2026-08-22): after M38 the
+> `protect_organization_membership_fields` trigger is not left disabled.
+> The live function source was not dumped; the name matched well enough
+> for the disable/restore path (or the trigger is absent and the check
+> still passes). PGlite also reconstructs the raise-and-restore cycle.
 
 ---
 

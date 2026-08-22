@@ -5,6 +5,7 @@ import { isSupabaseConfigured, requireSupabase } from '../lib/supabaseClient';
 import { listPublicSalonMedia } from '../lib/salonMediaService';
 import { PUBLIC_SALON_CATALOG_VIEW } from '../lib/nearbySalons';
 import { SALON_LOCATION_TABLE } from '../lib/salonLocationService';
+import { updateSalonFavicon, resetSalonFavicon } from '../lib/favicon';
 
 interface Props { slug: string }
 
@@ -198,6 +199,15 @@ export default function PublicSalonView({ slug }: Props) {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (state.status === 'ready' && state.data) {
+      updateSalonFavicon(state.data);
+    }
+    return () => {
+      resetSalonFavicon();
+    };
+  }, [state.status, state.data]);
 
   if (state.status !== 'ready') {
     return (

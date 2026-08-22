@@ -312,15 +312,30 @@ export function applyBrandConfigToDocument(config: BrandConfig = getBrandConfig(
     upsertHeadMeta('og:site_name', config.platform.name, true);
   }
 
-  // 3. Favicon (if configured)
-  if (config.platform.faviconUrl) {
+  // 3. Favicon (dynamic update via favicon helper)
+  const faviconUrl = config.platform.faviconUrl || config.platform.logoUrl;
+  if (faviconUrl) {
     let favicon = document.head.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
     if (!favicon) {
       favicon = document.createElement('link');
       favicon.setAttribute('rel', 'icon');
       document.head.appendChild(favicon);
     }
-    favicon.setAttribute('href', config.platform.faviconUrl);
+    favicon.setAttribute('href', faviconUrl);
+  } else {
+    // Generate fallback SVG icon with brand primary color and platform initial
+    const rawColor = config.theme?.primaryColor || '#ac0053';
+    const initial = (config.platform?.name || 'Nexora').trim().charAt(0).toUpperCase() || 'N';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="16" fill="${encodeURIComponent(rawColor)}"/><text x="50%" y="54%" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="34" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${initial}</text></svg>`;
+    const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    let favicon = document.head.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.setAttribute('rel', 'icon');
+      favicon.setAttribute('type', 'image/svg+xml');
+      document.head.appendChild(favicon);
+    }
+    favicon.setAttribute('href', dataUri);
   }
 
   // 4. CSS variables
@@ -435,3 +450,12 @@ export function useBrandConfig() {
 
 export const brandConfig = getBrandConfig();
 export default brandConfig;
+
+export {
+  updateSalonFavicon,
+  getSalonFaviconUrl,
+  generateFaviconSvgDataUri,
+  resetSalonFavicon,
+  type SalonFaviconOptions,
+} from '../lib/favicon';
+

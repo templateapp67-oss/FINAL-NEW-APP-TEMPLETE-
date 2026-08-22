@@ -25,6 +25,7 @@ export function isHistoricalMigration(name) {
     && !name.includes('_reconciliation_')
     && !name.includes('_m39_')
     && !name.includes('_m40_')
+    && !name.includes('_m41_')
     && !name.includes('_owner_publish_')
     && !name.includes('setup_public_salon_v2')
     && !name.includes('dynamic_multitenant');

@@ -65,6 +65,10 @@ const m40MigrationFiles = migrationFiles.filter((name) => name.includes('_m40_')
 assert.deepEqual(m40MigrationFiles, [
   '20260822000301_m40_service_catalog_commerce_rpc.sql',
 ], 'expected the M40 service-catalog/commerce RPC set (Design B; not part of the M01–M27 history)');
+const m41MigrationFiles = migrationFiles.filter((name) => name.includes('_m41_') || name.includes('_tenant_subdomain'));
+assert.deepEqual(m41MigrationFiles, [
+  '20260822000401_m41_tenant_subdomains.sql',
+], 'expected the M41 tenant subdomain/custom-domain routing migration (Design B; not part of the M01–M27 history)');
 // Live-applied Design-B helper migrations (SQL-editor / shared project). They
 // are not part of the immutable M01–M27 replay history, just like M38/M39.
 const liveHelperMigrationFiles = migrationFiles.filter(

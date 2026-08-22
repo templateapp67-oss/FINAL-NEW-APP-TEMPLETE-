@@ -13,8 +13,9 @@ import { useAuth } from './lib/useAuth.ts';
 import { applyBrandConfigToDocument } from './config/brandConfig.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
 import { captureReferralFromUrl } from './lib/referral.ts';
-import { resolvePublishedSalonSlug, resolveLocalOrStaticSalonSlug } from './lib/publicSalonLookup.ts';
+import { resolveSalonRouteSlug, resolveLocalOrStaticSalonRouteSlug } from './lib/publicSalonLookup.ts';
 import { normalizeSlug } from './lib/salonSlug.ts';
+import { resolveTenantHost } from './lib/tenantHost.ts';
 import './index.css';
 
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
@@ -69,6 +70,11 @@ function RootRouter() {
   // hyphen-collapsed). Reserved routes (`nearby`, `signup`, …) are matched
   // below before slug resolution is attempted.
   const normalizedPath = normalizeSlug(pathname.replace(/^\/+/, '').split('/')[0]);
+  // Tenant host context: a request to `royal-hair-studio.<platform>` (or a
+  // custom domain) is a tenant site — the platform's own routes (signup,
+  // dashboard, nearby, …) only apply on the apex platform domain.
+  const tenantHost = resolveTenantHost(window.location.hostname);
+  const isTenantHost = Boolean(tenantHost.subdomain || tenantHost.customDomain);
 
   useEffect(() => {
     // NOTE: the `?ref=` capture lives at module scope (captureReferralFromUrl,
@@ -80,56 +86,65 @@ function RootRouter() {
         authParams.get('code') || authParams.get('error') || authParams.get('error_description'),
       );
 
-      // Supabase falls back to its configured Site URL when a requested
-      // redirect is not allow-listed. Accept auth codes at `/` as well as the
-      // dedicated callback path so a valid email link never opens the wizard.
-      if (pathname === '/auth/callback' || (pathname === '/' && hasAuthResponse)) {
-        setRoute('auth_callback');
-        setLoading(false);
-        return;
-      }
-      if (pathname === '/reset-password') {
-        setRoute('reset_password');
-        setLoading(false);
-        return;
-      }
-      // 2. Standalone Sign-Up page — target of all referral links
-      //    (`/signup?ref=NX-[SHORT]-2026`). The `ref` parameter was already
-      //    captured into localStorage at module load (captureReferralFromUrl).
-      if (pathname === '/signup') {
-        setRoute('signup');
-        setLoading(false);
-        return;
-      }
-      if (pathname === '/dashboard' || pathname === '/builder') {
-        setRoute('protected_app');
-        setLoading(false);
-        return;
+      // Platform-only routes apply on the apex platform domain; on a tenant
+      // host (`<subdomain>.<platform>` or a custom domain) the whole origin
+      // is the tenant's site, so these are skipped and the tenant renders.
+      if (!isTenantHost) {
+        // Supabase falls back to its configured Site URL when a requested
+        // redirect is not allow-listed. Accept auth codes at `/` as well as
+        // the dedicated callback path so a valid email link never opens the wizard.
+        if (pathname === '/auth/callback' || (pathname === '/' && hasAuthResponse)) {
+          setRoute('auth_callback');
+          setLoading(false);
+          return;
+        }
+        if (pathname === '/reset-password') {
+          setRoute('reset_password');
+          setLoading(false);
+          return;
+        }
+        // Standalone Sign-Up page — target of all referral links
+        // (`/signup?ref=NX-[SHORT]-2026`). The `ref` parameter was already
+        // captured into localStorage at module load (captureReferralFromUrl).
+        if (pathname === '/signup') {
+          setRoute('signup');
+          setLoading(false);
+          return;
+        }
+        if (pathname === '/dashboard' || pathname === '/builder') {
+          setRoute('protected_app');
+          setLoading(false);
+          return;
+        }
+
+        // Root / Home route goes to onboarding wizard/dashboard
+        if (!normalizedPath) {
+          setRoute('app');
+          setLoading(false);
+          return;
+        }
+
+        // Exact 'nearby' route goes to nearby search finder
+        if (normalizedPath === 'nearby') {
+          setRoute('nearby');
+          setLoading(false);
+          return;
+        }
       }
 
-      // 1. Root / Home route goes to onboarding wizard/dashboard
-      if (!normalizedPath) {
-        setRoute('app');
-        setLoading(false);
-        return;
-      }
-
-      // 2. Exact 'nearby' route goes to nearby search finder
-      if (normalizedPath === 'nearby') {
-        setRoute('nearby');
-        setLoading(false);
-        return;
-      }
-
-      // 3. Public salon website resolution.
-      //    a) Backend: exact (normalized) slug, then normalized-name fallback
-      //       (`royal-hair-studio` -> "Royal Hair Studio").
-      //    b) Offline/static: a matching local onboarding draft or the static
-      //       seed salon from the brand config, so `/royal-hair-studio` still
-      //       renders when Supabase is not configured or the query misses.
+      // Public salon website resolution (host-aware).
+      //    a) Backend: tenant subdomain → custom domain → exact (normalized)
+      //       slug → normalized-name fallback (`royal-hair-studio` →
+      //       "Royal Hair Studio").
+      //    b) Offline/static: a matching subdomain, local onboarding draft or
+      //       the static seed salon, so the tenant still renders when
+      //       Supabase is not configured or the query misses.
       if (isSupabaseConfigured && supabase) {
         try {
-          const resolved = await resolvePublishedSalonSlug(normalizedPath);
+          const resolved = await resolveSalonRouteSlug({
+            hostname: window.location.hostname,
+            pathSlug: normalizedPath,
+          });
           if (resolved) {
             setSlug(resolved.slug);
             setRoute('public_salon');
@@ -137,11 +152,14 @@ function RootRouter() {
             return;
           }
         } catch (err) {
-          console.error('Failed to resolve salon slug from Supabase:', err);
+          console.error('Failed to resolve salon from Supabase:', err);
         }
       }
 
-      const fallbackSlug = resolveLocalOrStaticSalonSlug(normalizedPath);
+      const fallbackSlug = resolveLocalOrStaticSalonRouteSlug({
+        hostname: window.location.hostname,
+        pathSlug: normalizedPath,
+      });
       if (fallbackSlug) {
         setSlug(fallbackSlug);
         setRoute('public_salon');
@@ -149,13 +167,13 @@ function RootRouter() {
         return;
       }
 
-      // 4. If the slug didn't match any source, show user-friendly NotFound 404.
+      // If nothing matched any source, show user-friendly NotFound 404.
       setRoute('not_found');
       setLoading(false);
     }
 
     resolveRoute();
-  }, [normalizedPath, pathname]);
+  }, [normalizedPath, pathname, isTenantHost]);
 
   if (loading) {
     return (

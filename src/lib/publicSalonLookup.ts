@@ -3,10 +3,12 @@
  * router (`main.tsx`) and `PublicSalonView`.
  *
  * Resolution order:
- *   1. Backend: exact (normalized) `salon_public_websites.slug` match.
- *   2. Backend: normalized-name fallback via `public_salon_catalog`
+ *   1. Backend: tenant subdomain (`royal-hair-studio.<platform>`) and
+ *      custom domain (`royalhairstudio.in`) on `salon_public_websites`.
+ *   2. Backend: exact (normalized) `salon_public_websites.slug` match.
+ *   3. Backend: normalized-name fallback via `public_salon_catalog`
  *      (`royal-hair-studio` -> "Royal Hair Studio").
- *   3. Offline/static: a matching local onboarding draft or the static
+ *   4. Offline/static: a matching local onboarding draft or the static
  *      seed salon from the brand config (so `/royal-hair-studio` still
  *      renders when Supabase is not configured or the backend misses).
  */
@@ -16,8 +18,9 @@ import { slugifySalonName } from './publicWebsiteUrl';
 import { PUBLIC_SALON_CATALOG_VIEW } from './nearbySalons';
 import { requireSupabase } from './supabaseClient';
 import { normalizeSlug, slugToNameCandidates, salonNameMatchesCandidates } from './salonSlug';
+import { resolveTenantHost } from './tenantHost';
 
-export type SalonSlugSource = 'slug' | 'name';
+export type SalonSlugSource = 'slug' | 'name' | 'subdomain' | 'custom_domain';
 
 export interface ResolvedSalonSlug {
   /** Canonical, normalized slug to load. */
@@ -32,6 +35,71 @@ interface CatalogRow {
 
 /** Seed salon slug that always resolves to the static fallback data. */
 const SEED_SALON_SLUGS = new Set(['royal-hair-studio']);
+
+/**
+ * Resolve a tenant from the request host (subdomain or custom domain).
+ * Returns null when the host has no tenant part or the project hasn't
+ * applied the M41 subdomain columns yet (the query degrades gracefully).
+ */
+export async function resolvePublishedSalonByHost(
+  hostname: string | null | undefined,
+  baseDomain?: string | null,
+): Promise<ResolvedSalonSlug | null> {
+  const info = resolveTenantHost(hostname, baseDomain);
+  if (!info.subdomain && !info.customDomain) return null;
+  const client = requireSupabase();
+  try {
+    if (info.subdomain) {
+      const { data, error } = await client
+        .from('salon_public_websites')
+        .select('slug')
+        .eq('subdomain', info.subdomain)
+        .eq('is_published', true)
+        .maybeSingle();
+      if (error) throw error;
+      const slug = normalizeSlug(data?.slug);
+      if (slug) return { slug, source: 'subdomain' };
+    }
+    if (info.customDomain) {
+      const { data, error } = await client
+        .from('salon_public_websites')
+        .select('slug')
+        .eq('custom_domain', info.customDomain)
+        .eq('is_published', true)
+        .maybeSingle();
+      if (error) throw error;
+      const slug = normalizeSlug(data?.slug);
+      if (slug) return { slug, source: 'custom_domain' };
+    }
+  } catch (error) {
+    // Columns may not exist yet on a project without the M41 migration —
+    // fall through to slug-path resolution instead of hard-failing.
+    console.warn('Subdomain/custom-domain lookup unavailable, falling back to slug:', error);
+  }
+  return null;
+}
+
+export interface SalonRouteInput {
+  hostname: string;
+  /** First path segment, raw (before slug normalization). */
+  pathSlug: string;
+  /** Platform apex domain override (defaults to VITE_PUBLIC_ROOT_DOMAIN/config). */
+  baseDomain?: string | null;
+}
+
+/**
+ * Resolve the tenant for a request using the full priority order:
+ * host subdomain → custom domain → path slug → name fallback.
+ */
+export async function resolveSalonRouteSlug(
+  input: SalonRouteInput,
+): Promise<ResolvedSalonSlug | null> {
+  const hostResolved = await resolvePublishedSalonByHost(input.hostname, input.baseDomain);
+  if (hostResolved) return hostResolved;
+  const pathSlug = normalizeSlug(input.pathSlug);
+  if (!pathSlug) return null;
+  return resolvePublishedSalonSlug(pathSlug);
+}
 
 /**
  * Resolve a raw URL path segment to a published salon website slug.
@@ -127,4 +195,18 @@ export function resolveLocalDraftSalonSlug(rawSlug: string | null | undefined): 
 /** Offline/local draft first, then the static seed salon. */
 export function resolveLocalOrStaticSalonSlug(rawSlug: string | null | undefined): string | null {
   return resolveLocalDraftSalonSlug(rawSlug) ?? resolveStaticSalonSlug(rawSlug);
+}
+
+/**
+ * Offline/static resolution for a full request: the tenant subdomain can map
+ * straight onto a static seed slug (`royal-hair-studio.<platform>`), else the
+ * path slug is tried. Custom domains cannot resolve offline (no DB → no map).
+ */
+export function resolveLocalOrStaticSalonRouteSlug(input: SalonRouteInput): string | null {
+  const info = resolveTenantHost(input.hostname, input.baseDomain);
+  if (info.subdomain) {
+    const fromSubdomain = resolveStaticSalonSlug(info.subdomain);
+    if (fromSubdomain) return fromSubdomain;
+  }
+  return resolveLocalOrStaticSalonSlug(input.pathSlug);
 }

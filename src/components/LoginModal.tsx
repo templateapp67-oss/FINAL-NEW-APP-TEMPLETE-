@@ -120,7 +120,11 @@ export default function LoginModal({
     setResendStatus(
       result.error
         ? { kind: 'error', message: result.error }
-        : { kind: 'sent', message: 'Confirmation email sent — check your inbox (and spam folder).' },
+        : {
+            kind: 'sent',
+            message:
+              'Confirmation email sent — open the newest message. Older links may still point to localhost.',
+          },
     );
   };
 

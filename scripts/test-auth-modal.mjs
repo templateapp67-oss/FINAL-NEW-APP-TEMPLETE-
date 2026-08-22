@@ -85,6 +85,29 @@ async function runAllTests() {
     assert.ok(callbackSrc.includes('Email confirmed!'), 'Missing email-confirmed success state');
     assert.ok(callbackSrc.includes('email_confirmed_at'), 'Missing email_confirmed_at check');
     assert.ok(callbackSrc.includes("Log in to your dashboard"), 'Missing dashboard CTA after confirmation');
+    assert.ok(callbackSrc.includes('/code verifier|pkce/i'), 'Missing cross-origin PKCE confirmation fallback');
+  });
+
+  await test('Email links use a stable public origin instead of localhost or preview hosts', async () => {
+    const redirectSrc = fs.readFileSync('src/lib/authRedirect.ts', 'utf8');
+    const mainSrc = fs.readFileSync('src/main.tsx', 'utf8');
+    const useAuthSrc = fs.readFileSync('src/lib/useAuth.ts', 'utf8');
+    assert.ok(redirectSrc.includes('VITE_AUTH_REDIRECT_ORIGIN'), 'Missing auth redirect origin override');
+    assert.ok(redirectSrc.includes("hostname.endsWith('.e2b.app')"), 'Arena preview hosts are not detected');
+    assert.ok(useAuthSrc.includes('signupConfirmationRedirect()'), 'Signup does not use stable redirect helper');
+    assert.ok(useAuthSrc.includes('options: { emailRedirectTo }'), 'Resend/signup redirect is not passed to Supabase');
+    assert.ok(mainSrc.includes("pathname === '/' && hasAuthResponse"), 'Root Site URL auth fallback is not routed');
+
+    const { getAuthRedirectOrigin, signupConfirmationRedirect } = await import('../src/lib/authRedirect.ts');
+    assert.equal(
+      getAuthRedirectOrigin('http://localhost:3000'),
+      'https://final-new-app-templete.vercel.app',
+      'localhost should resolve to the canonical deployment',
+    );
+    const confirmationUrl = new URL(signupConfirmationRedirect());
+    assert.equal(confirmationUrl.hostname, 'final-new-app-templete.vercel.app');
+    assert.equal(confirmationUrl.pathname, '/auth/callback');
+    assert.equal(confirmationUrl.searchParams.get('flow'), 'signup');
   });
 
   await test('LoginModal has Log In and Sign Up tabs with clear mode switching', () => {

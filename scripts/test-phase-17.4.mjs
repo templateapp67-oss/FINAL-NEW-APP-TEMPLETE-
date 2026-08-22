@@ -21,6 +21,7 @@ const {
   ownerUpdateBookingStatus,
   readSalonBookings,
   resolveBookingActor,
+  setSupabaseConfiguredForTests,
 } = await import('../src/lib/bookingManagement.ts');
 const {
   PAYMENT_STORE_KEY,
@@ -86,6 +87,7 @@ function reset() {
   cleanup();
   localStorage.clear();
   setSalonClockForTests(NOW);
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }

@@ -367,7 +367,11 @@ await test('frontend video modules contain no API keys or service_role', () => {
 });
 
 await test('server route uses public oEmbed only (no Data API key required)', () => {
-  const src = fs.readFileSync(path.join(root, 'server.ts'), 'utf8');
+  // server.ts wires the API routes; the video-metadata handler lives in
+  // api-routes.ts (imported by setupApiRoutes).
+  const serverSrc = fs.readFileSync(path.join(root, 'server.ts'), 'utf8');
+  const routesSrc = fs.readFileSync(path.join(root, 'api-routes.ts'), 'utf8');
+  const src = `${serverSrc}\n${routesSrc}`;
   assert.ok(src.includes('/api/video-metadata'), 'route missing');
   assert.ok(src.includes('youtube.com/oembed'), 'must use public oEmbed');
   assert.equal(src.includes('youtube/v3'), false, 'must not call YouTube Data API v3');

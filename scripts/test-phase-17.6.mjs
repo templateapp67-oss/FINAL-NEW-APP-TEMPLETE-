@@ -27,7 +27,7 @@ const {
   revenueRangeStart,
   summarizeOwnerRevenue,
 } = await import('../src/lib/ownerRevenueSummary.ts');
-const { resolveBookingActor } = await import('../src/lib/bookingManagement.ts');
+const { resolveBookingActor, setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 const { PAYMENT_STORE_KEY, PAYMENT_EVENT } = await import('../src/lib/siteBookingPayment.ts');
 const { setSalonClockForTests } = await import('../src/lib/salonStatus.ts');
 const { default: OwnerRevenueSummary } = await import('../src/components/OwnerRevenueSummary.tsx');
@@ -99,6 +99,7 @@ function reset() {
   localStorage.clear();
   sequence = 0;
   setSalonClockForTests(NOW);
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }

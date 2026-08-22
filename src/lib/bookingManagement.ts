@@ -149,6 +149,12 @@ function actorAllowsBusiness(actor: BookingActorContext, businessId: string): bo
  * just at the button — and the read itself is tenant-keyed so another
  * salon's rows are structurally unreachable.
  */
+/** Test-only override so suites can observe the true empty state. */
+let supabaseConfiguredOverride: boolean | null = null;
+export function setSupabaseConfiguredForTests(value: boolean | null): void {
+  supabaseConfiguredOverride = value;
+}
+
 export function readSalonBookings(
   actor: BookingActorContext,
   businessId: string,
@@ -161,7 +167,8 @@ export function readSalonBookings(
     return { ok: false, reason: 'permission-denied' };
   }
   const records = readPaymentRecordsForBusiness(businessId, themeId);
-  if (records.length === 0 && (businessId.startsWith('mock-') || !isSupabaseConfigured)) {
+  const configured = supabaseConfiguredOverride ?? isSupabaseConfigured;
+  if (records.length === 0 && (businessId.startsWith('mock-') || !configured)) {
     return { ok: true, records: generateMockBookings(businessId, themeId) };
   }
   return { ok: true, records };

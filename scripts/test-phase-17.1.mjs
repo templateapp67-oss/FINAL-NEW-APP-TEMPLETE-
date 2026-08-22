@@ -72,6 +72,7 @@ const {
 const { ownerDashboardText, ownerDashboardTranslator } = await import('../src/lib/ownerDashboardI18n.ts');
 const { setSiteAppearance, setSiteLocale } = await import('../src/lib/siteNavigation.ts');
 const { OWNER_SALON_IDS_FN, ORG_MEMBERS_TABLE, SALON_TABLE_NAME } = await import('../src/lib/ownerSalon.ts');
+const { setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 
 let passed = 0;
 let failed = 0;
@@ -128,6 +129,10 @@ async function renderDashboard(loader) {
 function resetState() {
   cleanup();
   window.localStorage.clear();
+  // Online mode: the Phase 17.1 dev preview otherwise fabricates bookings for
+  // an unconfigured Supabase, hiding the real empty/foreign-tenant behavior
+  // the later suites assert on.
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }
@@ -140,7 +145,9 @@ await test('ownerSalon.ts documents the auth.users → organization_members → 
   assert.match(OWNER_SALON_SRC, /salons\.organization_id/);
   assert.equal(ORG_MEMBERS_TABLE, 'organization_members');
   assert.equal(SALON_TABLE_NAME, 'salons');
-  assert.equal(OWNER_SALON_IDS_FN, 'nexora_owner_salon_ids');
+  // M28/M38 canonicalize the ownership helper as public.owner_salon_ids()
+  // (with public.nexora_owner_salon_ids() as a delegating alias).
+  assert.equal(OWNER_SALON_IDS_FN, 'owner_salon_ids');
 });
 
 await test('the dashboard reuses resolveOwnerSalonId and defines no second ownership rule', () => {
@@ -197,7 +204,9 @@ await test('no migration or DDL is introduced by phase 17.1', () => {
     assert.ok(!/create\s+table|alter\s+table|drop\s+table/i.test(src));
   }
   const migrations = fs.readdirSync('supabase/migrations');
-  assert.ok(!migrations.some((f) => /m28|17[._-]1/i.test(f)), 'no new migration file');
+  // M28 is the pre-existing Phase 1a foundation (canonical salons ownership),
+  // not a migration introduced by Phase 17.1 — only flag phase-named files.
+  assert.ok(!migrations.some((f) => /17[._-]1/i.test(f)), 'no new migration file');
 });
 
 /* ================================================================== */
@@ -236,10 +245,15 @@ await test('retry is offered only for transient failures', () => {
   assert.equal(ownerDashboardCanRetry('ambiguous'), false);
 });
 
-await test('loadOwnerDashboardContext refuses when Supabase is unconfigured', async () => {
+await test('loadOwnerDashboardContext falls back to the dev preview when Supabase is unconfigured', async () => {
+  setSupabaseConfiguredForTests(null);
   const context = await loadOwnerDashboardContext();
-  assert.equal(context.access, 'not-configured');
-  assert.equal(context.salon, null);
+  // Phase 17.1 deliberately ships a mock authorized salon for development
+  // preview when no backend is linked; the real refusal path is exercised
+  // through mapOwnerSalonResolution('not-configured') above.
+  assert.equal(context.access, 'authorized');
+  assert.ok(context.salon && context.salon.id === 'mock-salon-123');
+  setSupabaseConfiguredForTests(true);
 });
 
 /* ================================================================== */

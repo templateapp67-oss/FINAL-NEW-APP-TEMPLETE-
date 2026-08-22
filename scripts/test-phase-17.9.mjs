@@ -33,7 +33,7 @@ const { readOwnerCustomers } = await import('../src/lib/ownerCustomers.ts');
 const { readOwnerRevenueSummary } = await import('../src/lib/ownerRevenueSummary.ts');
 const { readOwnerSchedule } = await import('../src/lib/ownerCalendarSchedule.ts');
 const { readOwnerNotifications } = await import('../src/lib/ownerNotifications.ts');
-const { resolveBookingActor } = await import('../src/lib/bookingManagement.ts');
+const { resolveBookingActor, setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 const { PAYMENT_STORE_KEY, PAYMENT_EVENT } = await import('../src/lib/siteBookingPayment.ts');
 const { setSalonClockForTests } = await import('../src/lib/salonStatus.ts');
 const { default: OwnerDashboard } = await import('../src/components/OwnerDashboard.tsx');
@@ -105,6 +105,7 @@ function reset() {
   localStorage.clear();
   sequence = 0;
   setSalonClockForTests(NOW);
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }

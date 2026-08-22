@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { isHistoricalMigration } from './migrationFiles.mjs';
 
 export const THEMES = [
   { id: 'barber_mens_grooming', label: "Barber & Men's Grooming",
@@ -75,7 +76,10 @@ export async function createHarness({ seedLegacyCustom = true } = {}) {
   process.env.VITE_SUPABASE_ANON_KEY = 'test-anon-key';
 
   const migrationsDir = join(process.cwd(), 'supabase', 'migrations');
-  const files = (await readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+  // Design-A history only (M01–M27); see scripts/lib/migrationFiles.mjs.
+  const files = (await readdir(migrationsDir))
+    .filter((f) => f.endsWith('.sql') && isHistoricalMigration(f))
+    .sort();
   const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
   await db.exec(BOOTSTRAP);
   for (const file of files) {

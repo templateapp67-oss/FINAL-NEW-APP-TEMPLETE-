@@ -634,9 +634,15 @@ await test('EN and HI chrome + section titles flip with locale', () => {
     if (S_hi.videosTitle) {
       assert.ok(flat(utils.getByTestId('site-social-feed')).includes(S_hi.videosTitle), `${config.id} HI title`);
     }
-    // Play button label is localised.
+    // Play button label is localised (icon-only button → localized aria-label).
     const play = utils.container.querySelector('[data-testid="site-social-play"]');
-    if (play) assert.ok(flat(play).includes(hiChrome.play), `${config.id}: HI play label`);
+    if (play) {
+      assert.ok(
+        flat(play).includes(hiChrome.play)
+        || play.getAttribute('aria-label') === hiChrome.play,
+        `${config.id}: HI play label`,
+      );
+    }
     reset();
   }
 });

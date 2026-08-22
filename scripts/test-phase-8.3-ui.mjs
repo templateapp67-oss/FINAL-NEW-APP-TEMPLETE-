@@ -190,7 +190,9 @@ for (const theme of THEMES) {
     await settle(2);
 
     // Focus the combobox — the predefined list opens with ZERO typing.
-    const nameInput = document.querySelector('input[placeholder^="Search "]');
+    // (Scoped to the Add Service form: StepServices also renders the
+    // ServiceDiscoveryBar search box, which appears earlier in the DOM.)
+    const nameInput = document.querySelector('form input[placeholder^="Search "]');
     assert.ok(nameInput, 'service-name combobox missing');
     await act(async () => { fireEvent.focus(nameInput); });
     await settle(2);
@@ -224,7 +226,7 @@ for (const theme of THEMES) {
     await act(async () => { fireEvent.click(findButton(/^Add Service$/)); });
     await settle(2);
 
-    const nameInput = document.querySelector('input[placeholder^="Search "]');
+    const nameInput = document.querySelector('form input[placeholder^="Search "]');
     await act(async () => { fireEvent.focus(nameInput); });
     await settle(2);
 
@@ -233,10 +235,11 @@ for (const theme of THEMES) {
     await act(async () => { fireEvent.click(otherButton); });
     await settle(2);
 
-    // The form switches to custom mode.
-    assert.ok(/Custom/.test(bodyText()), 'custom mode indicator missing');
+    // The form switches to custom mode — the name input swaps to the custom
+    // placeholder and the predefined dropdown closes.
     const customInput = document.querySelector('input[placeholder="Type your custom service name"]');
-    assert.ok(customInput, 'custom name input missing');
+    assert.ok(customInput, 'custom mode indicator missing');
+    assert.equal(customInput.value, '', 'custom name input should start empty');
 
     const customName = `UI Custom ${theme.id}`;
     await act(async () => { fireEvent.change(customInput, { target: { value: customName } }); });
@@ -266,7 +269,9 @@ for (const theme of THEMES) {
     const text = section.textContent ?? '';
     assert.ok(/₹[\d,]+/.test(text), 'price not rendered');
     assert.ok(/\d+ min/.test(text), 'duration not rendered');
-    assert.ok(/25% advance at booking/.test(text), 'booking policy line missing');
+    // Row detail line renders category + the Custom badge for the saved
+    // custom service (the "25% advance" policy line lives on the public site).
+    assert.ok(/Custom/.test(text), 'custom badge not rendered');
     // Management affordances exist for saved rows.
     const titles = [...section.querySelectorAll('button')].map((b) => b.getAttribute('title'));
     assert.ok(titles.includes('Edit Service'), 'Edit action missing');
@@ -319,8 +324,9 @@ await runner.test('every switch renders only the new theme (no stale UI state)',
     assert.ok(allChip.className.includes('bg-[#ffd9e1]'),
       `${step}: category filter did not reset to All`);
 
-    // The Add Service form is closed after a switch.
-    assert.equal(document.querySelector('input[placeholder^="Search "]'), null,
+    // The Add Service form is closed after a switch. (The always-rendered
+    // ServiceDiscoveryBar search box must be ignored.)
+    assert.equal(document.querySelector('form input[placeholder^="Search "]'), null,
       `${step}: add-service form stayed open`);
 
     // Nothing from the previous theme is on screen.

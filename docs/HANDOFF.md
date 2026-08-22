@@ -1,10 +1,41 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-22** (session `arena/01a0277c-final-new-app-templete`, M39 owner publish PR).
+> Last updated: **2026-08-22** (session `arena/01a027d9-final-new-app-templete`, final cleanup + email-confirmation flow PR).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## M39 — white-label owner publish (this PR)
+## Final cleanup & email-confirmation flow (this PR)
+
+Two commits on top of `445e031` (theme switcher):
+- `a78e832` — **auth**: the email-confirmation flow now COMPLETES instead of
+  dead-ending on "Email not confirmed" (user's chosen fix).
+- final cleanup commit — **all sandbox-runnable suites green + build clean**:
+  - Migration validator is tolerant of the two committed ad-hoc SQL files
+    (`20260821203500_setup_public_salon_v2.sql`,
+    `20260821204000_dynamic_multitenant_salons.sql`); replay-all scripts filter
+    through `scripts/lib/migrationFiles.mjs` (`isHistoricalMigration` =
+    M01–M27 chain only) so Design-B (M28+) is never replayed over Design-A.
+  - Phase 15: `SiteVideoGallery.tsx` a11y/testids (play `aria-label`, like
+    `data-video-id`/`data-liked`/`aria-pressed`, count `data-count`, error
+    `data-error` + `role="alert"`), original-URL open; tests read
+    `server.ts` + `api-routes.ts`; `.env.example` placeholder keys.
+  - Phases 16/17: tests aligned to runtime contracts — new seam
+    `setSupabaseConfiguredForTests()` in `src/lib/bookingManagement.ts`
+    disables the Phase 17.1 mock-bookings preview where suites assert real
+    empty/foreign-tenant behavior; canonical RPC is `owner_salon_ids()` (the
+    M28/M38 `nexora_owner_salon_ids` is a delegating alias); "no migration"
+    checks no longer false-positive on M28; 16.10 allowlist includes
+    `nexora_usage_analytics`. The unconfigured-Supabase dev preview in
+    `loadOwnerDashboardContext` (mock authorized salon) remains intentional.
+  - Docs: `AGENTS.md` location authority corrected to `public.business_locations`
+    keyed by `salon_id` (gaps analysis §5.3/M-6), owner RPC bullet updated.
+- Verified this session: phases 2, 8–8.3, 9–9.3, 10–10.13, 11–11.8,
+  12.1–12.7, 13–13.6, 14–14.7, 15.1–15.10, 16.1–16.10, 17.1–17.10
+  (17.10 orchestrator includes `verify-22-screens.js` + `git diff --check`),
+  `npm run build` exit 0. Live-DB suites (phase 3a/3b, M38 reconcile) still
+  require a real Supabase and were not run in the sandbox.
+
+## M39 — white-label owner publish (previous PR)
 
 - Live M39 SQL is **already applied** (`verify_m39_owner_publish()` 4/4). Do **not** re-paste `docs/m39-run-in-supabase.sql` or `docs/m39-sql/` parts unless the user reports a new live error. Do not insert demo salons.
 - App publish path: `publishOwnerSalonWebsite` → `publish_owner_salon_website` RPC. After a successful publish, `publishState` stays `'published'` (no draft reset).

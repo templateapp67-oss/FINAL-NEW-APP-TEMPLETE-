@@ -656,12 +656,13 @@ await test('cards keep their 15.3/15.7 contract: kind badge, filters, play and e
   assert.ok(card.querySelector('[data-testid="site-social-play"]'));
   assert.match(card.getAttribute('data-original-platform-url'), /^https:\/\//);
 
-  // The Like button must not hijack the card's open-original behaviour.
+  // The Like button must not hijack the open-original behaviour.
   let opened = null;
   dom.window.open = (...args) => { opened = args; return null; };
   fireEvent.click(card.querySelector('[data-testid="site-video-like"]'));
   assert.equal(opened, null, 'liking does not open the external destination');
-  fireEvent.click(card);
+  // Cards play on click; the View-Original control opens the exact URL.
+  fireEvent.click(card.querySelector('[data-testid="site-social-view"]'));
   assert.deepEqual(opened, [card.getAttribute('data-original-platform-url'), '_blank', 'noopener,noreferrer']);
   cleanup();
 });

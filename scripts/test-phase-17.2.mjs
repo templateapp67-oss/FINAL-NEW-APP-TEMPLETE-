@@ -71,7 +71,7 @@ const {
 const { ownerBookingTenant, BOOKING_FALLBACK_BUSINESS_ID, mapOwnerSalonRow, OWNER_SALON_SUMMARY_COLUMNS } =
   await import('../src/lib/ownerDashboard.ts');
 const { ownerDashboardText } = await import('../src/lib/ownerDashboardI18n.ts');
-const { resolveBookingActor } = await import('../src/lib/bookingManagement.ts');
+const { resolveBookingActor, setSupabaseConfiguredForTests } = await import('../src/lib/bookingManagement.ts');
 const { setSiteAppearance, setSiteLocale, SITE_HEADER_THEME_IDS } = await import('../src/lib/siteNavigation.ts');
 const { setSalonClockForTests } = await import('../src/lib/salonStatus.ts');
 const {
@@ -183,6 +183,7 @@ function resetState() {
   window.localStorage.clear();
   setPaymentStoreForTests(null);
   setSalonClockForTests(NOW);
+  setSupabaseConfiguredForTests(true);
   setSiteLocale('en');
   setSiteAppearance('light');
 }

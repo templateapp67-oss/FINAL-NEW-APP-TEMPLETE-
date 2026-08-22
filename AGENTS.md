@@ -179,13 +179,18 @@ node verify-22-screens.js   # static verification of all 25 screens/features
   returns no salon data at all. Read-only — 17.1 added no DB objects.
 - `ownerSalon.ts` — resolves the salon owned by the signed-in user via the
   **existing** schema: `auth.users.id → organization_members (role='owner') →
-  salons.organization_id`, using the DB helper `nexora_owner_salon_ids()` when
-  exposed. Never hardcodes a salon id.
-- `salonLocationService.ts` — owner location persistence. **Authoritative
-  columns on `public.salons`: `address`, `latitude`, `longitude`,
-  `location_confirmed`, `location_confirmed_at`.** (`location_latitude` /
-  `location_longitude` do NOT exist — verified 42703.) Do not introduce a
-  second parallel location system.
+  salons.organization_id`, using the canonical DB helper `owner_salon_ids()`
+  (`nexora_owner_salon_ids()` is a delegating alias, per M28/M38). Never
+  hardcodes a salon id.
+- `salonLocationService.ts` — owner location persistence. **Canonical storage
+  is `public.business_locations` keyed by `salon_id` (PK → `salons(id)`), with
+  `address_label`, `latitude`, `longitude`, `approval_status`
+  (`pending`/`approved`/`rejected`), `submitted_by`/`submitted_at`,
+  `approved_by`/`approved_at`, `rejection_reason`.** `public.salons` has no
+  location columns at runtime (verified 42703 — `address`, `latitude`,
+  `longitude`, `location_confirmed` do NOT exist there). Do not introduce a
+  second parallel location system or revert to the older business-keyed
+  `business_locations` draft.
 - `nearbySalons.ts` — public nearby search: reads only coordinate-bearing,
   confirmed salons, computes distance with a JS Haversine function (no
   PostGIS/RPC), and surfaces readable errors for missing grants/RLS.

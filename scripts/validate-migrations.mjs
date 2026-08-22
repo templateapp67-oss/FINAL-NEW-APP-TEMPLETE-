@@ -12,6 +12,7 @@ import {
   THEME_CATEGORIES,
   THEME_LABELS,
 } from '../src/lib/themeServices.ts';
+import { isHistoricalMigration } from './lib/migrationFiles.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const migrationsDir = join(root, 'supabase', 'migrations');
@@ -19,9 +20,7 @@ const migrationFiles = (await readdir(migrationsDir))
   .filter((name) => name.endsWith('.sql'))
   .sort();
 
-const historicalMigrationFiles = migrationFiles.filter(
-  (name) => !name.includes('_phase1a_') && !name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_') && !name.includes('_phase3a_') && !name.includes('_phase3b_') && !name.includes('_m38_') && !name.includes('_reconciliation_') && !name.includes('_m39_') && !name.includes('_owner_publish_'),
-);
+const historicalMigrationFiles = migrationFiles.filter(isHistoricalMigration);
 const phase1aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase1a_'));
 const phase2MigrationFiles = migrationFiles.filter((name) => name.includes('_phase2_') && !name.includes('_phase2a_') && !name.includes('_phase2b_') && !name.includes('_phase2c_'));
 const phase2aMigrationFiles = migrationFiles.filter((name) => name.includes('_phase2a_'));
@@ -62,6 +61,15 @@ const m39MigrationFiles = migrationFiles.filter((name) => name.includes('_m39_')
 assert.deepEqual(m39MigrationFiles, [
   '20260822000201_m39_owner_publish_website.sql',
 ], 'expected the M39 owner self-publish RPC (Design B; not part of the M01–M27 history)');
+// Live-applied Design-B helper migrations (SQL-editor / shared project). They
+// are not part of the immutable M01–M27 replay history, just like M38/M39.
+const liveHelperMigrationFiles = migrationFiles.filter(
+  (name) => name.includes('setup_public_salon_v2') || name.includes('dynamic_multitenant'),
+);
+assert.deepEqual(liveHelperMigrationFiles, [
+  '20260821203500_setup_public_salon_v2.sql',
+  '20260821204000_dynamic_multitenant_salons.sql',
+], 'expected the two live helper migrations (Design B; not part of the M01–M27 history)');
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
 

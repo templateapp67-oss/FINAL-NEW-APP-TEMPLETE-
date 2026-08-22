@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor
 import { useBrandConfig } from '../config/brandConfig';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { publishOwnerSalonWebsite } from '../lib/salonWebsiteService';
+import { publicWebsiteHref, publicWebsiteUrl, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
 
 interface Props {
   data: SalonData;
@@ -25,25 +26,24 @@ function slugify(text: string) {
 }
 
 export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave }: Props) {
-  const { platform, defaultSalon } = useBrandConfig();
-  const [slug, setSlug] = useState<string>(data.websiteSlug || slugify(data.salonName) || defaultSalon.slug || 'royal-hair-studio');
+  const { platform } = useBrandConfig();
+  const [slug, setSlug] = useState<string>(() => suggestedWebsiteSlug(data) || slugify(data.salonName));
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data.websiteSlug) {
-      const generated = slugify(data.salonName) || defaultSalon.slug || 'royal-hair-studio';
-      setSlug(generated);
+      setSlug(slugify(data.salonName));
     }
-  }, [data.salonName, data.websiteSlug, defaultSalon.slug]);
+  }, [data.salonName, data.websiteSlug]);
 
   useEffect(() => {
     setData(prev => ({ ...prev, websiteSlug: slug }));
   }, [slug, setData]);
 
-  const previewUrl = `${platform.websiteUrl.replace(/^https?:\/\//, '')}/${slug}`;
-  const fullUrl = `https://${previewUrl}`;
+  const previewUrl = publicWebsiteHref(slug, platform.websiteUrl);
+  const fullUrl = publicWebsiteUrl(slug, platform.websiteUrl);
 
   // Checklist logic
   const checks = [
@@ -71,7 +71,7 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
       let publishedUrl = fullUrl;
       if (isSupabaseConfigured) {
         const saved = await publishOwnerSalonWebsite({ ...data, websiteSlug: slug });
-        publishedUrl = `https://${platform.websiteUrl.replace(/^https?:\/\//, '')}/${saved.slug}`;
+        publishedUrl = publicWebsiteUrl(saved.slug, platform.websiteUrl);
         setData(prev => ({
           ...prev,
           salonId: saved.salonId,

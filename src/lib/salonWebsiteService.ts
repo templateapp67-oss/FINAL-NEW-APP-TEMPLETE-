@@ -1,5 +1,6 @@
 import type { SalonData } from '../types';
 import { resolveOwnerSalonId } from './ownerSalon';
+import { isValidWebsiteSlug } from './publicWebsiteUrl';
 import { requireSupabase } from './supabaseClient';
 
 export const SALON_PUBLIC_WEBSITES_TABLE = 'salon_public_websites';
@@ -94,7 +95,7 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
   }
 
   const slug = data.websiteSlug?.trim().toLowerCase();
-  if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+  if (!isValidWebsiteSlug(slug)) {
     throw new Error('Choose a valid website slug before saving this draft.');
   }
   const { data: saved, error } = await client
@@ -128,7 +129,7 @@ export async function publishOwnerSalonWebsite(data: SalonData): Promise<{
   publishedAt: string | null;
 }> {
   const slug = data.websiteSlug?.trim().toLowerCase();
-  if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+  if (!isValidWebsiteSlug(slug)) {
     throw new Error('Choose a valid website address before publishing.');
   }
   const salonId = typeof data.salonId === 'string' && data.salonId.trim()

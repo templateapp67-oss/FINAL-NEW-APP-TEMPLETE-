@@ -340,3 +340,25 @@ export interface SetSalonThemeResult {
   salon_id: string;
   theme_id: string;
 }
+
+/** M39 `publish_owner_salon_website` — salon id is resolved in the database. */
+export interface PublishOwnerSalonWebsiteInput {
+  p_slug: string;
+  p_template_key?: string | null;
+  p_config?: Json | null;
+  p_salon_id?: string | null;
+}
+
+export interface PublishOwnerSalonWebsiteResult {
+  salon_id: string;
+  slug: string;
+  is_published: boolean;
+  published_at: string | null;
+}
+
+/** M39 `unpublish_owner_salon_website`. */
+export interface UnpublishOwnerSalonWebsiteResult {
+  salon_id: string;
+  slug: string;
+  is_published: boolean;
+}

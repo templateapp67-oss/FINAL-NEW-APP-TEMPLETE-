@@ -10,6 +10,7 @@ import { ThemeId } from '../lib/themeServices';
 import { SALON_NAME_FONTS, SALON_NAME_COLORS } from '../lib/brandIdentity';
 import { BRAND_COLORS, TAGLINE_CATEGORIES, TAGLINE_SUBCATEGORIES } from '../lib/websiteCustomization';
 import { useBrandConfig } from '../config/brandConfig';
+import { publicWebsiteHref, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
 import {
   OWNER_ROLES,
   OWNER_PHOTO_ACCEPT,
@@ -111,7 +112,7 @@ interface Appointment {
 }
 
 export default function Landing({ data, setData, onNext, goToStep, onOpenStaffManagement, forcedActiveTab, onTabChange, onThemeChange }: Props) {
-  const { platform, defaultSalon } = useBrandConfig();
+  const { platform } = useBrandConfig();
 
   // If not published, render the initial welcome page
   if (data.publishState !== 'published') {
@@ -300,8 +301,8 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
   const [paymentsSearch, setPaymentsSearch] = useState('');
   const [selectedPaymentId, setSelectedPaymentId] = useState<string>('a1');
 
-  const liveSlug = data.websiteSlug || defaultSalon.slug || 'royal-hair-studio';
-  const liveUrl = `${platform.websiteUrl.replace(/^https?:\/\//, '')}/${liveSlug}`;
+  const liveSlug = suggestedWebsiteSlug(data);
+  const liveUrl = publicWebsiteHref(liveSlug, platform.websiteUrl);
 
   const [polishingField, setPolishingField] = useState<'tagline' | 'about' | 'bio' | null>(null);
   const [polishingStatus, setPolishingStatus] = useState<string>('');

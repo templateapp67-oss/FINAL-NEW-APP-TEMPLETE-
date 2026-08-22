@@ -147,9 +147,9 @@ begin
         and table_name = 'salon_public_websites'
         and column_name = 'updated_at'
     ) then
-      update public.salon_public_websites
+      update public.salon_public_websites w
          set updated_at = now()
-       where salon_id = v_salon;
+       where w.salon_id = v_salon;
     end if;
   else
     insert into public.salon_public_websites (

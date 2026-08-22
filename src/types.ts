@@ -682,7 +682,7 @@ export const initialData: SalonData = {
   ],
   brandColor: DEFAULT_BRAND_CONFIG.theme.primaryColor,
   websiteAppearance: 'light' as const,
-  websiteSlug: DEFAULT_BRAND_CONFIG.defaultSalon.slug,
+  websiteSlug: '',
   publishState: 'draft' as const,
   publishedUrl: '',
   lastCompletedStep: 0,

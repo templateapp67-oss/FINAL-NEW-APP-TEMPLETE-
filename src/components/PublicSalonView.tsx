@@ -44,8 +44,10 @@ function localDraft(slug: string): SalonData {
     const saved = localStorage.getItem('nexora_onboarding_state');
     if (saved) {
       const parsed = JSON.parse(saved);
-      const localSlug = parsed?.data?.websiteSlug || 'royal-hair-studio';
-      if (parsed?.data && (localSlug === slug || slug === 'royal-hair-studio')) {
+      const localSlug = typeof parsed?.data?.websiteSlug === 'string'
+        ? parsed.data.websiteSlug.trim().toLowerCase()
+        : '';
+      if (parsed?.data && localSlug && localSlug === slug) {
         return { ...initialData, ...parsed.data };
       }
     }

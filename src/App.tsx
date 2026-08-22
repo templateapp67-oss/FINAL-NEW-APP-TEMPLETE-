@@ -25,7 +25,7 @@ import OwnerDashboard from './components/OwnerDashboard';
 import TopBar from './components/TopBar';
 import { initialData, SalonData } from './types';
 import type { ThemeId } from './lib/themeServices';
-import { getBrandConfig } from './config/brandConfig';
+import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
@@ -297,13 +297,6 @@ export default function App() {
       setActiveModule('staff-management');
       showToast('Opened Staff Management Module (Screen 17)');
     } else if (screenId >= 18 && screenId <= 25) {
-      // Ensure published state for dashboard
-      if (data.publishState !== 'published') {
-        const brand = getBrandConfig();
-        const baseDomain = brand.platform.websiteUrl.replace(/^https?:\/\//, '');
-        const defaultSlug = brand.defaultSalon.slug || 'royal-hair-studio';
-        setData(prev => ({ ...prev, publishState: 'published', publishedUrl: prev.publishedUrl || `https://${baseDomain}/${prev.websiteSlug || defaultSlug}`, websiteSlug: prev.websiteSlug || defaultSlug }));
-      }
       setActiveModule('dashboard');
       const tabIndex = screenId - 18;
       const tab = DASHBOARD_TABS[tabIndex] || 'overview';
@@ -343,7 +336,11 @@ export default function App() {
         <main className="flex-1 flex overflow-hidden">
           {/* Force Landing into dashboard mode by ensuring published and passing forcedActiveTab */}
           <Landing
-            data={{ ...data, publishState: 'published', publishedUrl: data.publishedUrl || `https://${getBrandConfig().platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || getBrandConfig().defaultSalon.slug || 'royal-hair-studio'}` }}
+            data={{
+              ...data,
+              publishState: 'published',
+              publishedUrl: data.publishedUrl || publicWebsiteUrl(suggestedWebsiteSlug(data)),
+            }}
             setData={setData}
             onNext={nextStep}
             goToStep={goToStep}
@@ -606,19 +603,11 @@ export default function App() {
           {step === 12 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 13 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 14 && <StepPublishSuccess data={data} setData={setData} onNext={() => {
-            if (isSupabaseConfigured) {
-              setData(prev => ({ ...prev, publishState: 'draft' }));
-              handleSave();
-              setActiveModule('dashboard');
-              setDashboardTab('overview');
-              showToast('Website published');
-              return;
-            }
             setData(prev => ({ ...prev, publishState: 'published' }));
             setActiveModule('dashboard');
             setDashboardTab('overview');
             handleSave();
-            showToast('Website Published — Dashboard Active');
+            showToast('Website published');
           }} onSave={handleSave} />}
           {step === 15 && (
             <BookingConfirmation 

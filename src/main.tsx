@@ -52,6 +52,17 @@ function RootRouter() {
   const normalizedPath = pathname.replace(/^\/+/, '').split('/')[0] || '';
 
   useEffect(() => {
+    // Extract referral code if present in searchParams and store in localStorage
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const referralCode = searchParams.get('ref');
+      if (referralCode) {
+        localStorage.setItem('nexora_referral_code', referralCode);
+      }
+    } catch (err) {
+      console.warn('Could not store referral code:', err);
+    }
+
     async function resolveRoute() {
       const authParams = new URLSearchParams(window.location.search);
       const hasAuthResponse = Boolean(

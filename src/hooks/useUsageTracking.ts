@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { safeSetItem, safeGetItem } from '../lib/safeStorage';
 
 export interface UsageEvent {
   id: string;
@@ -9,10 +10,10 @@ export interface UsageEvent {
 }
 
 const ANALYTICS_STORAGE_KEY = 'nexora_usage_analytics';
-const MAX_LOG_SIZE = 50;
+const MAX_LOG_SIZE = 15;
 
 /**
- * Pushes a tracking event to localStorage safely with a circular buffer limit
+ * Pushes a tracking event to storage safely with a circular buffer limit
  */
 export function recordTrackingEvent(
   eventType: UsageEvent['eventType'],
@@ -30,7 +31,7 @@ export function recordTrackingEvent(
     };
 
     // Retrieve previous logs
-    const saved = localStorage.getItem(ANALYTICS_STORAGE_KEY);
+    const saved = safeGetItem(ANALYTICS_STORAGE_KEY);
     let logs: UsageEvent[] = [];
     if (saved) {
       logs = JSON.parse(saved);
@@ -47,7 +48,7 @@ export function recordTrackingEvent(
       logs = logs.slice(0, MAX_LOG_SIZE);
     }
 
-    localStorage.setItem(ANALYTICS_STORAGE_KEY, JSON.stringify(logs));
+    safeSetItem(ANALYTICS_STORAGE_KEY, JSON.stringify(logs));
 
     // Elegant and highly styled console logging for visibility in preview/dev tools
     const styles = {

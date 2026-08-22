@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
+import ReferralDashboard from './ReferralDashboard';
 import {
   Gift,
   Copy,
@@ -22,6 +24,9 @@ import {
   UserPlus,
   Zap,
   ArrowUpRight,
+  Building2,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 
 interface Props {
@@ -52,8 +57,22 @@ const RECENT_REFERRALS = [
 ];
 
 export default function ShareReferralPremium({ salonName, liveUrl, onNotify }: Props) {
+  const [viewMode, setViewMode] = useState<'partner' | 'customer'>('partner');
   const [codeCopied, setCodeCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [toast, setToast] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!toast?.show) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const notify = (msg: string) => {
     if (onNotify) onNotify(msg);
@@ -68,10 +87,20 @@ export default function ShareReferralPremium({ salonName, liveUrl, onNotify }: P
     if (kind === 'code') {
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 2000);
+      setToast({
+        show: true,
+        title: 'Referral Code Copied!',
+        message: `Code "${REFERRAL_CODE}" copied to clipboard.`,
+      });
       notify('Referral code copied to clipboard!');
     } else {
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
+      setToast({
+        show: true,
+        title: 'Referral Link Copied!',
+        message: 'Customer referral link copied to clipboard.',
+      });
       notify('Referral link copied to clipboard!');
     }
   };
@@ -87,24 +116,57 @@ export default function ShareReferralPremium({ salonName, liveUrl, onNotify }: P
 
   return (
     <div className="space-y-6">
-      {/* 1. TOP HEADER */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      {/* 1. TOP HEADER & VIEW SWITCHER */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">Share & Referral</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">Share & Referral Hub</h1>
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#ac0053] to-[#3f001a] text-white text-[10px] font-black uppercase tracking-widest shadow-sm">
               <Sparkles className="w-3 h-3" /> Premium
             </span>
           </div>
-          <p className="text-xs md:text-sm text-gray-500">Refer friends, they get 10% off — you earn salon credit with every booked visit.</p>
+          <p className="text-xs md:text-sm text-gray-500">
+            Manage your Salon Owner Partner network, track referred salons & payouts, and run customer booking referrals.
+          </p>
         </div>
-        <button
-          onClick={() => notify('Invite sent via WhatsApp — share sheet opened')}
-          className="flex items-center gap-2 px-4 py-2 bg-[#ac0053] hover:bg-[#ba005b] text-white rounded-xl text-xs font-bold shadow-sm transition-colors"
-        >
-          <UserPlus className="w-4 h-4" /> Invite Friends
-        </button>
+
+        {/* Sub-tab switcher */}
+        <div className="flex items-center p-1 bg-gray-100 rounded-xl text-xs font-bold text-gray-600 self-start md:self-auto">
+          <button
+            onClick={() => setViewMode('partner')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-all cursor-pointer ${
+              viewMode === 'partner' ? 'bg-[#ac0053] text-white shadow-xs' : 'hover:text-gray-900'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Referred Salons & Rewards</span>
+          </button>
+          <button
+            onClick={() => setViewMode('customer')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-all cursor-pointer ${
+              viewMode === 'customer' ? 'bg-white text-gray-900 shadow-xs' : 'hover:text-gray-900'
+            }`}
+          >
+            <Gift className="w-3.5 h-3.5 text-[#ac0053]" />
+            <span>Customer Loyalty Referral</span>
+          </button>
+        </div>
       </div>
+
+      {/* RENDER ACTIVE VIEW */}
+      {viewMode === 'partner' ? (
+        <ReferralDashboard salonName={salonName} onNotify={notify} />
+      ) : (
+        <div className="space-y-6">
+          {/* Header Action */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => notify('Invite sent via WhatsApp — share sheet opened')}
+              className="flex items-center gap-2 px-4 py-2 bg-[#ac0053] hover:bg-[#ba005b] text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" /> Invite Friends
+            </button>
+          </div>
 
       {/* 2. LUMINA HERO BENTO — REFER & EARN */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#3f001a] via-[#6d0b38] to-[#ac0053] text-white shadow-xl">
@@ -416,6 +478,41 @@ export default function ShareReferralPremium({ salonName, liveUrl, onNotify }: P
           </div>
         </div>
       </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification for Referral Link & Code Copy */}
+      <AnimatePresence>
+        {toast?.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.94 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="fixed bottom-6 right-6 z-50 max-w-sm w-[calc(100vw-3rem)] sm:w-auto bg-gray-900/95 text-white backdrop-blur-md px-4 py-3.5 rounded-2xl shadow-2xl border border-gray-700/80 flex items-start gap-3.5"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5 border border-emerald-500/30">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0 pr-1">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-bold text-white tracking-wide">{toast.title}</p>
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+              <p className="text-[11px] text-gray-300 truncate mt-0.5">{toast.message}</p>
+            </div>
+            <button
+              onClick={() => setToast(null)}
+              className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

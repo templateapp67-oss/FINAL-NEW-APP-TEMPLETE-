@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { SalonData } from '../types';
 import { normalizeThemeId, ThemeId } from '../lib/themeServices';
 import { CheckCircle2, Sparkles, Layout } from 'lucide-react';
+import { safeSetItem, safeGetItem } from '../lib/safeStorage';
 
 interface Props {
   data: SalonData;
@@ -93,16 +94,16 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
           packages: prev.packages || [],
         };
         try {
-          const raw = localStorage.getItem('nexora_onboarding_state');
+          const raw = safeGetItem('nexora_onboarding_state');
           if (raw) {
             const parsed = JSON.parse(raw);
             parsed.data = nextData;
-            localStorage.setItem('nexora_onboarding_state', JSON.stringify(parsed));
+            safeSetItem('nexora_onboarding_state', JSON.stringify(parsed));
           } else {
-            localStorage.setItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
+            safeSetItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
           }
         } catch (e) {
-          console.error('Failed to persist theme change to localStorage', e);
+          console.error('Failed to persist theme change to storage', e);
         }
         return nextData;
       });
@@ -132,16 +133,16 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
           packages: prev.packages || [],
         };
         try {
-          const raw = localStorage.getItem('nexora_onboarding_state');
+          const raw = safeGetItem('nexora_onboarding_state');
           if (raw) {
             const parsed = JSON.parse(raw);
             parsed.data = nextData;
-            localStorage.setItem('nexora_onboarding_state', JSON.stringify(parsed));
+            safeSetItem('nexora_onboarding_state', JSON.stringify(parsed));
           } else {
-            localStorage.setItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
+            safeSetItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
           }
         } catch (e) {
-          console.error('Failed to persist theme reset to localStorage', e);
+          console.error('Failed to persist theme reset to storage', e);
         }
         return nextData;
       });

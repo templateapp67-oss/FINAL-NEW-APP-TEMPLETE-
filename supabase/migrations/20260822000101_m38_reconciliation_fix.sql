@@ -59,17 +59,31 @@
 --     facts / reconcile live schema first" guardrails.  M34/M37 already handle
 --     their FKs and RLS with `to_regclass(...) is not null` guards, so their
 --     absence degrades safely.
---   * It does not enable RLS policies here — M28/M36/M37 own the RLS for these
---     tables.  (RLS is enabled idempotently below so a fresh bootstrap is
---     deny-by-default until those migrations add their policies.)
+--   * It does not invent RLS *policies* — M28/M36/M37 own those. RLS is
+--     enabled idempotently so a fresh bootstrap is deny-by-default until
+--     those migrations add their policies. Table-level SELECT on
+--     salon_public_websites (and themes / public_salon_catalog when present)
+--     is granted so PostgREST/anon can reach the published-read policy.
 --
 -- Ordering note
 -- -------------
 -- M28 and M37 are FAIL-CLOSED: they raise if the base tables are absent.  That
 -- is correct for the live project (the tables exist there).  On a hypothetical
--- fresh database this file must be applied FIRST as a bootstrap (it is fully
--- idempotent), after which M28–M37's preflights pass.  M01–M27 must NOT be
--- applied to the same database (Design A fork).
+-- fresh database this file bootstraps the identity / tenant / website roots
+-- (it is fully idempotent).  M28 still requires the live operational tables
+-- `services`, `staff`, `salon_hours`, and `bookings` — this file deliberately
+-- does not invent those shapes.  M01–M27 must NOT be applied to the same
+-- database (Design A fork).
+--
+-- `organization_members.is_active` ownership
+-- ------------------------------------------
+-- Live memberships track activity as `status` (active value = 'active').
+-- M28 owns the reconciliation of that column onto a STORED GENERATED
+-- `is_active`.  This file must NEVER add a writable `is_active` beside a
+-- live `status` column — that would make M28 skip its generated-column
+-- path and mis-activate every NULL row.  `is_active` is added here only
+-- on a fresh bootstrap that has neither column.  `owner_salon_ids()` and
+-- the membership activity index follow whichever activity column exists.
 --
 -- Design B tenant authority (single source of truth, unchanged here):
 --   auth.users.id → profiles.id → organization_members (role: owner|staff)
@@ -187,9 +201,34 @@ alter table public.organizations
 
 alter table public.organization_members
   add column if not exists role       text,
-  add column if not exists is_active  boolean,
   add column if not exists created_at timestamptz,
   add column if not exists updated_at timestamptz;
+
+-- is_active is added ONLY when the live `status` activity column is absent.
+-- If `status` exists, M28 owns the generated is_active flag. If is_active
+-- already exists (canonical or post-M28), leave it untouched.
+do $m38_members_is_active$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organization_members'
+      and column_name = 'is_active'
+  ) then
+    return;
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organization_members'
+      and column_name = 'status'
+  ) then
+    return;
+  end if;
+  alter table public.organization_members
+    add column is_active boolean;
+end
+$m38_members_is_active$;
 
 alter table public.salons
   add column if not exists theme_id        uuid,
@@ -223,9 +262,25 @@ update public.profiles
 -- backfilled owner-first (platform_role='business_user' → 'owner') in the
 -- guard-safe block §2b below; a blanket role='staff' here would mislabel
 -- owners before that block runs.
-update public.organization_members
-   set is_active = true
- where is_active is null;
+--
+-- is_active is only written when it is a regular (non-generated) column.
+-- A generated flag (M28) cannot be updated; a missing flag (live `status`)
+-- is not ours to invent.
+do $m38_members_is_active_backfill$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organization_members'
+      and column_name = 'is_active'
+      and is_generated = 'NEVER'
+  ) then
+    update public.organization_members
+       set is_active = true
+     where is_active is null;
+  end if;
+end
+$m38_members_is_active_backfill$;
 
 update public.salons
    set is_active = true
@@ -449,8 +504,23 @@ $m38_spw_salon_fk$;
 -- Indexes referenced by the ownership chain (name matches M28's expectations).
 create index if not exists organization_members_org_user_unique
   on public.organization_members (organization_id, user_id);
-create index if not exists organization_members_user_active_role_idx
-  on public.organization_members (user_id, is_active, role, organization_id);
+-- The activity-role index requires is_active. On a live status-only schema
+-- M28 creates this index after it adds the generated flag; do not fail here.
+do $m38_members_active_idx$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organization_members'
+      and column_name = 'is_active'
+  ) then
+    execute $idx$
+      create index if not exists organization_members_user_active_role_idx
+        on public.organization_members (user_id, is_active, role, organization_id)
+    $idx$;
+  end if;
+end
+$m38_members_active_idx$;
 create index if not exists salons_organization_active_idx
   on public.salons (organization_id, is_active)
   where deleted_at is null;
@@ -494,6 +564,22 @@ alter table public.organizations            enable row level security;
 alter table public.organization_members     enable row level security;
 alter table public.salons                   enable row level security;
 alter table public.salon_public_websites    enable row level security;
+
+-- Public website lookup (main.tsx, PublicSalonView.tsx) and the owner draft
+-- path (salonWebsiteService.ts) need table-level SELECT so PostgREST can
+-- expose the table. RLS still decides which rows are visible (published +
+-- public salon for anon; owner-draft for authenticated).
+grant select on table public.salon_public_websites to anon, authenticated;
+do $m38_public_catalog_grants$
+begin
+  if to_regclass('public.public_salon_catalog') is not null then
+    execute 'grant select on public.public_salon_catalog to anon, authenticated';
+  end if;
+  if to_regclass('public.themes') is not null then
+    execute 'grant select on table public.themes to anon, authenticated';
+  end if;
+end
+$m38_public_catalog_grants$;
 
 -- ============================================================================
 -- 5. salon-media bucket + tenant-scoped storage policies (M30 semantics)
@@ -625,25 +711,57 @@ grant insert, update, delete on storage.objects to authenticated;
 --    alias (closes the owner_salon_ids / nexora_owner_salon_ids drift).
 -- ============================================================================
 
-create or replace function public.owner_salon_ids()
-returns setof uuid
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select s.id
-  from public.salons s
-  join public.organization_members om on om.organization_id = s.organization_id
-  join public.profiles p on p.id = om.user_id
-  where om.user_id = auth.uid()
-    and om.is_active = true
-    and om.role = 'owner'
-    and p.is_active = true
-    and s.is_active = true
-    and s.deleted_at is null
-  order by s.id
-$$;
+-- Activity predicate follows the live column: is_active (canonical / post-M28)
+-- or status = 'active' (pre-M28 live vocabulary). Never reference a column
+-- that is not there — that would abort the whole migration.
+do $m38_owner_rpc$
+declare
+  v_active_pred text;
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organization_members'
+      and column_name = 'is_active'
+  ) then
+    v_active_pred := 'om.is_active = true';
+  elsif exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organization_members'
+      and column_name = 'status'
+  ) then
+    v_active_pred := $pred$om.status = 'active'$pred$;
+  else
+    v_active_pred := 'true';
+  end if;
+
+  execute format(
+    $fn$
+      create or replace function public.owner_salon_ids()
+      returns setof uuid
+      language sql
+      stable
+      security definer
+      set search_path = ''
+      as $body$
+        select s.id
+        from public.salons s
+        join public.organization_members om on om.organization_id = s.organization_id
+        join public.profiles p on p.id = om.user_id
+        where om.user_id = auth.uid()
+          and %s
+          and om.role = 'owner'
+          and p.is_active = true
+          and s.is_active = true
+          and s.deleted_at is null
+        order by s.id
+      $body$
+    $fn$,
+    v_active_pred
+  );
+end
+$m38_owner_rpc$;
 
 -- Compatibility alias for the Template application; delegates to the same
 -- canonical authority (not a second ownership model).
@@ -697,6 +815,15 @@ begin
                                        detail := 'public website root';
   return next;
 
+  check_name := 'salon_public_websites_columns';
+  ok := to_regclass('public.salon_public_websites') is not null
+    and exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = 'public.salon_public_websites'::regclass and a.attname = 'salon_id' and not a.attisdropped)
+    and exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = 'public.salon_public_websites'::regclass and a.attname = 'slug' and not a.attisdropped)
+    and exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = 'public.salon_public_websites'::regclass and a.attname = 'config' and not a.attisdropped)
+    and exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = 'public.salon_public_websites'::regclass and a.attname = 'is_published' and not a.attisdropped);
+  detail := 'slug/publication authority columns';
+  return next;
+
   check_name := 'salon_media';         ok := to_regclass('public.salon_media') is not null;
                                        detail := 'canonical media table';
   return next;
@@ -704,8 +831,9 @@ begin
   check_name := 'salon-media bucket';  ok := exists (
                                            select 1 from storage.buckets b
                                            where b.id = 'salon-media'
+                                             and b.public = false
                                          );
-                                       detail := 'storage bucket';
+                                       detail := 'private storage bucket';
   return next;
 
   check_name := 'owner_salon_ids';     ok := to_regprocedure('public.owner_salon_ids()') is not null;
@@ -714,6 +842,52 @@ begin
 
   check_name := 'nexora_owner_salon_ids'; ok := to_regprocedure('public.nexora_owner_salon_ids()') is not null;
                                        detail := 'delegating alias';
+  return next;
+
+  check_name := 'nexora_alias_delegates';
+  ok := exists (
+    select 1
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'nexora_owner_salon_ids'
+      and pg_catalog.pg_get_functiondef(p.oid) ilike '%owner_salon_ids%'
+  );
+  detail := 'alias is not a second ownership model';
+  return next;
+
+  check_name := 'membership_guard_restored';
+  ok := to_regclass('public.organization_members') is null
+     or not exists (
+       select 1
+       from pg_catalog.pg_trigger t
+       join pg_catalog.pg_proc p on p.oid = t.tgfoid
+       where t.tgrelid = 'public.organization_members'::regclass
+         and not t.tgisinternal
+         and p.proname = 'protect_organization_membership_fields'
+         and t.tgenabled = 'D'
+     );
+  detail := 'live guard disabled only during trusted backfill';
+  return next;
+
+  check_name := 'rls_base_tables';
+  ok := (
+    select bool_and(c.relrowsecurity)
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'profiles', 'organizations', 'organization_members',
+        'salons', 'salon_public_websites'
+      )
+  ) is true;
+  detail := 'deny-by-default until M28/M36/M37 policies';
+  return next;
+
+  check_name := 'spw_anon_select';
+  ok := to_regclass('public.salon_public_websites') is not null
+    and pg_catalog.has_table_privilege('anon', 'public.salon_public_websites', 'SELECT');
+  detail := 'public website lookup grant';
   return next;
 end;
 $$;

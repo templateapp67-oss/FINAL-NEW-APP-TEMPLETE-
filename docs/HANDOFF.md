@@ -1,10 +1,40 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-22** (session `arena/01a027d9-final-new-app-templete`, final cleanup + email-confirmation flow PR).
+> Last updated: **2026-08-22** (session `arena/01a02948-final-new-app-templete`, M40 service-catalog/commerce RPC fix).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Final cleanup & email-confirmation flow (this PR)
+## M40 — Step 5 service catalog + commerce RPC fix (this PR)
+
+**Live bug fixed:** the deployed Step 5 "Services & Packages" screen showed
+"Unable to load pricing and promotions." and "Unable to add this service."
+because the app calls Supabase RPCs (`get_theme_commerce`, `create_saved_service`,
+and 22 siblings) that existed only as Design-A DRAFTs (M16–M26) and were never
+applied to the live Design-B database.
+
+**Fix:** `supabase/migrations/20260822000301_m40_service_catalog_commerce_rpc.sql`
+(M40, Design-B, salon-keyed) recreates the full Step-5 RPC surface on the live
+schema — seeded `predefined_services` catalog (5 themes / 17 categories /
+78 predefined rows ported verbatim from M18), saved-service CRUD + status,
+commerce (variants/bundles/offers/badges), translations/media, search,
+safety-lock/audit/integrity, activity trigger — with `verify_m40_service_catalog()`
+(17 checks) and tenant resolution via `owner_salon_ids()`.
+
+- **Apply:** `docs/m40-run-in-supabase.sql` (SQL Editor) or
+  `SUPABASE_ACCESS_TOKEN=... npm run db:apply:live:m40` (applies + verifies).
+  `npm run db:apply:live:all` now covers M28–M40. **Not yet applied — needs the
+  user's explicit go-ahead (AGENTS.md).**
+- **Test:** `npm run test:m40` (22 PGlite checks covering the exact Step-5
+  flows incl. Anti-Aging Gold Facial ₹2400/60min), `npm run test:m38` (31/31),
+  `npm run test:m39` (8/8), `npm run validate:migrations` (27/27 x2 + 21/21).
+- **No frontend changes needed:** `handleCreateService` already has
+  `preventDefault` + try/catch, the retry button already re-runs
+  `Promise.all([loadSavedServicesForTheme, loadThemeCommerce])`, and the M40
+  payloads match the existing client mappers exactly (`business_id` carries the
+  canonical salon UUID; `theme_uuid`/`theme_key`/`service_badges`/
+  `included_services`/`effective_status` all as the client parses them).
+
+## Final cleanup & email-confirmation flow (previous PR)
 
 Two commits on top of `445e031` (theme switcher):
 - `a78e832` — **auth**: the email-confirmation flow now COMPLETES instead of

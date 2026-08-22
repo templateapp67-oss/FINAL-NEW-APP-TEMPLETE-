@@ -148,7 +148,7 @@ the migrations — no runtime call is missing a function. But there is a large
 volume of **defined-but-unreferenced** surface, most of it belonging to Design A
 (the spec's business-keyed RPCs) or to server paths not exercised here.
 
-**Referenced by client (`src/`) — all defined (M19–M23, M26, M28–M32):**
+**Referenced by client (`src/`) — all defined:**
 
 `get_theme_service_catalog`, `get_theme_service_audit`,
 `check_theme_service_integrity`, `get_saved_services_for_theme`,
@@ -157,6 +157,21 @@ volume of **defined-but-unreferenced** surface, most of it belonging to Design A
 `archive_saved_service`, `delete_saved_service`, `delete_saved_service_media`,
 `upsert_saved_service_media`, `upsert_saved_service_translation`,
 `get_service_safety_lock`.
+
+> **History:** the Step-5 service/commerce surface was drafted only in the
+> Design-A chain (M19–M23, M26, plus `get_theme_commerce`,
+> `set_saved_service_badge`, `upsert_service_price_variant`,
+> `delete_service_price_variant`, `create_service_bundle`,
+> `set_service_bundle_status`, `create_service_offer`,
+> `set_service_offer_status`, `delete_service_offer` in M24) and was **never
+> applied to the live database**, so the deployed Step 5 screen failed with
+> "Unable to load pricing and promotions." and "Unable to add this service."
+> **M40 (`20260822000301_m40_service_catalog_commerce_rpc.sql`, Design B)
+> now defines the full surface against the canonical salon-keyed schema**
+> (same RPC names/signatures, JSON payloads keep `business_id` = salon UUID),
+> with `verify_m40_service_catalog()` and `scripts/test-m40-service-catalog.mjs`
+> covering the exact Step-5 flows. Apply via `docs/m40-run-in-supabase.sql` or
+> `npm run db:apply:live:m40`.
 
 **Referenced by server (`server/`) — all defined:**
 

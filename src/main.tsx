@@ -13,6 +13,7 @@ import { useAuth } from './lib/useAuth.ts';
 import { applyBrandConfigToDocument } from './config/brandConfig.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
 import { captureReferralFromUrl } from './lib/referral.ts';
+import { resolvePublishedSalonSlug, resolveLocalOrStaticSalonSlug } from './lib/publicSalonLookup.ts';
 import './index.css';
 
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
@@ -49,19 +50,23 @@ function ProtectedApp() {
 
 /**
  * Dynamic path-based routing component.
- * Evaluates the pathname, dynamically querying Supabase 'salons' table for registered slugs
- * to prevent 404 errors for any dynamic paths, while loading a fallback NotFound page when 
- * no slug is found.
+ * Evaluates the pathname, dynamically resolving a public salon website by slug
+ * (with a normalized-name fallback) to prevent "Salon Not Found" 404s for
+ * dynamic paths such as `/royal-hair-studio`, while loading a fallback
+ * NotFound page only when no source matches.
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
   const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
+  const [slug, setSlug] = useState('');
 
   // NOTE: only `location.pathname` feeds slug resolution — query parameters
   // (e.g. `?ref=NX-ROYAL-2026`) are never part of the path, so referral links
   // on any route keep resolving slugs cleanly (no 404 / "Salon Not Found").
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-  const normalizedPath = pathname.replace(/^\/+/, '').split('/')[0] || '';
+  // First path segment, lowercased. Reserved routes (`nearby`, `signup`, …) are
+  // matched case-insensitively; slug resolution normalizes it further.
+  const normalizedPath = (pathname.replace(/^\/+/, '').split('/')[0] || '').toLowerCase();
 
   useEffect(() => {
     // NOTE: the `?ref=` capture lives at module scope (captureReferralFromUrl,
@@ -114,28 +119,35 @@ function RootRouter() {
         return;
       }
 
-      // 3. Only a published salon_public_websites slug is a public site.
-      //    No hardcoded salon. Offline/local draft is a last-resort fallback.
+      // 3. Public salon website resolution.
+      //    a) Backend: exact (normalized) slug, then normalized-name fallback
+      //       (`royal-hair-studio` -> "Royal Hair Studio").
+      //    b) Offline/static: a matching local onboarding draft or the static
+      //       seed salon from the brand config, so `/royal-hair-studio` still
+      //       renders when Supabase is not configured or the query misses.
       if (isSupabaseConfigured && supabase) {
         try {
-          const { data, error } = await supabase
-            .from('salon_public_websites')
-            .select('slug')
-            .eq('slug', normalizedPath)
-            .eq('is_published', true)
-            .maybeSingle();
-
-          if (!error && data) {
+          const resolved = await resolvePublishedSalonSlug(normalizedPath);
+          if (resolved) {
+            setSlug(resolved.slug);
             setRoute('public_salon');
             setLoading(false);
             return;
           }
         } catch (err) {
-          console.error('Failed to query salon slug from Supabase:', err);
+          console.error('Failed to resolve salon slug from Supabase:', err);
         }
       }
 
-      // 5. If slug didn't match any source, show user-friendly NotFound 404
+      const fallbackSlug = resolveLocalOrStaticSalonSlug(normalizedPath);
+      if (fallbackSlug) {
+        setSlug(fallbackSlug);
+        setRoute('public_salon');
+        setLoading(false);
+        return;
+      }
+
+      // 4. If the slug didn't match any source, show user-friendly NotFound 404.
       setRoute('not_found');
       setLoading(false);
     }
@@ -187,7 +199,7 @@ function RootRouter() {
         </div>
       );
     case 'public_salon':
-      return <PublicSalonView slug={normalizedPath} />;
+      return <PublicSalonView slug={slug || normalizedPath} />;
     case 'not_found':
       return <NotFound />;
     default:

@@ -6,6 +6,8 @@ import { listPublicSalonMedia } from '../lib/salonMediaService';
 import { PUBLIC_SALON_CATALOG_VIEW } from '../lib/nearbySalons';
 import { SALON_LOCATION_TABLE } from '../lib/salonLocationService';
 import { updateSalonFavicon, resetSalonFavicon } from '../lib/favicon';
+import { normalizeSalonSlug } from '../lib/salonSlug';
+import { resolvePublishedSalonSlug, resolveStaticSalonSlug } from '../lib/publicSalonLookup';
 
 interface Props { slug: string }
 
@@ -40,7 +42,7 @@ function emptyPublicData(slug: string): SalonData {
   };
 }
 
-function localDraft(slug: string): SalonData {
+function localDraft(slug: string): SalonData | null {
   try {
     const saved = localStorage.getItem('nexora_onboarding_state');
     if (saved) {
@@ -55,7 +57,18 @@ function localDraft(slug: string): SalonData {
   } catch (error) {
     console.error('Failed to parse local demo salon data:', error);
   }
-  return { ...initialData, websiteSlug: slug };
+  return null;
+}
+
+/** Static seed salon (e.g. `/royal-hair-studio`) from the brand config. */
+function staticPublicData(slug: string): SalonData | null {
+  const resolved = resolveStaticSalonSlug(slug);
+  return resolved ? { ...initialData, websiteSlug: resolved } : null;
+}
+
+/** Offline resolution: a matching local draft, else the static seed salon. */
+function localOrStaticData(slug: string): SalonData | null {
+  return localDraft(slug) ?? staticPublicData(slug);
 }
 
 const themeKeys = new Set([
@@ -63,8 +76,14 @@ const themeKeys = new Set([
   'family_full_service', 'nail_lash_studio',
 ]);
 
-async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> {
+async function loadCanonicalPublicData(rawSlug: string): Promise<SalonData | null> {
   const client = requireSupabase();
+  // Normalize the slug and, when the exact slug misses, fall back to a
+  // normalized-name match (`royal-hair-studio` -> "Royal Hair Studio").
+  const resolved = await resolvePublishedSalonSlug(rawSlug);
+  if (!resolved) return null;
+  const slug = resolved.slug;
+
   const { data: website, error: websiteError } = await client
     .from('salon_public_websites')
     .select('salon_id,slug,template_key,config')
@@ -174,25 +193,44 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
 }
 
 export default function PublicSalonView({ slug }: Props) {
-  const [state, setState] = useState<PublicState>(() => isSupabaseConfigured
-    ? { status: 'loading', data: emptyPublicData(slug) }
-    : { status: 'ready', data: localDraft(slug) });
+  const normalizedSlug = normalizeSalonSlug(slug);
+  const [state, setState] = useState<PublicState>(() => {
+    if (isSupabaseConfigured) return { status: 'loading', data: emptyPublicData(normalizedSlug) };
+    const fallback = localOrStaticData(normalizedSlug);
+    return fallback
+      ? { status: 'ready', data: fallback }
+      : { status: 'not-found', data: emptyPublicData(normalizedSlug) };
+  });
   const [mode, setMode] = useState<'desktop' | 'tablet' | 'mobile'>(() => window.innerWidth < 768 ? 'mobile' : 'desktop');
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    setState({ status: 'loading', data: emptyPublicData(slug) });
-    void loadCanonicalPublicData(slug)
-      .then((data) => active && setState(data
-        ? { status: 'ready', data }
-        : { status: 'not-found', data: emptyPublicData(slug) }))
+    setState({ status: 'loading', data: emptyPublicData(normalizedSlug) });
+    void loadCanonicalPublicData(normalizedSlug)
+      .then((data) => {
+        if (!active) return;
+        if (data) {
+          setState({ status: 'ready', data });
+          return;
+        }
+        // Backend has no record: fall back to a matching local draft or the
+        // static seed salon so `/royal-hair-studio` never 404s.
+        const fallback = localOrStaticData(normalizedSlug);
+        setState(fallback
+          ? { status: 'ready', data: fallback }
+          : { status: 'not-found', data: emptyPublicData(normalizedSlug) });
+      })
       .catch((error) => {
         console.error('Failed to load public salon:', error);
-        if (active) setState({ status: 'error', data: emptyPublicData(slug) });
+        if (!active) return;
+        const fallback = localOrStaticData(normalizedSlug);
+        setState(fallback
+          ? { status: 'ready', data: fallback }
+          : { status: 'error', data: emptyPublicData(normalizedSlug) });
       });
     return () => { active = false; };
-  }, [slug]);
+  }, [normalizedSlug]);
 
   useEffect(() => {
     const handleResize = () => setMode(window.innerWidth < 768 ? 'mobile' : 'desktop');

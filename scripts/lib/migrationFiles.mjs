@@ -4,7 +4,7 @@
  * The repo contains two divergent database designs:
  *   • Design A — M01–M27 ("spec / 90-point", business-keyed) — the immutable
  *     replay history exercised by the Phase 7/8 suites.
- *   • Design B — M28–M39 + live helpers (salon-keyed canonical) — applied on
+ *   • Design B — M28–M40 + live helpers (salon-keyed canonical) — applied on
  *     the live project, never replayed on top of Design A (M28's fail-closed
  *     preflight would reject the business-keyed world).
  *
@@ -24,6 +24,7 @@ export function isHistoricalMigration(name) {
     && !name.includes('_m38_')
     && !name.includes('_reconciliation_')
     && !name.includes('_m39_')
+    && !name.includes('_m40_')
     && !name.includes('_owner_publish_')
     && !name.includes('setup_public_salon_v2')
     && !name.includes('dynamic_multitenant');

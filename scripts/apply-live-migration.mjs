@@ -11,7 +11,8 @@
  * Usage:
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live            # M28 only
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m38        # M38 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M38
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m40        # M40 only
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M40
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --verify
  *
  * Env:
@@ -28,7 +29,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATIONS_DIR = join(root, 'supabase', 'migrations');
 const CONFIG_PATH = join(root, 'supabase', 'config.toml');
 
-const CHAIN_M28_TO_M38 = [
+const CHAIN_M28_TO_M40 = [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
   '20260821000201_m29_phase1a_razorpay_foundation.sql',
   '20260821000301_m30_phase1a_storage_foundation.sql',
@@ -40,13 +41,22 @@ const CHAIN_M28_TO_M38 = [
   '20260821000901_m36_phase3a_auth_profiles_roles.sql',
   '20260821001001_m37_phase3b_multitenant_rls.sql',
   '20260822000101_m38_reconciliation_fix.sql',
+  '20260822000201_m39_owner_publish_website.sql',
+  '20260822000301_m40_service_catalog_commerce_rpc.sql',
 ];
 
 const M38 = '20260822000101_m38_reconciliation_fix.sql';
+const M40 = '20260822000301_m40_service_catalog_commerce_rpc.sql';
 
 const VERIFY_SQL = `
 select check_name, ok, detail
 from public.verify_m38_reconciliation()
+order by check_name;
+`.trim();
+
+const VERIFY_SQL_M40 = `
+select check_name, ok, detail
+from public.verify_m40_service_catalog()
 order by check_name;
 `.trim();
 
@@ -71,10 +81,16 @@ async function resolveProjectRef() {
 }
 
 function resolveFiles(argv) {
-  if (argv.includes('--verify') && !argv.includes('--m38') && !argv.includes('--all')) return [];
+  if (argv.includes('--verify') && !argv.includes('--m38') && !argv.includes('--m40') && !argv.includes('--all')) return [];
   if (argv.includes('--m38')) return [M38];
-  if (argv.includes('--all')) return CHAIN_M28_TO_M38;
-  return [CHAIN_M28_TO_M38[0]];
+  if (argv.includes('--m40')) return [M40];
+  if (argv.includes('--all')) return CHAIN_M28_TO_M40;
+  return [CHAIN_M28_TO_M40[0]];
+}
+
+function verifySqlFor(files) {
+  if (files.includes(M40)) return VERIFY_SQL_M40;
+  return VERIFY_SQL;
 }
 
 async function runSql(accessToken, projectRef, sql) {
@@ -94,15 +110,15 @@ async function runSql(accessToken, projectRef, sql) {
   return res.json();
 }
 
-function printVerify(result) {
+function printVerify(result, fnName) {
   const rows = Array.isArray(result) ? result : result?.result || result?.data || [];
   if (!Array.isArray(rows) || rows.length === 0) {
-    console.log('verify_m38_reconciliation(): (no rows returned)');
+    console.log(`${fnName}(): (no rows returned)`);
     console.log(JSON.stringify(result, null, 2).slice(0, 1500));
     return false;
   }
   let allOk = true;
-  console.log('verify_m38_reconciliation():');
+  console.log(`${fnName}():`);
   for (const row of rows) {
     const ok = row.ok === true || row.ok === 't' || row.ok === 'true';
     if (!ok) allOk = false;
@@ -125,7 +141,9 @@ async function main() {
 
   const projectRef = await resolveProjectRef();
   const files = resolveFiles(process.argv);
-  const wantVerify = process.argv.includes('--verify') || files.includes(M38);
+  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40);
+  const verifySql = verifySqlFor(files);
+  const verifyFnName = files.includes(M40) ? 'verify_m40_service_catalog' : 'verify_m38_reconciliation';
 
   console.log(`Target project: ${projectRef}`);
   if (files.length) {
@@ -156,11 +174,11 @@ async function main() {
   }
 
   if (wantVerify) {
-    process.stdout.write('\nRunning verify_m38_reconciliation() ... ');
+    process.stdout.write(`\nRunning ${verifyFnName}() ... `);
     try {
-      const result = await runSql(accessToken, projectRef, VERIFY_SQL);
+      const result = await runSql(accessToken, projectRef, verifySql);
       console.log('OK');
-      const allOk = printVerify(result);
+      const allOk = printVerify(result, verifyFnName);
       if (!allOk) {
         console.error('\nOne or more live verification checks failed.');
         process.exit(1);

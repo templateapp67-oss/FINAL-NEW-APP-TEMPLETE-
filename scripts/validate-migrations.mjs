@@ -61,6 +61,10 @@ const m39MigrationFiles = migrationFiles.filter((name) => name.includes('_m39_')
 assert.deepEqual(m39MigrationFiles, [
   '20260822000201_m39_owner_publish_website.sql',
 ], 'expected the M39 owner self-publish RPC (Design B; not part of the M01–M27 history)');
+const m40MigrationFiles = migrationFiles.filter((name) => name.includes('_m40_') || name.includes('_service_catalog_commerce_rpc'));
+assert.deepEqual(m40MigrationFiles, [
+  '20260822000301_m40_service_catalog_commerce_rpc.sql',
+], 'expected the M40 service-catalog/commerce RPC set (Design B; not part of the M01–M27 history)');
 // Live-applied Design-B helper migrations (SQL-editor / shared project). They
 // are not part of the immutable M01–M27 replay history, just like M38/M39.
 const liveHelperMigrationFiles = migrationFiles.filter(

@@ -1,10 +1,36 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-22** (session `arena/01a02948-final-new-app-templete`, M40 service-catalog/commerce RPC fix).
+> Last updated: **2026-08-22** (session `arena/01a02979-final-new-app-templete`, Step-5 local persistence fallback).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## M40 — Step 5 service catalog + commerce RPC fix (this PR)
+## Step 5 local persistence fallback (this PR)
+
+**Live bug addressed:** Step 5 showed "Unable to load saved services." /
+"Unable to add this service." because the Step-5 RPC surface (M40) is still
+not applied to the live project — every call 404s with PostgREST `PGRST202`.
+Full RCA (incl. Vercel env checklist and the exact M40 apply steps) is in
+`docs/step5-services-audit.md`.
+
+- **Fix:** when — and only when — an RPC fails with `PGRST202` / "Could not
+  find the function … in the schema cache" (`src/lib/rpcSurface.ts`), the
+  public saved-service wrappers, `loadThemeCommerce`, and the safety
+  lock/audit/archive paths fall back to a **localStorage-backed store**
+  (`src/lib/localSavedServices.ts`) that mirrors the M40 contracts (same
+  validation messages, duplicate guards, mutable-fields-only updates,
+  per-theme isolation). Auth/validation/500/network failures keep the old
+  masked-error behavior; a healthy database is never bypassed. Once M40 is
+  applied, the probe never trips and the same code uses the database — no
+  flag or frontend change needed. Commerce **writes** and media/translation
+  uploads intentionally keep hitting the RPCs (no local pretending).
+- **M40 is STILL not applied** — unchanged policy: needs the owner's explicit
+  go-ahead; apply via `docs/m40-run-in-supabase.sql` or
+  `SUPABASE_ACCESS_TOKEN=… npm run db:apply:live:m40`.
+- **Test:** `npm run test:step5-fallback` (14 checks). Verified green this
+  session: lint, build, test:service-saving/management/security,
+  test:theme-catalog, test:m40, validate:migrations, verify-22-screens.
+
+## M40 — Step 5 service catalog + commerce RPC fix (previous PR)
 
 **Live bug fixed:** the deployed Step 5 "Services & Packages" screen showed
 "Unable to load pricing and promotions." and "Unable to add this service."

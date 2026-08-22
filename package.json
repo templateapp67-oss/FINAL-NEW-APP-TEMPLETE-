@@ -15,6 +15,7 @@
     "test:owner": "tsx scripts/test-owner-profile.mjs",
     "test:theme-catalog": "tsx scripts/test-theme-catalog-ui.mjs",
     "test:service-saving": "tsx scripts/test-service-saving.mjs",
+    "test:step5-fallback": "tsx scripts/test-step5-local-fallback.mjs",
     "test:service-management": "tsx scripts/test-service-management-e2e.mjs",
     "test:service-security": "tsx scripts/test-service-security.mjs",
     "test:acceptance": "tsx scripts/test-phase-8.3-acceptance.mjs",

@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import type { DatabaseCatalogThemeId } from './themeCatalogService';
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
+import { isMissingRpcSurfaceError } from './rpcSurface';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -114,6 +115,21 @@ const safeDatabaseMessage = (error: unknown, fallback: string): PricingPromotion
   return new PricingPromotionError(safe ? raw : fallback);
 };
 
+/**
+ * Flips when PostgREST proves the commerce RPC surface is not deployed
+ * (PGRST202 — see rpcSurface.ts and docs/step5-services-audit.md §6). Only
+ * the Step-5 READ path (`loadThemeCommerce`) consults it: hydrating with an
+ * empty commerce object keeps service onboarding usable on a pre-M40 project.
+ * Write operations never fall back — they keep their masked errors so a
+ * healthy database is never silently bypassed.
+ */
+let commerceRpcSurfaceMissing = false;
+
+/** Test seam — restores the initial "unknown" probe state. */
+export function resetCommerceRpcProbeForTests(): void {
+  commerceRpcSurfaceMissing = false;
+}
+
 async function rpc(
   client: SupabaseClient,
   name: string,
@@ -121,7 +137,10 @@ async function rpc(
   fallback: string,
 ): Promise<unknown> {
   const { data, error } = await client.rpc(name, args);
-  if (error) throw safeDatabaseMessage(error, fallback);
+  if (error) {
+    if (isMissingRpcSurfaceError(error)) commerceRpcSurfaceMissing = true;
+    throw safeDatabaseMessage(error, fallback);
+  }
   return data;
 }
 
@@ -254,6 +273,16 @@ export async function loadThemeCommerceWithClient(
   };
 }
 
+const emptyThemeCommerce = (themeId: DatabaseCatalogThemeId): ThemeCommerce => ({
+  businessId: 'local-salon',
+  themeId,
+  themeUuid: '',
+  serviceBadges: new Map(),
+  variants: [],
+  bundles: [],
+  offers: [],
+});
+
 export async function loadThemeCommerce(themeId: DatabaseCatalogThemeId): Promise<ThemeCommerce> {
   if (!isSupabaseConfigured) {
     return {
@@ -266,7 +295,17 @@ export async function loadThemeCommerce(themeId: DatabaseCatalogThemeId): Promis
       offers: [],
     };
   }
-  return loadThemeCommerceWithClient(requireSupabase(), themeId);
+  if (commerceRpcSurfaceMissing) {
+    return emptyThemeCommerce(themeId);
+  }
+  try {
+    return await loadThemeCommerceWithClient(requireSupabase(), themeId);
+  } catch (error) {
+    if (commerceRpcSurfaceMissing) {
+      return emptyThemeCommerce(themeId);
+    }
+    throw error;
+  }
 }
 
 export function mergeCommerceIntoServices(services: Service[], commerce: ThemeCommerce): Service[] {

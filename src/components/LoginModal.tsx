@@ -21,6 +21,8 @@ import {
   signUpWithPassword,
 } from '../lib/useAuth';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { readStoredReferralCode } from '../lib/referral';
+import { recordReferralSignup } from '../lib/referralDashboard';
 
 /**
  * Sign in / sign up against the existing Supabase Auth (email + password,
@@ -211,6 +213,15 @@ export default function LoginModal({
         setError(err);
         return;
       }
+
+      // Track the referral at account creation: if an invite code is stored
+      // (captured from a `?ref=` link), record this new salon as Pending in
+      // the referrer's Referral Dashboard registry.
+      const appliedReferralCode = readStoredReferralCode();
+      if (appliedReferralCode) {
+        recordReferralSignup({ email: mail, code: appliedReferralCode });
+      }
+
       setPassword('');
       if (needsConfirmation) {
         // Account created — Supabase emailed a confirmation link. Guide the

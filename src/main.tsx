@@ -7,14 +7,23 @@ import PublicSalonView from './components/PublicSalonView.tsx';
 import NotFound from './components/NotFound.tsx';
 import AuthCallbackPage from './components/AuthCallbackPage.tsx';
 import PasswordResetPage from './components/PasswordResetPage.tsx';
+import SignUpPage from './components/SignUpPage.tsx';
 import { AuthModalProvider, useAuthModal } from './components/AuthModalProvider.tsx';
 import { useAuth } from './lib/useAuth.ts';
 import { applyBrandConfigToDocument } from './config/brandConfig.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
+import { captureReferralFromUrl } from './lib/referral.ts';
 import './index.css';
 
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
 applyBrandConfigToDocument();
+
+// Capture an incoming referral code (`/signup?ref=NX-ROYAL-2026` or any path
+// with `?ref=`) into localStorage['nexora_referral_code'] BEFORE the router
+// runs, so the Sign-Up page can auto-fill (and lock) the code. This only
+// reads `window.location.search` — the pathname used for slug resolution is
+// untouched, so `/royal-hair-studio?ref=...` never 404s.
+captureReferralFromUrl();
 
 function ProtectedApp() {
   const { user, loading } = useAuth();
@@ -46,8 +55,11 @@ function ProtectedApp() {
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
-  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'reset_password' | 'nearby' | 'public_salon' | 'not_found'>('app');
+  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
 
+  // NOTE: only `location.pathname` feeds slug resolution — query parameters
+  // (e.g. `?ref=NX-ROYAL-2026`) are never part of the path, so referral links
+  // on any route keep resolving slugs cleanly (no 404 / "Salon Not Found").
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
   const normalizedPath = pathname.replace(/^\/+/, '').split('/')[0] || '';
 
@@ -68,6 +80,14 @@ function RootRouter() {
       }
       if (pathname === '/reset-password') {
         setRoute('reset_password');
+        setLoading(false);
+        return;
+      }
+      // 2. Standalone Sign-Up page — target of all referral links
+      //    (`/signup?ref=NX-[SHORT]-2026`). The `ref` parameter was already
+      //    captured into localStorage at module load (captureReferralFromUrl).
+      if (pathname === '/signup') {
+        setRoute('signup');
         setLoading(false);
         return;
       }
@@ -153,6 +173,8 @@ function RootRouter() {
       return <AuthCallbackPage />;
     case 'reset_password':
       return <PasswordResetPage />;
+    case 'signup':
+      return <SignUpPage />;
     case 'protected_app':
       return <ProtectedApp />;
     case 'nearby':

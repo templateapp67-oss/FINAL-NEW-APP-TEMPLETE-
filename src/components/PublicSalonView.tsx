@@ -6,7 +6,7 @@ import { listPublicSalonMedia } from '../lib/salonMediaService';
 import { PUBLIC_SALON_CATALOG_VIEW } from '../lib/nearbySalons';
 import { SALON_LOCATION_TABLE } from '../lib/salonLocationService';
 import { updateSalonFavicon, resetSalonFavicon } from '../lib/favicon';
-import { normalizeSalonSlug } from '../lib/salonSlug';
+import { normalizeSlug } from '../lib/salonSlug';
 import { resolvePublishedSalonSlug, resolveStaticSalonSlug } from '../lib/publicSalonLookup';
 
 interface Props { slug: string }
@@ -193,7 +193,7 @@ async function loadCanonicalPublicData(rawSlug: string): Promise<SalonData | nul
 }
 
 export default function PublicSalonView({ slug }: Props) {
-  const normalizedSlug = normalizeSalonSlug(slug);
+  const normalizedSlug = normalizeSlug(slug);
   const [state, setState] = useState<PublicState>(() => {
     if (isSupabaseConfigured) return { status: 'loading', data: emptyPublicData(normalizedSlug) };
     const fallback = localOrStaticData(normalizedSlug);

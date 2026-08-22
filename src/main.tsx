@@ -14,6 +14,7 @@ import { applyBrandConfigToDocument } from './config/brandConfig.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
 import { captureReferralFromUrl } from './lib/referral.ts';
 import { resolvePublishedSalonSlug, resolveLocalOrStaticSalonSlug } from './lib/publicSalonLookup.ts';
+import { normalizeSlug } from './lib/salonSlug.ts';
 import './index.css';
 
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
@@ -64,9 +65,10 @@ function RootRouter() {
   // (e.g. `?ref=NX-ROYAL-2026`) are never part of the path, so referral links
   // on any route keep resolving slugs cleanly (no 404 / "Salon Not Found").
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-  // First path segment, lowercased. Reserved routes (`nearby`, `signup`, …) are
-  // matched case-insensitively; slug resolution normalizes it further.
-  const normalizedPath = (pathname.replace(/^\/+/, '').split('/')[0] || '').toLowerCase();
+  // Extract & normalize the raw URL slug (first path segment, lowercased +
+  // hyphen-collapsed). Reserved routes (`nearby`, `signup`, …) are matched
+  // below before slug resolution is attempted.
+  const normalizedPath = normalizeSlug(pathname.replace(/^\/+/, '').split('/')[0]);
 
   useEffect(() => {
     // NOTE: the `?ref=` capture lives at module scope (captureReferralFromUrl,

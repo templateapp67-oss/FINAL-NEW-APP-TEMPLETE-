@@ -11,21 +11,50 @@
  */
 
 /** Collapse arbitrary raw URL/path text into a canonical lowercase slug. */
-export function normalizeSalonSlug(raw: string | null | undefined): string {
-  let value = raw || '';
+export function normalizeSlug(input: string): string {
+  let value = input || '';
   try {
     value = decodeURIComponent(value);
   } catch {
-    // Not valid URI encoding — keep the text as-is and normalize it below.
+    // Not valid URI encoding — normalize the text as-is.
   }
   return value
     .trim()
     .toLowerCase()
-    .replace(/^\/+|\/+$/g, '') // strip leading/trailing slashes
-    .replace(/[^a-z0-9\s-]/g, ' ') // "royal_hair" / "royal.hair" -> "royal hair"
-    .replace(/\s+/g, '-') // whitespace -> hyphen
-    .replace(/-+/g, '-') // collapse repeated hyphens
-    .replace(/^-+|-+$/g, ''); // trim stray hyphens
+    .replace(/[^a-z0-9\-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Ordered search variations derived from a slug, for name-based fallback
+ * lookups. `royal-hair-studio` -> ["royal-hair-studio", "royal hair studio",
+ * "Royal Hair Studio", "Royal Hair & Studio", "royal hair", "Royal Hair"].
+ *
+ * Progressive prefixes are included so a substring scan (`ilike %royal hair%`)
+ * still matches a longer stored name like "Royal Hair & Beauty Studio".
+ */
+export function slugToNameCandidates(slug: string): string[] {
+  const normalized = normalizeSlug(slug);
+  const words = normalized.split('-').filter(Boolean);
+  const spaceSeparated = words.join(' ');
+  const titleCase = words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+  const candidates = [
+    normalized,
+    spaceSeparated,
+    titleCase,
+    titleCase.replace(/ Hair /i, ' Hair & '), // "Royal Hair Studio" -> "Royal Hair & Studio"
+  ];
+
+  for (let i = words.length - 1; i >= 2; i--) {
+    const prefix = words.slice(0, i).join(' ');
+    candidates.push(prefix, prefix.replace(/\b\w/g, (c) => c.toUpperCase()));
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
 }
 
 /** Normalize a salon display name for fuzzy comparison. */
@@ -39,25 +68,7 @@ export function normalizeSalonNameForMatch(name: string | null | undefined): str
 }
 
 /**
- * Ordered name guesses derived from a slug, most-specific first.
- * `royal-hair-studio` -> ["royal hair studio", "royal hair"].
- * A single-word slug (e.g. `glamour`) keeps its single word; for multi-word
- * slugs the bare first word is dropped to avoid over-broad matches.
- */
-export function slugNameCandidates(slug: string | null | undefined): string[] {
-  const words = normalizeSalonSlug(slug).split('-').filter(Boolean);
-  if (words.length === 0) return [];
-  const phrases: string[] = [];
-  for (let i = words.length; i >= 1; i--) {
-    if (i === 1 && words.length > 1) continue;
-    const phrase = words.slice(0, i).join(' ');
-    if (phrase.length >= 2) phrases.push(phrase);
-  }
-  return Array.from(new Set(phrases));
-}
-
-/**
- * True when a salon name matches the slug-derived name candidates, using
+ * True when a salon name matches the slug-derived candidates, using
  * word-boundary comparison so "Royal Hair & Beauty Studio" still matches the
  * `/royal-hair-studio` slug but "Royal Haircuts" does not.
  */
@@ -67,14 +78,14 @@ export function salonNameMatchesCandidates(
 ): boolean {
   const target = normalizeSalonNameForMatch(name);
   if (!target) return false;
-  return slugNameCandidates(slug).some((phrase) => {
-    const candidate = normalizeSalonNameForMatch(phrase);
-    if (!candidate || candidate.length < 2) return false;
+  return slugToNameCandidates(slug).some((candidate) => {
+    const cand = normalizeSalonNameForMatch(candidate);
+    if (!cand || cand.length < 2) return false;
     return (
-      target === candidate ||
-      target.startsWith(`${candidate} `) ||
-      target.endsWith(` ${candidate}`) ||
-      target.includes(` ${candidate} `)
+      target === cand ||
+      target.startsWith(`${cand} `) ||
+      target.endsWith(` ${cand}`) ||
+      target.includes(` ${cand} `)
     );
   });
 }

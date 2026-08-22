@@ -3,6 +3,9 @@ import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor, Smartphone, Circle, Check } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { publishOwnerSalonWebsite } from '../lib/salonWebsiteService';
+import { publicWebsiteHref, publicWebsiteUrl, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
 
 interface Props {
   data: SalonData;
@@ -23,24 +26,24 @@ function slugify(text: string) {
 }
 
 export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave }: Props) {
-  const { platform, defaultSalon } = useBrandConfig();
-  const [slug, setSlug] = useState<string>(data.websiteSlug || slugify(data.salonName) || defaultSalon.slug || 'royal-hair-studio');
+  const { platform } = useBrandConfig();
+  const [slug, setSlug] = useState<string>(() => suggestedWebsiteSlug(data) || slugify(data.salonName));
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data.websiteSlug) {
-      const generated = slugify(data.salonName) || defaultSalon.slug || 'royal-hair-studio';
-      setSlug(generated);
+      setSlug(slugify(data.salonName));
     }
-  }, [data.salonName, data.websiteSlug, defaultSalon.slug]);
+  }, [data.salonName, data.websiteSlug]);
 
   useEffect(() => {
     setData(prev => ({ ...prev, websiteSlug: slug }));
   }, [slug, setData]);
 
-  const previewUrl = `${platform.websiteUrl.replace(/^https?:\/\//, '')}/${slug}`;
-  const fullUrl = `https://${previewUrl}`;
+  const previewUrl = publicWebsiteHref(slug, platform.websiteUrl);
+  const fullUrl = publicWebsiteUrl(slug, platform.websiteUrl);
 
   // Checklist logic
   const checks = [
@@ -59,16 +62,36 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
 
   const allRequiredDone = checks.every(c => c.done);
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
     setPublishing(true);
+    setPublishError(null);
     setData(prev => ({ ...prev, publishState: 'publishing', publishedUrl: fullUrl, websiteSlug: slug }));
     if (onSave) onSave();
-    setTimeout(() => {
-      setData(prev => ({ ...prev, publishState: 'published', publishedUrl: fullUrl, lastCompletedStep: 14 }));
+    try {
+      let publishedUrl = fullUrl;
+      if (isSupabaseConfigured) {
+        const saved = await publishOwnerSalonWebsite({ ...data, websiteSlug: slug });
+        publishedUrl = publicWebsiteUrl(saved.slug, platform.websiteUrl);
+        setData(prev => ({
+          ...prev,
+          salonId: saved.salonId,
+          websiteSlug: saved.slug,
+          publishState: 'published',
+          publishedUrl,
+          lastCompletedStep: 14,
+        }));
+      } else {
+        setData(prev => ({ ...prev, publishState: 'published', publishedUrl, websiteSlug: slug, lastCompletedStep: 14 }));
+      }
       if (onSave) onSave();
       setPublishing(false);
-      onNext(); // go to Step 15
-    }, 1200);
+      onNext();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to publish your website.';
+      setPublishError(message);
+      setData(prev => ({ ...prev, publishState: 'draft', websiteSlug: slug }));
+      setPublishing(false);
+    }
   };
 
   const previewData: SalonData = {
@@ -184,6 +207,12 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
               <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 flex gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 Please complete all required fields above to proceed with publishing.
+              </div>
+            )}
+            {publishError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 flex gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {publishError}
               </div>
             )}
           </div>

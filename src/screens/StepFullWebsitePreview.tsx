@@ -3,6 +3,7 @@ import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Monitor, Smartphone, Tablet, Eye, Sparkles, Layout, Compass, Info } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
+import { publicWebsiteHref, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
 
 interface Props {
   data: SalonData;
@@ -14,7 +15,7 @@ interface Props {
 }
 
 export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) {
-  const { platform, defaultSalon } = useBrandConfig();
+  const { platform } = useBrandConfig();
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const previewRef = useRef<HTMLDivElement>(null);
 
@@ -183,7 +184,7 @@ export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) 
           <ArrowLeft className="w-4 h-4" /> Back to Review
         </button>
         <span className="hidden md:block text-xs font-semibold text-gray-400">
-          {platform.websiteUrl.replace(/^https?:\/\//, '')}/{(data.websiteSlug || defaultSalon.slug || 'royal-hair-studio')}
+          {publicWebsiteHref(suggestedWebsiteSlug(data), platform.websiteUrl) || platform.websiteUrl.replace(/^https?:\/\//, '')}
         </span>
         <button
           onClick={onNext}

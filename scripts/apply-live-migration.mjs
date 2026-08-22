@@ -6,13 +6,13 @@
  * It calls the Supabase Management API "database query" endpoint
  * (`POST /v1/projects/{ref}/database/query`) which executes arbitrary SQL on
  * the project's database using ONLY a Management API access token
- * (`SUPABASE_ACCESS_TOKEN`, the `sbp_...` secret). This is the exact mechanism
- * `supabase db push` uses under the hood, exposed here as a single script so
- * the migration can be applied from a CI/deploy step with zero manual steps.
+ * (`SUPABASE_ACCESS_TOKEN`, the `sbp_...` secret).
  *
  * Usage:
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live          # apply M28 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all  # apply M28–M35 in order
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live            # M28 only
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m38        # M38 only
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M38
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --verify
  *
  * Env:
  *   SUPABASE_ACCESS_TOKEN  (required)  Management API access token (starts with sbp_)
@@ -20,7 +20,7 @@
  *
  * The migration files are idempotent and fail-closed, so re-running is safe.
  */
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,7 +28,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATIONS_DIR = join(root, 'supabase', 'migrations');
 const CONFIG_PATH = join(root, 'supabase', 'config.toml');
 
-const CHAIN_M28_TO_M35 = [
+const CHAIN_M28_TO_M38 = [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
   '20260821000201_m29_phase1a_razorpay_foundation.sql',
   '20260821000301_m30_phase1a_storage_foundation.sql',
@@ -37,7 +37,18 @@ const CHAIN_M28_TO_M35 = [
   '20260821000601_m33_phase2a_hardening.sql',
   '20260821000701_m34_phase2b_final_hardening.sql',
   '20260821000801_m35_phase2c_canonical_theme_slugs.sql',
+  '20260821000901_m36_phase3a_auth_profiles_roles.sql',
+  '20260821001001_m37_phase3b_multitenant_rls.sql',
+  '20260822000101_m38_reconciliation_fix.sql',
 ];
+
+const M38 = '20260822000101_m38_reconciliation_fix.sql';
+
+const VERIFY_SQL = `
+select check_name, ok, detail
+from public.verify_m38_reconciliation()
+order by check_name;
+`.trim();
 
 function parseProjectRef(configText) {
   const match = configText.match(/^project_id\s*=\s*["']?([A-Za-z0-9_-]+)["']?/m);
@@ -51,7 +62,7 @@ async function resolveProjectRef() {
     const ref = parseProjectRef(text);
     if (ref) return ref;
   } catch {
-    /* fall through to error below */
+    /* fall through */
   }
   throw new Error(
     'Could not resolve the Supabase project reference. Set SUPABASE_PROJECT_REF ' +
@@ -59,9 +70,11 @@ async function resolveProjectRef() {
   );
 }
 
-function resolveFiles(applyAll) {
-  if (!applyAll) return [CHAIN_M28_TO_M35[0]];
-  return CHAIN_M28_TO_M35;
+function resolveFiles(argv) {
+  if (argv.includes('--verify') && !argv.includes('--m38') && !argv.includes('--all')) return [];
+  if (argv.includes('--m38')) return [M38];
+  if (argv.includes('--all')) return CHAIN_M28_TO_M38;
+  return [CHAIN_M28_TO_M38[0]];
 }
 
 async function runSql(accessToken, projectRef, sql) {
@@ -81,8 +94,24 @@ async function runSql(accessToken, projectRef, sql) {
   return res.json();
 }
 
+function printVerify(result) {
+  const rows = Array.isArray(result) ? result : result?.result || result?.data || [];
+  if (!Array.isArray(rows) || rows.length === 0) {
+    console.log('verify_m38_reconciliation(): (no rows returned)');
+    console.log(JSON.stringify(result, null, 2).slice(0, 1500));
+    return false;
+  }
+  let allOk = true;
+  console.log('verify_m38_reconciliation():');
+  for (const row of rows) {
+    const ok = row.ok === true || row.ok === 't' || row.ok === 'true';
+    if (!ok) allOk = false;
+    console.log(`  ${ok ? 'PASS' : 'FAIL'} ${row.check_name} — ${row.detail || ''}`);
+  }
+  return allOk;
+}
+
 async function main() {
-  const applyAll = process.argv.includes('--all');
   const accessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
   if (!accessToken) {
     console.error(
@@ -95,11 +124,16 @@ async function main() {
   }
 
   const projectRef = await resolveProjectRef();
-  const files = resolveFiles(applyAll);
+  const files = resolveFiles(process.argv);
+  const wantVerify = process.argv.includes('--verify') || files.includes(M38);
 
   console.log(`Target project: ${projectRef}`);
-  console.log(`Files to apply (${files.length}):`);
-  for (const f of files) console.log(`  - ${f}`);
+  if (files.length) {
+    console.log(`Files to apply (${files.length}):`);
+    for (const f of files) console.log(`  - ${f}`);
+  } else {
+    console.log('No migration files selected (verify-only).');
+  }
 
   let applied = 0;
   for (const file of files) {
@@ -117,7 +151,26 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. ${applied}/${files.length} migration file(s) applied to ${projectRef}.`);
+  if (files.length) {
+    console.log(`\nDone. ${applied}/${files.length} migration file(s) applied to ${projectRef}.`);
+  }
+
+  if (wantVerify) {
+    process.stdout.write('\nRunning verify_m38_reconciliation() ... ');
+    try {
+      const result = await runSql(accessToken, projectRef, VERIFY_SQL);
+      console.log('OK');
+      const allOk = printVerify(result);
+      if (!allOk) {
+        console.error('\nOne or more live verification checks failed.');
+        process.exit(1);
+      }
+    } catch (err) {
+      console.log('FAILED');
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  }
 }
 
 main().catch((err) => {

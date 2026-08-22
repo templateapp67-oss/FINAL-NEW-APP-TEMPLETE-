@@ -1,96 +1,17 @@
 -- ============================================================================
--- M38 / Reconciliation fix — consolidate M01–M37 onto the Design B salons model
+-- M38 — Supabase SQL Editor में यही पूरा paste करो (नया version)
 -- ============================================================================
+-- 1. नया query tab खोलो (पुराना SQL मत चलाओ)
+-- 2. इस फाइल का ALL text copy (Ctrl+A) — बीच का टुकड़ा नहीं
+-- 3. Paste करो। पहली लाइन begin; आखिरी commit;
+-- 4. Selection हटाओ, Run
+-- 5. Success के बाद नया tab:
+--      select check_name, ok, detail
+--      from public.verify_m38_reconciliation()
+--      order by check_name;
 --
--- Purpose
--- --------
--- The gap analysis (docs/database-gaps-analysis.md) found that M01–M27 encode a
--- "businesses"-keyed model (Design A) while M28–M37 and *all* runtime code
--- (`src/lib/*`, `server/*`) use the "organizations → salons.organization_id"
--- model (Design B).  Several canonical Design B objects are required by the
--- code and by M28/M37 preflights but are created by NO migration — they only
--- exist in the live shared Supabase project.  This migration reconciles that
--- divergence so the Design B chain is self-describing and idempotent.
---
--- What this file does (idempotent, additive, non-destructive):
---   1. Creates the canonical base tables IF NOT EXISTS, exactly as the
---      application and M28–M37 expect:
---        profiles, organizations, organization_members, salons,
---        salon_public_websites
---      On the live shared DB these tables already exist, so the CREATEs are
---      no-ops; the column definitions here are the authoritative reference.
---   2. Fills any missing canonical columns via ADD COLUMN IF NOT EXISTS
---      (drift fill for partially-migrated live schemas) + safe backfills.
---   3. Reconciles the LIVE membership guard (see "live membership guard"
---      note below) and runs the idempotent owner/staff backfill that M28's
---      backfill and docs/owner-location-setup.sql STEP 3 need — without
---      breaking on `private.protect_organization_membership_fields()`.
---   4. Re-asserts the private `salon-media` bucket and its tenant-scoped
---      storage policies (M30 semantics), so the bucket is guaranteed present.
---   5. Re-asserts the single canonical ownership RPC (`owner_salon_ids`) and
---      its delegating alias (`nexora_owner_salon_ids`) + grants, closing the
---      "two ownership helpers" drift flagged in the gap analysis.
---   6. Ships `verify_m38_reconciliation()` — a read-only self-test.
---
--- Live membership guard (reconciliation target)
--- ----------------------------------------------
--- The live Main Website schema ships a BEFORE INSERT/UPDATE trigger
--- `private.protect_organization_membership_fields()` on
--- public.organization_members that raises:
---
---   P0001: only an organization owner or admin may assign owner role
---
--- whenever role='owner' is set by a context that is not already an org owner
--- or admin. In the Supabase Dashboard SQL editor there is no request JWT, so
--- auth.uid() is NULL and the guard raises EVEN when running as postgres —
--- which breaks M28's owner backfill (UPDATE ... SET role='owner') and
--- docs/owner-location-setup.sql STEP 3 (INSERT ... role='owner'). This file
--- disables that specific guard around a trusted backfill and restores it
--- exactly; it never alters or weakens the guard function itself.
---
--- What this file does NOT do (deliberately):
---   * It does NOT drop, rename, or rewrite M01–M27 (Design A) objects.  Those
---     remain historical spec drafts; archiving them is a separate decision
---     (see docs/database-gaps-analysis.md §7).
---   * It does NOT invent `staff` / `salon_hours` schemas.  Those tables are
---     under-specified in-repo (only `id`/`salon_id`/`is_active` are known from
---     M28/M37 preflights) and belong to the live Main Website schema.  Creating
---     them with a guessed shape would violate the "never invent business
---     facts / reconcile live schema first" guardrails.  M34/M37 already handle
---     their FKs and RLS with `to_regclass(...) is not null` guards, so their
---     absence degrades safely.
---   * It does not invent RLS *policies* — M28/M36/M37 own those. RLS is
---     enabled idempotently so a fresh bootstrap is deny-by-default until
---     those migrations add their policies. Table-level SELECT on
---     salon_public_websites (and themes / public_salon_catalog when present)
---     is granted so PostgREST/anon can reach the published-read policy.
---
--- Ordering note
--- -------------
--- M28 and M37 are FAIL-CLOSED: they raise if the base tables are absent.  That
--- is correct for the live project (the tables exist there).  On a hypothetical
--- fresh database this file bootstraps the identity / tenant / website roots
--- (it is fully idempotent).  M28 still requires the live operational tables
--- `services`, `staff`, `salon_hours`, and `bookings` — this file deliberately
--- does not invent those shapes.  M01–M27 must NOT be applied to the same
--- database (Design A fork).
---
--- `organization_members.is_active` ownership
--- ------------------------------------------
--- Live memberships track activity as `status` (active value = 'active').
--- M28 owns the reconciliation of that column onto a STORED GENERATED
--- `is_active`.  This file must NEVER add a writable `is_active` beside a
--- live `status` column — that would make M28 skip its generated-column
--- path and mis-activate every NULL row.  `is_active` is added here only
--- on a fresh bootstrap that has neither column.  `owner_salon_ids()` and
--- the membership activity index follow whichever activity column exists.
---
--- Design B tenant authority (single source of truth, unchanged here):
---   auth.users.id → profiles.id → organization_members (role: owner|staff)
---   → organizations → salons.organization_id
---
--- SQL Editor: paste this ENTIRE file (or docs/m38-run-in-supabase.sql).
--- Do not run a selection. First executable line must be BEGIN; last COMMIT;
+-- storage.objects ALTER अब skip हो जाएगा अगर तुम owner नहीं हो
+-- (पहले 42501 इसी वजह से पूरा rollback हो रहा था)
 -- ============================================================================
 
 begin;

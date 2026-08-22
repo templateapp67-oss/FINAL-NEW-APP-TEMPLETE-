@@ -2,21 +2,33 @@
 
 > **Scope:** three-way cross-reference of (1) the 90-point master database spec
 > (`nexora-database-spec.md`), (2) the committed migration set
-> (`supabase/migrations/M01–M37`), and (3) the application code that actually
+> (`supabase/migrations/M01–M38`), and (3) the application code that actually
 > talks to the database (`src/lib/*`, `src/types/database.ts`, `server/*`).
 >
-> **Method:** static, repo-only. No live Supabase connection was available in
-> this workspace (only `.env.example` placeholders), so live introspection —
-> which the spec itself declares mandatory (§0, §4.2, §5.25) — is still the
-> top unresolved item and is flagged below as such.
+> **Method:** repo analysis + PGlite smoke + a Dashboard SQL Editor apply of
+> M38. Full live catalog introspection (every column/constraint dump) is
+> still not done from this workspace — there is no Management API token here.
 >
-> **Generated:** 2026-08-22 · branch `arena/01a02744-final-new-app-templete`
+> **Generated:** 2026-08-22 · updated on `arena/01a0277c-final-new-app-templete`
 >
-> **Resolution note:** the missing base objects (§2) and the live membership
-> guard (§5.6) are addressed by `supabase/migrations/20260822000101_m38_reconciliation_fix.sql`.
-> That migration is idempotent, additive, and safe to run in the Supabase
-> Dashboard SQL editor (it disables the live guard only around a trusted
-> backfill and restores it exactly).
+> **Resolution note:** M38 was applied on the live project via the Supabase
+> SQL Editor (`docs/m38-run-in-supabase.sql`). `storage.objects` ALTER/GRANT
+> is skipped when the editor role is not the table owner (42501);
+> `supabase_storage_admin` keeps that table. Everything else in M38 committed.
+>
+> ## Verification ledger (do not skip)
+>
+> | Surface | Result | Evidence |
+> |---|---|---|
+> | PGlite M38 smoke (`npm run test:m38`) | **31/31 PASS** | Fresh bootstrap; live-like `status` + membership guard; M28–M37 after M38; public slug lookup; booking RPC; salon-media isolation; `verify_phase3b_rls()` |
+> | Historical Design-A suite (`npm run validate:migrations`) | **21/21 PASS** | M38 is excluded from the M01–M27 history (correct — Design B) |
+> | Live apply | **APPLIED** (SQL Editor, 2026-08-22) | First attempts failed (partial paste; then `42501 must be owner of table objects`). Owner-guarded M38 then committed. |
+> | Live `verify_m38_reconciliation()` | **14/14 PASS** | `profiles`, `organizations`, `organization_members`, `salons`, `salon_public_websites` (+ columns), `salon_media`, `salon-media` bucket, `owner_salon_ids`, `nexora_owner_salon_ids` (delegates), membership guard restored, RLS enabled, `anon` SELECT on SPW. |
+> | Live booking / media upload E2E as real tenants | **NOT RUN ON LIVE** | Proven on PGlite only. |
+>
+> M38's own surface is live-green. The Design A/B fork, `staff` shape, generated
+> types, and live booking/media E2E are still open. This is **not** “100% of
+> the product database is done.”
 
 ---
 
@@ -27,7 +39,7 @@ and the migration chain switches between them part-way through:
 
 | | **Design A — "spec / 90-point"** | **Design B — "canonical / shared"** |
 |---|---|---|
-| Migrations | M01–M27 | M28–M37 |
+| Migrations | M01–M27 | M28–M38 |
 | Tenant root | `businesses` | `organizations` → `salons.organization_id` |
 | Membership | `business_members` + `business_owners` | `organization_members (role: owner\|staff)` |
 | Identity | `profiles` (no platform role) | `profiles.platform_role` |
@@ -60,31 +72,35 @@ the other schema.
 
 **Bottom line:** the gap is not a handful of missing columns — it is a
 **schema fork**. The fix is to retire Design A (M01–M27) as the implementation
-target, treat Design B (M28–M37 + live shared schema) as canonical, and close
-the smaller per-item gaps listed in §4–§6.
+target, treat Design B (M28–M38 + live shared schema) as canonical, and close
+the smaller per-item gaps listed in §4–§6. M38 closes the in-repo hole
+for the four identity/tenant/website roots; it does not dissolve the fork.
 
 ---
 
 ## 2. What is actually missing (code → database)
 
-These are objects the running application **expects** but no migration in
-`supabase/migrations/` creates. They only exist in the live shared project.
+These are objects the running application **expects**. Before M38 they were
+created by **no** committed migration and only existed in the live shared
+project. M38 now bootstraps the identity / tenant / website roots with
+`CREATE TABLE IF NOT EXISTS` so a fresh database is self-describing.
+Live `verify_m38_reconciliation()` (2026-08-22) confirmed the four roots,
+`salon_media`, the `salon-media` bucket, and the anon SELECT grant.
 
-| # | Missing object | Referenced by | Why it matters |
+| # | Object | Referenced by | Status after M38 |
 |---|---|---|---|
-| M-1 | `public.salons` (table) | `ownerSalon.ts`, `salonLocationService.ts`, `nearbySalons.ts` | The tenant root the entire owner stack depends on. No migration creates it. |
-| M-2 | `public.organization_members` (table) | `ownerSalon.ts` (`organization_members`) | Owner resolution chain `auth.users → profiles → organization_members → organizations → salons`. |
-| M-3 | `public.organizations` (table) | (transitively via ownership chain) | M28 preflight requires `organizations.id`. |
-| M-4 | `public.salon_public_websites` (table) | `salonWebsiteService.ts`, `PublicSalonView.tsx` | Public website read/write. Pre-existing shared table; M28 only adds RLS. |
-| M-5 | `public.staff` (table) | M28 preflight (`staff.salon_id`) | The canonical staff root; M05 creates `staff_members` instead, which the canonical model never uses. |
-| M-6 | `public.salons.address/latitude/longitude` vs `business_locations` | `salonLocationService.ts` vs `AGENTS.md` | Doc/code drift (see §5.3). |
-| M-7 | Supabase-CLI-generated types | `src/types/database.ts` (hand-written 342-line subset) | No `Database` type from `supabase gen types`; live generation is blocked (no DB connection). |
+| M-1 | `public.salons` | `ownerSalon.ts`, `salonLocationService.ts`, `nearbySalons.ts` | **Live-verified.** M38 §1.4 + verify `salons`. |
+| M-2 | `public.organization_members` | `ownerSalon.ts` | **Live-verified.** M38 §1.3 + verify `organization_members` / guard restored. |
+| M-3 | `public.organizations` | (ownership chain) | **Live-verified.** M38 §1.2 + verify `organizations`. |
+| M-4 | `public.salon_public_websites` | `salonWebsiteService.ts`, `PublicSalonView.tsx`, `main.tsx` | **Live-verified.** Columns + `anon` SELECT grant (`spw_anon_select`). |
+| M-5 | `public.staff` | M28 preflight (`staff.salon_id`) | **Still open by design.** M38 deliberately does not invent a staff shape; M34/M37 already `to_regclass` guard it. |
+| M-6 | `public.salons.address/latitude/longitude` vs `business_locations` | `salonLocationService.ts` vs `AGENTS.md` | **Unchanged** doc/code drift (see §5.3). |
+| M-7 | Supabase-CLI-generated types | `src/types/database.ts` (hand-written subset) | **Still open.** `npm run db:types:gen` needs a live project. |
 
-> `salon_public_websites`, `salons`, `organizations`, `organization_members`,
-> and `staff` are all *intentionally* pre-existing (the M28 header states it is
-> an "additive compatibility migration for the existing Nexora shared schema").
-> They are not a bug in themselves — but they mean the repo **cannot be
-> recreated from migrations alone**, which is a deployability gap.
+> `staff` remains live-schema-only. The other four roots can now be recreated
+> from migrations on a fresh database. That does **not** mean the live project
+> has them in this exact shape — only that the repo no longer depends on a
+> secret shared schema for those four tables.
 
 ---
 
@@ -153,7 +169,7 @@ volume of **defined-but-unreferenced** surface, most of it belonging to Design A
 
 | Code constant | Code value | Defined in migrations |
 |---|---|---|
-| `ownerSalon.ts` `OWNER_SALON_IDS_FN` | `owner_salon_ids` | both `public.owner_salon_ids` **and** `public.nexora_owner_salon_ids` exist — two helpers for the same purpose (potential drift) |
+| `ownerSalon.ts` `OWNER_SALON_IDS_FN` | `owner_salon_ids` | **Live-verified.** `owner_salon_ids`, `nexora_owner_salon_ids`, and `nexora_alias_delegates` all `ok = true`. |
 
 **Defined but unreferenced by code (notable Design-A / dead surface):**
 
@@ -273,10 +289,11 @@ escalation stays blocked. M38 also ships a documented snippet for safely
 provisioning a *new* owner membership in the SQL editor (the
 `owner-location-setup.sql` STEP 3 replacement).
 
-> If the live project names its guard differently, the `p.proname` filter in
-> M38 §2b (and the lookup snippet) must be updated to match — the function
-> source should be confirmed with
-> `select pg_get_functiondef('private.protect_organization_membership_fields()'::regprocedure);`.
+> Live `membership_guard_restored = true` (2026-08-22): after M38 the
+> `protect_organization_membership_fields` trigger is not left disabled.
+> The live function source was not dumped; the name matched well enough
+> for the disable/restore path (or the trigger is absent and the check
+> still passes). PGlite also reconstructs the raise-and-restore cycle.
 
 ---
 
@@ -284,7 +301,7 @@ provisioning a *new* owner membership in the SQL editor (the
 
 | Spec point | Status |
 |---|---|
-| **Live Supabase introspection** (P1 §0, §4.2, §5.25 step 1) | **Not done.** The single biggest unresolved gate. Everything in M01–M27 is explicitly "draft", and M02 must be regenerated from live inspection. |
+| **Live Supabase introspection** (P1 §0, §4.2, §5.25 step 1) | **Still not done.** No Management API token, no `DATABASE_URL`, and prior outbound TLS to `*.supabase.co` failed. M38 + `npm run test:m38` reconstruct the live-like shape in PGlite; that is not a substitute for live introspection. |
 | **M02 regeneration** | Pending. Checked-in M02 is a fail-closed preflight for the *business* world, not a data-preserving ALTER plan for the *salon* world. |
 | **P37 `payment_refunds`** | Deferred by design — "no implemented refund backend" (database-migrations-plan.md). Still a gap vs the spec's conditional requirement. |
 | **P72 generated TypeScript types** | Not generated; `src/types/database.ts` is a hand-written subset. |

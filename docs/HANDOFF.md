@@ -1,10 +1,20 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2D — Final Database Integrity, Cross-Repository Consistency & Production-Ready Verification).
+> Last updated: **2026-08-22** (session `arena/01a0277c-final-new-app-templete`, M39 owner publish PR).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
+## M39 — white-label owner publish (this PR)
+
+- Live M39 SQL is **already applied** (`verify_m39_owner_publish()` 4/4). Do **not** re-paste `docs/m39-run-in-supabase.sql` or `docs/m39-sql/` parts unless the user reports a new live error. Do not insert demo salons.
+- App publish path: `publishOwnerSalonWebsite` → `publish_owner_salon_website` RPC. After a successful publish, `publishState` stays `'published'` (no draft reset).
+- Public URL is `https://<host>/<owner-slug>`. Shared helpers live in `src/lib/publicWebsiteUrl.ts`. There is **no** hardcoded `/royal-hair-studio` route or dashboard fake-publish of that slug. `initialData.websiteSlug` starts empty; wizard `defaultSalon` copy is demo-only and is not used as a public URL fallback.
+- `PublicSalonView` localDraft matches the requested slug exactly. Live configured deployments still load only published `salon_public_websites` rows.
+- Out of scope for this PR: Design A/B, `staff`, generated types, live booking/media E2E, rewriting wizard demo catalog copy, more live SQL, stamping gaps 100%.
+
 ## Current repository state
+
+> Previous header: **2026-08-21** (session `arena/01a02438-final-new-app-templete`, Phase 2D — Final Database Integrity, Cross-Repository Consistency & Production-Ready Verification).
 
 - **M28 MEMBERSHIP IMPLEMENTATION — COMPLETE against the observed live
   vocabulary (`m28_membership_vocabulary`: owner = 7 rows, active = 7 rows).**

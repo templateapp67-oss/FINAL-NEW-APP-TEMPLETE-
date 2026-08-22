@@ -16,24 +16,6 @@ import './index.css';
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
 applyBrandConfigToDocument();
 
-/**
- * Helper to get the salon slug saved in local onboarding storage.
- */
-const getSavedSlug = (): string => {
-  try {
-    const saved = localStorage.getItem('nexora_onboarding_state');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed?.data?.websiteSlug) {
-        return parsed.data.websiteSlug;
-      }
-    }
-  } catch (e) {
-    // Ignore
-  }
-  return '';
-};
-
 function ProtectedApp() {
   const { user, loading } = useAuth();
   const { openAuth } = useAuthModal();
@@ -101,20 +83,8 @@ function RootRouter() {
         return;
       }
 
-      // 3. Local fallback check (royal-hair-studio default or user-created local session)
-      const savedSlug = getSavedSlug();
-      const localKnownSlugs = ['royal-hair-studio'];
-      if (savedSlug) {
-        localKnownSlugs.push(savedSlug);
-      }
-
-      if (localKnownSlugs.includes(normalizedPath)) {
-        setRoute('public_salon');
-        setLoading(false);
-        return;
-      }
-
-      // 4. Supabase DB checking (dynamic slug lookup)
+      // 3. Only a published salon_public_websites slug is a public site.
+      //    No hardcoded salon. Offline/local draft is a last-resort fallback.
       if (isSupabaseConfigured && supabase) {
         try {
           const { data, error } = await supabase

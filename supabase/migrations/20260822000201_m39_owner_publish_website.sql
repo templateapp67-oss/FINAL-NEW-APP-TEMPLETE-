@@ -143,9 +143,18 @@ begin
            template_key = v_template,
            config = v_config,
            is_published = true,
-           published_at = coalesce(w.published_at, now()),
-           updated_at = now()
+           published_at = coalesce(w.published_at, now())
      where w.salon_id = v_salon;
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'salon_public_websites'
+        and column_name = 'updated_at'
+    ) then
+      update public.salon_public_websites
+         set updated_at = now()
+       where salon_id = v_salon;
+    end if;
   else
     insert into public.salon_public_websites (
       salon_id, slug, template_key, config, is_published, published_at
@@ -179,8 +188,7 @@ begin
   v_salon := private.owned_publish_salon_id(p_salon_id);
 
   update public.salon_public_websites w
-     set is_published = false,
-         updated_at = now()
+     set is_published = false
    where w.salon_id = v_salon;
 
   if not found then

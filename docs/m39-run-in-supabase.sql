@@ -1,13 +1,8 @@
 -- ============================================================================
--- M39 — Supabase SQL Editor में यही पूरा paste करो
+-- M39 APPLY + VERIFY — यही एक फाइल Run करो (verify अलग से मत चलाओ)
 -- ============================================================================
--- White-label: कोई fixed salon नहीं. हर OWNER अपना slug publish करता है।
--- 1. नया query tab
--- 2. Ctrl+A copy इस फाइल का
--- 3. पहली लाइन begin; आखिरी commit;
--- 4. Run
--- 5. फिर:
---      select * from public.verify_m39_owner_publish();
+-- SQL Editor: Limit को "No limit" करो। नया tab। पूरी फाइल paste। Run.
+-- Success = नीचे 4 rows, सब ok = true
 -- ============================================================================
 
 begin;
@@ -144,9 +139,18 @@ begin
            template_key = v_template,
            config = v_config,
            is_published = true,
-           published_at = coalesce(w.published_at, now()),
-           updated_at = now()
+           published_at = coalesce(w.published_at, now())
      where w.salon_id = v_salon;
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'salon_public_websites'
+        and column_name = 'updated_at'
+    ) then
+      update public.salon_public_websites
+         set updated_at = now()
+       where salon_id = v_salon;
+    end if;
   else
     insert into public.salon_public_websites (
       salon_id, slug, template_key, config, is_published, published_at
@@ -180,8 +184,7 @@ begin
   v_salon := private.owned_publish_salon_id(p_salon_id);
 
   update public.salon_public_websites w
-     set is_published = false,
-         updated_at = now()
+     set is_published = false
    where w.salon_id = v_salon;
 
   if not found then
@@ -286,3 +289,7 @@ revoke all on function public.verify_m39_owner_publish() from public, anon, auth
 grant execute on function public.verify_m39_owner_publish() to authenticated, service_role;
 
 commit;
+
+select check_name, ok, detail
+from public.verify_m39_owner_publish()
+order by check_name;

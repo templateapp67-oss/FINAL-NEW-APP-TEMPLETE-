@@ -1,43 +1,59 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Loader2, MailCheck, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 function safeNext(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard';
 }
 
+type CallbackState =
+  | { kind: 'loading' }
+  | { kind: 'confirmed' }
+  | { kind: 'error'; message: string };
+
 export default function AuthCallbackPage() {
   const started = useRef(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<CallbackState>({ kind: 'loading' });
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     const run = async () => {
       if (!supabase) {
-        setError('Authentication is not configured.');
+        setState({ kind: 'error', message: 'Authentication is not configured.' });
         return;
       }
       const params = new URLSearchParams(window.location.search);
       const providerError = params.get('error_description') || params.get('error');
       if (providerError) {
-        setError(providerError.replace(/\+/g, ' '));
+        setState({ kind: 'error', message: providerError.replace(/\+/g, ' ') });
         return;
       }
       const code = params.get('code');
       if (code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
         if (exchangeError && !/already.*exchang/i.test(exchangeError.message)) {
-          setError(exchangeError.message);
-          return;
+          // Fall through: maybe the session already exists (e.g. the user
+          // re-opened the confirmation link after it was already used).
+          console.error('Code exchange failed:', exchangeError.message);
         }
       }
       const { data, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !data.session) {
-        setError('The authentication callback is invalid or expired.');
+      if (!sessionError && data.session) {
+        window.location.replace(safeNext(params.get('next')));
         return;
       }
-      window.location.replace(safeNext(params.get('next')));
+
+      // No session: the most common benign case is that the user just clicked
+      // the email confirmation link. If their email is now confirmed, welcome
+      // them back to the login screen instead of showing a dead-end error.
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+      if (user && (user.email_confirmed_at || user.confirmed_at)) {
+        setState({ kind: 'confirmed' });
+        return;
+      }
+      setState({ kind: 'error', message: 'The authentication callback is invalid or expired.' });
     };
     void run();
   }, []);
@@ -45,12 +61,32 @@ export default function AuthCallbackPage() {
   return (
     <main className="min-h-screen bg-[#fcfcfc] flex items-center justify-center p-6">
       <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-        {error ? (
+        {state.kind === 'error' ? (
           <>
             <TriangleAlert className="mx-auto h-9 w-9 text-red-600" />
             <h1 className="mt-4 text-lg font-bold">Sign-in could not be completed</h1>
-            <p className="mt-2 text-sm text-gray-600">{error}</p>
-            <a href="/" className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white">Return to login</a>
+            <p className="mt-2 text-sm text-gray-600">{state.message}</p>
+            <a
+              href="/"
+              className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
+            >
+              Return to login
+            </a>
+          </>
+        ) : state.kind === 'confirmed' ? (
+          <>
+            <MailCheck className="mx-auto h-10 w-10 text-emerald-600" />
+            <h1 className="mt-4 text-lg font-bold">Email confirmed!</h1>
+            <p className="mt-2 text-sm text-gray-600">
+              Your account is active. You can now log in and start building your
+              salon website.
+            </p>
+            <a
+              href="/dashboard"
+              className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
+            >
+              Log in to your dashboard
+            </a>
           </>
         ) : (
           <>

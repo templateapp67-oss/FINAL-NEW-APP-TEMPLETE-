@@ -74,27 +74,50 @@ export function useAuth(): AuthState {
   return state;
 }
 
-/** Email/password sign-in using the existing Supabase Auth. */
+/** Result of an email/password sign-in attempt. */
+export interface SignInResult {
+  error: string | null;
+  /** True when the account exists but its email has not been confirmed yet. */
+  needsConfirmation: boolean;
+}
+
+/**
+ * Email/password sign-in using the existing Supabase Auth.
+ *
+ * When the project requires email confirmation and the user has not clicked
+ * the confirmation link yet, Supabase rejects the sign-in with an opaque
+ * "Email not confirmed" message. We detect that case and surface it as
+ * `needsConfirmation` so the UI can offer a resend/verify flow instead of a
+ * dead-end error.
+ */
 export async function signInWithPassword(
   email: string,
   password: string,
-): Promise<{ error: string | null }> {
+): Promise<SignInResult> {
   if (!supabase) {
     return {
       error: 'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+      needsConfirmation: false,
     };
   }
   try {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       console.error('Sign-in failed:', error);
-      return { error: error.message || 'Incorrect email or password.' };
+      if (/email not confirmed|email.*confirm/i.test(error.message)) {
+        return {
+          error: "Your email hasn't been confirmed yet. Check your inbox for the confirmation link, or resend it below.",
+          needsConfirmation: true,
+        };
+      }
+      return { error: error.message || 'Incorrect email or password.', needsConfirmation: false };
     }
-    return { error: null };
+    return { error: null, needsConfirmation: false };
   } catch (err: any) {
     console.error('Sign-in exception:', err);
     return {
       error: err?.message || 'Could not connect to authentication service. Please try again.',
+      needsConfirmation: false,
     };
   }
 }
@@ -136,6 +159,45 @@ export async function signUpWithPassword(
     return {
       error: err?.message || 'Could not connect to authentication service. Please try again.',
       needsConfirmation: false,
+    };
+  }
+}
+
+/**
+ * Resend the sign-up confirmation email for an unconfirmed account.
+ * Safe to call repeatedly — it never signs anyone in and only sends an email
+ * to the address the user supplied.
+ */
+export async function resendConfirmationEmail(
+  email: string,
+): Promise<{ error: string | null }> {
+  if (!supabase) {
+    return {
+      error: 'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+    };
+  }
+  try {
+    const emailRedirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent('/dashboard')}`
+      : undefined;
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: { emailRedirectTo },
+    });
+    if (error) {
+      console.error('Resend confirmation failed:', error);
+      return {
+        error: /rate limit|too many requests/i.test(error.message)
+          ? 'Too many requests. Please wait a minute, then try again.'
+          : error.message || 'Could not resend the confirmation email. Please try again.',
+      };
+    }
+    return { error: null };
+  } catch (err: any) {
+    console.error('Resend confirmation exception:', err);
+    return {
+      error: err?.message || 'Could not resend the confirmation email. Please try again.',
     };
   }
 }

@@ -6,6 +6,10 @@ import { listPublicSalonMedia } from '../lib/salonMediaService';
 import { PUBLIC_SALON_CATALOG_VIEW } from '../lib/nearbySalons';
 import { SALON_LOCATION_TABLE } from '../lib/salonLocationService';
 import { updateSalonFavicon, resetSalonFavicon } from '../lib/favicon';
+import {
+  buildBrandFallbackSalonData,
+  matchesBrandFallbackSlug,
+} from '../lib/salonRouting';
 
 interface Props { slug: string }
 
@@ -176,7 +180,9 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
 export default function PublicSalonView({ slug }: Props) {
   const [state, setState] = useState<PublicState>(() => isSupabaseConfigured
     ? { status: 'loading', data: emptyPublicData(slug) }
-    : { status: 'ready', data: localDraft(slug) });
+    : (matchesBrandFallbackSlug(slug)
+      ? { status: 'ready', data: buildBrandFallbackSalonData(slug) }
+      : { status: 'ready', data: localDraft(slug) }));
   const [mode, setMode] = useState<'desktop' | 'tablet' | 'mobile'>(() => window.innerWidth < 768 ? 'mobile' : 'desktop');
 
   useEffect(() => {
@@ -184,12 +190,30 @@ export default function PublicSalonView({ slug }: Props) {
     let active = true;
     setState({ status: 'loading', data: emptyPublicData(slug) });
     void loadCanonicalPublicData(slug)
-      .then((data) => active && setState(data
-        ? { status: 'ready', data }
-        : { status: 'not-found', data: emptyPublicData(slug) }))
+      .then((data) => {
+        if (!active) return;
+        // Record missing → fall back to the configured brand profile when the
+        // slug matches the default business (e.g. 'royal-hair-studio').
+        if (data) {
+          setState({ status: 'ready', data });
+          return;
+        }
+        if (matchesBrandFallbackSlug(slug)) {
+          setState({ status: 'ready', data: buildBrandFallbackSalonData(slug) });
+          return;
+        }
+        setState({ status: 'not-found', data: emptyPublicData(slug) });
+      })
       .catch((error) => {
         console.error('Failed to load public salon:', error);
-        if (active) setState({ status: 'error', data: emptyPublicData(slug) });
+        if (!active) return;
+        // Network/permission failure → still surface the brand fallback so the
+        // default salon never shows "Salon Not Found".
+        if (matchesBrandFallbackSlug(slug)) {
+          setState({ status: 'ready', data: buildBrandFallbackSalonData(slug) });
+          return;
+        }
+        setState({ status: 'error', data: emptyPublicData(slug) });
       });
     return () => { active = false; };
   }, [slug]);

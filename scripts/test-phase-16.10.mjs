@@ -1281,17 +1281,23 @@ section('J. Static hygiene — no secrets, placeholder env, no invented stores')
   await test('no invented client stores: every nexora_ key is on the known allowlist', async () => {
     const allowed = new Set([
       'nexora_brand_config',
+      'nexora_booking_holds', // safeStorage purge list — legacy booking-holds key (disposable)
       'nexora_dashboard_tab',
+      'nexora_fb_share', // referral share — Facebook sharer popup window name (not a storage key)
       'nexora_locale',
       'nexora_onboarding_state',
+      'nexora_offline_bookings', // legacy public site — offline booking fallback (per-salon suffix, never identity beyond name/phone the visitor typed)
       'nexora_owner_dashboard_section', // 17.1 — owner dashboard UI preference (never identity)
       'nexora_owner_salon_ids',
+      'nexora_referral_code', // referral system — captured ?ref= code (never identity)
+      'nexora_referral_registry', // referral system — codes earned by the signed-in owner
       'nexora_service_form_draft',
       'nexora_site_appearance',
       'nexora_site_booking_browser',
       'nexora_site_booking_drafts',
       'nexora_site_booking_holds',
       'nexora_site_payment_records',
+      'nexora_site_review_store', // safeStorage purge list — legacy review store key (disposable)
       'nexora_site_reviews',
       'nexora_usage_analytics', // useUsageTracking — wizard/dashboard analytics (never identity)
       'nexora_video_likes',

@@ -12,6 +12,20 @@ const PURGEABLE_KEYS = [
   'nexora_site_review_store',
 ];
 
+/**
+ * Resolves the storage object through `window.localStorage` (never the bare
+ * global) so the module behaves identically in browsers, preview iframes and
+ * jsdom test environments.
+ */
+function storage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 /** Check if error is due to storage quota exhaustion */
 function isQuotaExceededError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
@@ -28,12 +42,13 @@ function isQuotaExceededError(err: unknown): boolean {
 
 /** Free up storage space by purging disposable keys and compacting heavy payloads */
 function freeStorageSpace(): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
+  const store = storage();
+  if (!store) return;
 
   // 1. Purge disposable logging/cache keys
   for (const key of PURGEABLE_KEYS) {
     try {
-      localStorage.removeItem(key);
+      store.removeItem(key);
     } catch {
       /* ignore */
     }
@@ -41,7 +56,7 @@ function freeStorageSpace(): void {
 
   // 2. Compact heavy onboarding payload if it contains large data URLs
   try {
-    const raw = localStorage.getItem('nexora_onboarding_state');
+    const raw = store.getItem('nexora_onboarding_state');
     if (raw && raw.length > 500000) {
       // Larger than ~500KB
       const parsed = JSON.parse(raw);
@@ -58,7 +73,7 @@ function freeStorageSpace(): void {
             return p;
           }).filter(Boolean);
         }
-        localStorage.setItem('nexora_onboarding_state', JSON.stringify(parsed));
+        store.setItem('nexora_onboarding_state', JSON.stringify(parsed));
       }
     }
   } catch {
@@ -72,13 +87,14 @@ function freeStorageSpace(): void {
 export function safeSetItem(key: string, value: string): boolean {
   inMemoryFallback.set(key, value);
 
-  if (typeof window === 'undefined' || !window.localStorage) {
+  const store = storage();
+  if (!store) {
     return true;
   }
 
   // 1. First attempt: normal setItem
   try {
-    localStorage.setItem(key, value);
+    store.setItem(key, value);
     return true;
   } catch (err) {
     if (!isQuotaExceededError(err)) {
@@ -89,7 +105,7 @@ export function safeSetItem(key: string, value: string): boolean {
   // 2. Second attempt: free disposable cache space and retry
   try {
     freeStorageSpace();
-    localStorage.setItem(key, value);
+    store.setItem(key, value);
     return true;
   } catch (err) {
     if (!isQuotaExceededError(err)) {
@@ -108,7 +124,7 @@ export function safeSetItem(key: string, value: string): boolean {
         }
         return v;
       });
-      localStorage.setItem(key, cleanString);
+      store.setItem(key, cleanString);
       return true;
     }
   } catch {
@@ -123,12 +139,13 @@ export function safeSetItem(key: string, value: string): boolean {
  * Safely reads from localStorage with in-memory fallback.
  */
 export function safeGetItem(key: string): string | null {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  const store = storage();
+  if (!store) {
     return inMemoryFallback.get(key) || null;
   }
 
   try {
-    const val = localStorage.getItem(key);
+    const val = store.getItem(key);
     if (val !== null) return val;
   } catch {
     /* fallback to memory */
@@ -142,10 +159,11 @@ export function safeGetItem(key: string): string | null {
  */
 export function safeRemoveItem(key: string): void {
   inMemoryFallback.delete(key);
-  if (typeof window === 'undefined' || !window.localStorage) return;
+  const store = storage();
+  if (!store) return;
 
   try {
-    localStorage.removeItem(key);
+    store.removeItem(key);
   } catch {
     /* ignore */
   }

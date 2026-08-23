@@ -5,6 +5,7 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { setupApiRoutes } from './api-routes';
+import { resolveHostSlug, rewriteHostPath } from './server/hostRouting';
 
 // Load .env.local (gitignored) in addition to .env, matching Vite's convention
 // so server-side config such as NOMINATIM_APP_IDENTIFIER is picked up.
@@ -16,14 +17,27 @@ if (fs.existsSync(envLocalPath)) {
 const app = express();
 const PORT = 3000;
 
-// Host-header parsing for wildcard/subdomain-based salon routing.
+// Host-header parsing + host-based (subdomain) salon routing.
 // The SPA client resolves the salon slug from window.location.hostname, but we
 // also normalise and surface the Host header here so server logs, API context,
 // and any future server-rendered path can rely on the parsed host (and so the
 // SPA fallback below serves index.html for `*.yourdomain.com` requests too).
+//
+// Subdomain rewrite (the Express equivalent of the Next.js middleware
+// rewrite `royal-hair-studio.domain.com/* → /royal-hair-studio/*`):
+// `royal-hair-studio.final-new-app-templete.vercel.app/` is internally
+// rewritten to `/royal-hair-studio` before static/API handling. API and
+// client-app routes keep their exact paths (see server/hostRouting.ts).
 app.use((req, res, next) => {
   const host = (req.headers.host || '').split(':')[0].toLowerCase();
   res.locals.host = host;
+  const queryIndex = req.url.indexOf('?');
+  const query = queryIndex === -1 ? '' : req.url.slice(queryIndex);
+  const rewritten = rewriteHostPath(req.headers.host, req.path);
+  if (rewritten && rewritten !== req.path) {
+    res.locals.salonHostSlug = resolveHostSlug(req.headers.host);
+    req.url = `${rewritten}${query}`;
+  }
   next();
 });
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { initialData, type GalleryImage, type SalonData, type Service } from '../types';
+import { initialData, type GalleryImage, type SalonData, type Service, type WebsiteCopy } from '../types';
 import TemplateRenderer from './TemplateRenderer';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabaseClient';
 import { listPublicSalonMedia } from '../lib/salonMediaService';
@@ -150,8 +150,19 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     }));
 
   const location = locationResult.data?.address_label || salon.address || salon.city || '';
+  // White-label content pass-through: the owner's CMS config is the content
+  // authority for copy overrides and AI-reviewed content. Spread conditionally
+  // so absent config keys never clobber the built-in defaults below.
+  const whiteLabel: Partial<SalonData> = {};
+  if (config.websiteCopy && typeof config.websiteCopy === 'object' && !Array.isArray(config.websiteCopy)) {
+    whiteLabel.websiteCopy = config.websiteCopy as WebsiteCopy;
+  }
+  if (config.reviewedContent && typeof config.reviewedContent === 'object' && !Array.isArray(config.reviewedContent)) {
+    whiteLabel.reviewedContent = config.reviewedContent;
+  }
   return {
     ...emptyPublicData(slug),
+    ...whiteLabel,
     salonId: salon.id,
     templateId: selectedTheme as SalonData['templateId'] || 'hair',
     salonName: salon.name,

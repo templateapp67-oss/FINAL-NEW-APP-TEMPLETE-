@@ -15,6 +15,7 @@ import {
   formatSlotTime,
   slotFitsService,
 } from '../lib/websiteBooking';
+import { saveOfflineBooking } from '../lib/offlineBookings';
 
 /** What the clicked button passed to the modal (service / bundle / stylist / plain). */
 export interface BookingPrefill {
@@ -199,7 +200,18 @@ export default function BookingModal(props: BookingModalProps) {
   }, [context, fallbackExperts, prefill]);
 
   const selectedService = services.find((service) => service.id === serviceId) || null;
-  const effectiveService: BookingServiceOption | null = selectedService
+  /** The clicked bundle, when a "Book Bundle" CTA opened the modal. */
+  const bundlePrefill = prefill?.kind === 'bundle' && prefill.item
+    ? { id: prefill.item.id, name: prefill.item.name, price: prefill.item.price, duration: prefill.item.duration }
+    : null;
+  /**
+   * The offering shown in the summary:
+   *  - bundle CTA → the clicked bundle itself (name / price / duration);
+   *  - otherwise → the selected service, falling back to the clicked service
+   *    when the service list is empty (offline without page data).
+   */
+  const effectiveService: BookingServiceOption | null = bundlePrefill
+    || selectedService
     || (prefill?.item && services.length === 0
       ? { id: prefill.item.id, name: prefill.item.name, price: prefill.item.price, duration: prefill.item.duration }
       : null);
@@ -274,7 +286,36 @@ export default function BookingModal(props: BookingModalProps) {
   }, [daySlots, effectiveService]);
 
   const phoneDigits = phone.replace(/\D/g, '');
-  const canSubmit = Boolean(effectiveService && date && time && name.trim().length >= 2 && phoneDigits.length >= 10 && phoneDigits.length <= 15 && !submitting);
+  /**
+   * The service id sent to the booking API. A bundle is not a bookable
+   * service row, so bundle bookings carry the (auto-prefilled) selected
+   * service id plus the bundle in the note — the API contract stays the
+   * same and the salon sees both.
+   */
+  const submitServiceId = bundlePrefill
+    ? (serviceId || services[0]?.id || '')
+    : (effectiveService?.id || '');
+  const canSubmit = Boolean(
+    effectiveService
+    && submitServiceId
+    && date
+    && time
+    && name.trim().length >= 2
+    && phoneDigits.length >= 10
+    && phoneDigits.length <= 15
+    && !submitting,
+  );
+
+  /** Human checklist shown while the Confirm button is disabled. */
+  const missingFields = (() => {
+    const missing: string[] = [];
+    if (!effectiveService || !submitServiceId) missing.push('service');
+    if (!date) missing.push('date');
+    if (!time) missing.push('time slot');
+    if (name.trim().length < 2) missing.push('name');
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) missing.push('phone number');
+    return missing;
+  })();
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -284,7 +325,7 @@ export default function BookingModal(props: BookingModalProps) {
     try {
       const booking = await createWebsiteBooking({
         salonSlug,
-        serviceId: effectiveService.id,
+        serviceId: submitServiceId,
         staffId: stylistId || null,
         date,
         time,
@@ -294,7 +335,44 @@ export default function BookingModal(props: BookingModalProps) {
       });
       setResult(booking);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'The booking could not be created. Please try again.');
+      const message = error instanceof Error ? error.message : 'The booking could not be created. Please try again.';
+      // Only when the API was ALREADY known to be unreachable (context
+      // fetch failed on open) does the request fall back to a local save,
+      // so the offline banner ("Your request will still be saved") stays
+      // true. When the API is up, a POST failure is a real domain error
+      // (slot just taken, validation) → show it and refresh the grid.
+      if (offline) {
+        const saved = saveOfflineBooking({
+          salonSlug,
+          salonName,
+          serviceName: effectiveService.name,
+          serviceId: submitServiceId,
+          date,
+          time,
+          customerName: name.trim(),
+          customerPhone: phone.trim(),
+          note: note.trim() || undefined,
+        });
+        if (saved) {
+          setResult({
+            bookingId: saved.id,
+            bookingReference: saved.reference,
+            serviceName: effectiveService.name,
+            amount: effectiveService.price,
+            currency: 'INR',
+            durationMinutes: effectiveService.duration > 0 ? effectiveService.duration : null,
+            appointmentDate: date,
+            startTime: time,
+            endTime: null,
+            status: 'saved_offline',
+            local: true,
+          });
+        } else {
+          setSubmitError(message);
+        }
+      } else {
+        setSubmitError(message);
+      }
       // If the slot was just taken, refresh the grid.
       if (liveMode) {
         fetchBookingContext(salonSlug, date)
@@ -313,16 +391,23 @@ export default function BookingModal(props: BookingModalProps) {
 
   /* ---------------------------- success view ---------------------------- */
   if (result) {
+    const isLocalSave = result.local === true;
     return (
       <ModalShell onClose={onClose} panelRef={panelRef}>
         <div className="flex flex-col items-center text-center px-6 py-8">
           <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${accent}1a` }}>
             <Check className="w-7 h-7" style={{ color: accent }} />
           </div>
-          <h3 className="text-lg font-extrabold text-gray-900">Booking received!</h3>
+          <h3 className="text-lg font-extrabold text-gray-900">{isLocalSave ? 'Request saved!' : 'Booking received!'}</h3>
           <p className="text-xs text-gray-500 mt-1">
             Reference <span className="font-mono font-bold text-gray-900">{result.bookingReference}</span>
           </p>
+          {isLocalSave ? (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 leading-relaxed">
+              Live booking is offline right now, so your request was saved on this device.
+              {salonName || 'Our team'} will call you shortly to confirm your appointment.
+            </p>
+          ) : null}
 
           <div className="w-full mt-5 rounded-xl border border-gray-200 divide-y divide-gray-100 text-left text-xs">
             <SummaryRow label="Service" value={result.serviceName || effectiveService?.name || '—'} />
@@ -394,20 +479,27 @@ export default function BookingModal(props: BookingModalProps) {
                 ) : null}
               </div>
             </div>
-            {services.length > 1 ? (
-              <select
-                value={serviceId || effectiveService.id}
-                onChange={(event) => setServiceId(event.target.value)}
-                className="mt-3 w-full text-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-800 focus:outline-none"
-                style={{ borderColor: serviceId ? accent : undefined }}
-                aria-label="Choose a service"
-              >
-                {services.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.name} — {formatINR(service.price)} · {formatDuration(service.duration)}
-                  </option>
-                ))}
-              </select>
+            {services.length > 1 || bundlePrefill ? (
+              <>
+                <select
+                  value={serviceId || (bundlePrefill ? services[0]?.id || '' : effectiveService.id)}
+                  onChange={(event) => setServiceId(event.target.value)}
+                  className="mt-3 w-full text-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-800 focus:outline-none"
+                  style={{ borderColor: serviceId ? accent : undefined }}
+                  aria-label="Choose a service"
+                >
+                  {services.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name} — {formatINR(service.price)} · {formatDuration(service.duration)}
+                    </option>
+                  ))}
+                </select>
+                {bundlePrefill ? (
+                  <p className="text-[10px] text-gray-500 mt-1.5 leading-relaxed">
+                    Your time slot is booked under the selected service; the bundle above is noted for the salon.
+                  </p>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : (
@@ -563,6 +655,12 @@ export default function BookingModal(props: BookingModalProps) {
             <><Sparkles className="w-4 h-4" /> Confirm Booking{effectiveService ? ` · ${formatINR(effectiveService.price)}` : ''}</>
           )}
         </button>
+
+        {!canSubmit && !submitting && missingFields.length > 0 ? (
+          <p data-testid="booking-missing-fields" className="text-[10px] text-gray-400 text-center -mt-1.5">
+            Add {missingFields.join(', ')} to confirm your booking.
+          </p>
+        ) : null}
 
         <div className="flex items-center justify-center gap-4 text-[11px] text-gray-500 pb-1">
           <a href={phoneHref} className="flex items-center gap-1 font-semibold hover:underline"><Phone className="w-3 h-3" /> Call us</a>

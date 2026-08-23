@@ -75,6 +75,12 @@ export interface WebsiteBookingResult {
   startTime: string;
   endTime: string | null;
   status: string;
+  /**
+   * True when the live API was unreachable and the request was saved on the
+   * visitor's device instead (see `src/lib/offlineBookings.ts`). The UI shows
+   * a confirmation that the salon will follow up by phone/WhatsApp.
+   */
+  local?: boolean;
 }
 
 interface ApiError {

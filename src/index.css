@@ -16,6 +16,25 @@
   --brand-accent-glow: #ff2d8d;
 }
 
+/* Smooth anchor navigation — navbar links (#home, #services, #team,
+   #gallery, #videos, #contact) glide to their section. `html` covers the
+   full-page public site; `.site-legacy-scroll` is the in-frame preview
+   scroller of the legacy public template. */
+html {
+  scroll-behavior: smooth;
+}
+.site-legacy-scroll {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .site-legacy-scroll {
+    scroll-behavior: auto;
+  }
+}
+
 .bg-brand-primary {
   background-color: var(--brand-primary);
 }

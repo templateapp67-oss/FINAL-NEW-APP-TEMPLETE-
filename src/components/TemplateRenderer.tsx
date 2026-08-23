@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SalonData, getPublicStaffData } from '../types';
+import { SalonData, getPublicStaffData, type SocialVideo } from '../types';
 import { getSalonNameStyle } from '../lib/brandIdentity';
 import { getReadableTextColor, withHexAlpha } from '../lib/websiteCustomization';
 import { normalizeThemeId } from '../lib/themeServices';
@@ -15,13 +15,16 @@ import {
 } from '../lib/websiteBooking';
 import BookingModal, { type BookingPrefill } from './BookingModal';
 import OwnerAvatar from './OwnerAvatar';
+import ReelsVideoPlayer from './ReelsVideoPlayer';
 import BarberTemplateRenderer from './BarberTemplateRenderer';
 import HairStudioTemplateRenderer from './HairStudioTemplateRenderer';
 import BeautySpaTemplateRenderer from './BeautySpaTemplateRenderer';
 import FamilyFullServiceTemplateRenderer from './FamilyFullServiceTemplateRenderer';
 import NailLashStudioTemplateRenderer from './NailLashStudioTemplateRenderer';
 import { BundlePrice, ServicePrice } from './PromotionalPricing';
-import { Sparkles, Phone, MessageCircle, CalendarCheck, MapPin, Clock, Navigation, Instagram, Facebook, Youtube, Video, Heart, ExternalLink, CreditCard } from 'lucide-react';
+import { resolveWebsiteCopy, buildWhatsAppHref } from '../lib/websiteCopy';
+import { scrollToSiteSection } from '../lib/siteNavigation';
+import { Sparkles, Phone, MessageCircle, CalendarCheck, MapPin, Clock, Navigation, Instagram, Facebook, Youtube, Video, Heart, ExternalLink, CreditCard, Play } from 'lucide-react';
 
 interface Props {
   data: SalonData;
@@ -43,6 +46,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
   /* ------------------------------------------------------------------ */
   const [bookingPrefill, setBookingPrefill] = useState<BookingPrefill | null>(null);
   const [liveContext, setLiveContext] = useState<BookingContext | null>(null);
+  const [playingVideo, setPlayingVideo] = useState<SocialVideo | null>(null);
   const publicSlug = (data.websiteSlug || '').trim().toLowerCase();
 
   useEffect(() => {
@@ -56,13 +60,30 @@ export default function TemplateRenderer({ data, mode }: Props) {
 
   const openBooking = (prefill: BookingPrefill) => setBookingPrefill(prefill);
 
+  // White-label copy — every customer-facing string in this template resolves
+  // through data.websiteCopy (CMS) with safe built-in defaults.
+  const copy = resolveWebsiteCopy(data);
+
   // Direct actions — Call Now / WhatsApp use the salon's real number.
   const brandPhone = DEFAULT_BRAND_CONFIG.defaultSalon.phone;
   const rawPhone = (data.phone || '').trim() || brandPhone;
   const callDigits = digitsOnly(rawPhone) || digitsOnly(brandPhone);
   const telHref = callDigits ? `tel:${rawPhone.startsWith('+') ? '+' : ''}${callDigits}` : 'tel:';
-  const waDigits = digitsOnly(data.whatsappPhone || data.phone) || digitsOnly(brandPhone);
-  const whatsappHref = waDigits ? `https://wa.me/${waDigits}` : 'https://wa.me/';
+  const whatsappHref = buildWhatsAppHref(data, copy);
+
+  // Smooth-scroll navigation: navbar links point at the section IDs
+  // (#home, #services, #team, #gallery, #videos, #contact). `scroll-behavior:
+  // smooth` (index.css) covers native anchor jumps; the handler makes the
+  // in-frame preview scroller move smoothly and updates the URL hash.
+  const handleNavClick = (event: { preventDefault: () => void; currentTarget: EventTarget & HTMLAnchorElement }, targetId: string) => {
+    event.preventDefault();
+    scrollToSiteSection(targetId);
+    try {
+      history.replaceState(null, '', `#${targetId}`);
+    } catch {
+      /* some preview iframes disallow history writes — ignore */
+    }
+  };
 
   // Offline fallbacks for the modal (local draft / preview without API).
   const fallbackServices: BookingServiceOption[] = (data.services || []).map((service) => ({
@@ -117,19 +138,8 @@ export default function TemplateRenderer({ data, mode }: Props) {
   };
   const accentStyle = { color: brandColor };
   const darkCard = isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : config.cardBg;
-
-  // Dynamic team title
-  const getTeamTitle = () => {
-    const serviceNames = data.services.map(s => (s.name + ' ' + s.category).toLowerCase()).join(' ');
-    const salonLower = data.salonName.toLowerCase();
-    if (serviceNames.includes('barber') || serviceNames.includes('fade') || serviceNames.includes('beard') || salonLower.includes('barber')) {
-      return 'Meet Our Barbers';
-    }
-    if (serviceNames.includes('facial') || serviceNames.includes('spa') || serviceNames.includes('massage') || serviceNames.includes('skin')) {
-      return 'Our Experts';
-    }
-    return 'Meet Our Stylists';
-  };
+  // Note: the dynamic team title ("Meet Our Barbers" / "Our Experts" /
+  // "Meet Our Stylists") is resolved by resolveWebsiteCopy → copy.teamTitle.
 
   return (
     <div className={`${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200'} shadow-xl border flex flex-col overflow-hidden transition-all duration-500 origin-top mx-auto h-full ${
@@ -154,31 +164,56 @@ export default function TemplateRenderer({ data, mode }: Props) {
       )}
 
       {/* Scrollable Website Content */}
-      <div className={`flex-1 overflow-y-auto custom-scrollbar pb-16 ${isDark ? 'bg-zinc-950 text-zinc-100' : 'bg-white'}`}>
+      <div className={`site-legacy-scroll flex-1 overflow-y-auto custom-scrollbar pb-16 ${isDark ? 'bg-zinc-950 text-zinc-100' : 'bg-white'}`}>
         
-        {/* Navigation Header */}
+        {/* Navigation Header — links point at the section IDs below
+            (#home, #services, #team, #gallery, #videos, #contact). */}
         <div id="section-header" className={`px-6 py-4 flex items-center justify-between border-b sticky top-0 backdrop-blur-md z-30 transition-colors ${isDark ? 'bg-zinc-950/95 text-zinc-100 border-zinc-800' : config.navBg}`}>
-          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={`${data.salonName || 'Your Salon'} — ${copy.nav.home}`}
+            onClick={() => scrollToSiteSection('home')}
+            className="flex items-center gap-2 text-left cursor-pointer"
+          >
             {data.logoUrl ? (
               <img src={data.logoUrl} alt="Logo" className="h-7 w-auto object-contain max-w-[120px]" />
             ) : (
               <Sparkles className="w-5 h-5" style={{ color: brandColor }} />
             )}
             <span className="font-bold text-lg" style={getSalonNameStyle(data)}>{data.salonName || 'Your Salon'}</span>
-          </div>
+          </button>
           {mode === 'desktop' && (
-            <div className="flex gap-6 text-xs font-medium opacity-90">
-              <span className="font-bold cursor-pointer">Home</span>
-              <span className="cursor-pointer">Services</span>
-              {data.team && data.team.length > 0 && <span className="cursor-pointer">Team</span>}
-              {data.gallery && data.gallery.length > 0 && <span className="cursor-pointer">Gallery</span>}
-              <span className="cursor-pointer">Contact</span>
-            </div>
+            <nav className="flex gap-6 text-xs font-medium opacity-90" aria-label="Website navigation">
+              <a href="#home" data-testid="nav-home" onClick={(event) => handleNavClick(event, 'home')} className="font-bold hover:opacity-75 transition-opacity">
+                {copy.nav.home}
+              </a>
+              <a href="#services" data-testid="nav-services" onClick={(event) => handleNavClick(event, 'services')} className="hover:opacity-75 transition-opacity">
+                {copy.nav.services}
+              </a>
+              {data.team && data.team.length > 0 && (
+                <a href="#team" data-testid="nav-team" onClick={(event) => handleNavClick(event, 'team')} className="hover:opacity-75 transition-opacity">
+                  {copy.nav.team}
+                </a>
+              )}
+              {data.gallery && data.gallery.length > 0 && (
+                <a href="#gallery" data-testid="nav-gallery" onClick={(event) => handleNavClick(event, 'gallery')} className="hover:opacity-75 transition-opacity">
+                  {copy.nav.gallery}
+                </a>
+              )}
+              {data.socialVideos && data.socialVideos.length > 0 && (
+                <a href="#videos" data-testid="nav-videos" onClick={(event) => handleNavClick(event, 'videos')} className="hover:opacity-75 transition-opacity">
+                  {copy.nav.videos}
+                </a>
+              )}
+              <a href="#contact" data-testid="nav-contact" onClick={(event) => handleNavClick(event, 'contact')} className="hover:opacity-75 transition-opacity">
+                {copy.nav.contact}
+              </a>
+            </nav>
           )}
         </div>
 
         {/* Hero Section */}
-        <div id="section-hero" className={`px-6 py-16 text-center relative overflow-hidden min-h-[300px] flex items-center justify-center ${config.heroBg}`}>
+        <div id="home" className={`px-6 py-16 text-center relative overflow-hidden min-h-[300px] flex items-center justify-center scroll-mt-20 ${config.heroBg}`}>
           {data.heroImageUrl && (
             <img
               src={data.heroImageUrl}
@@ -195,37 +230,38 @@ export default function TemplateRenderer({ data, mode }: Props) {
                 className="inline-block px-3 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider mb-3"
                 style={{ color: brandColor, backgroundColor: withHexAlpha(brandColor, '22'), borderColor: withHexAlpha(brandColor, '55') }}
               >
-                Premier Hair & Beauty
+                {copy.heroBadge}
               </span>
               <h1 className={`text-2xl md:text-4xl font-bold mb-3 ${config.headingFont}`}>
-                {data.tagline || 'Elevating your natural beauty and style'}
+                {copy.heroHeadline}
               </h1>
               <p className="text-xs md:text-sm text-gray-200 mb-6 max-w-md mx-auto leading-relaxed opacity-90">
-                {data.about || 'Experience world-class care, top-tier styling, and ultimate relaxation in our studio.'}
+                {copy.heroSubline}
               </p>
               <button
                 type="button"
+                data-testid="hero-book-cta"
                 onClick={() => openBooking({ kind: 'general' })}
                 className={`px-6 py-3 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95 hover:brightness-90`}
                 style={brandButtonStyle}
               >
-                Book Appointment Now
+                {copy.bookNowCta}
               </button>
             </>
           </div>
         </div>
 
         {/* Services Section */}
-        <div id="section-services" className={`px-6 py-12 max-w-3xl mx-auto ${isDark ? 'text-zinc-100' : ''}`}>
+        <div id="services" className={`px-6 py-12 max-w-3xl mx-auto scroll-mt-20 ${isDark ? 'text-zinc-100' : ''}`}>
           <div className="text-center mb-8">
             <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: brandColor }}>
-              Our Offerings
+              {copy.servicesEyebrow}
             </span>
             <h2 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>
-              Signature Services & Pricing
+              {copy.servicesTitle}
             </h2>
             <p className="text-xs text-gray-500 mt-1">
-              Transparent pricing with secure advance booking options.
+              {copy.servicesBody}
             </p>
           </div>
 
@@ -244,11 +280,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
                   <span className="opacity-60 font-medium">{s.duration} mins</span>
                   <button
                     type="button"
+                    data-testid="book-slot-cta"
                     onClick={() => openBooking({ kind: 'service', item: { id: s.id, name: s.name, price: s.price, duration: s.duration } })}
                     className="font-bold text-xs transition-colors hover:brightness-90 px-4 py-1.5 rounded-lg"
                     style={brandButtonStyle}
                   >
-                    Book Slot
+                    {copy.bookSlotCta}
                   </button>
                 </div>
               </div>
@@ -259,9 +296,9 @@ export default function TemplateRenderer({ data, mode }: Props) {
           {data.packages && data.packages.length > 0 && (
             <div className="mt-12 pt-10 border-t border-gray-200/40">
               <div className="text-center mb-8">
-                <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>Special Combos</span>
-                <h3 className={`text-xl font-bold mt-1 ${config.headingFont}`}>Value Packages & Bundles</h3>
-                <p className="text-xs text-gray-500 mt-1">Bundled treatments designed to save you time and money.</p>
+                <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>{copy.packagesEyebrow}</span>
+                <h3 className={`text-xl font-bold mt-1 ${config.headingFont}`}>{copy.packagesTitle}</h3>
+                <p className="text-xs text-gray-500 mt-1">{copy.packagesBody}</p>
               </div>
 
               <div className="grid gap-4 grid-cols-1">
@@ -270,7 +307,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
                     <div className="space-y-1 max-w-xl">
                       <div className="flex items-center gap-2">
                         <h4 className="font-extrabold text-sm">{p.name}</h4>
-                        <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Best Value</span>
+                        <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{copy.bestValueBadge}</span>
                       </div>
                       <p className="text-xs opacity-75 leading-relaxed">{p.description}</p>
                       <div className="text-[10px] opacity-50 font-bold uppercase tracking-wider flex items-center gap-2 pt-1">
@@ -283,11 +320,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
                       <BundlePrice bundle={p} offers={data.offers} className="font-extrabold text-base md:text-lg" style={accentStyle} dark={isDark} />
                       <button
                         type="button"
+                        data-testid="book-bundle-cta"
                         onClick={() => openBooking({ kind: 'bundle', item: { id: p.id, name: p.name, price: p.price, duration: p.duration } })}
                         className={`px-4 py-1.5 rounded-lg font-bold text-xs transition-colors hover:brightness-90`}
                         style={brandButtonStyle}
                       >
-                        Book Bundle
+                        {copy.bookBundleCta}
                       </button>
                     </div>
                   </div>
@@ -310,10 +348,10 @@ export default function TemplateRenderer({ data, mode }: Props) {
                 />
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider" style={accentStyle}>{data.ownerRole || "Founder & Master Stylist"}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider" style={accentStyle}>{data.ownerRole || copy.ownerRoleFallback}</span>
                 <h3 className={`text-xl font-bold mt-0.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{data.ownerName}</h3>
                 <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-zinc-300' : 'text-gray-600'}`}>
-                  "{data.reviewedContent?.ownerIntro || "We believe in personalized artistry and exceptional client care to ensure you leave feeling confident and rejuvenated."}"
+                  "{data.reviewedContent?.ownerIntro || copy.ownerIntroFallback}"
                 </p>
               </div>
             </div>
@@ -322,11 +360,11 @@ export default function TemplateRenderer({ data, mode }: Props) {
 
         {/* Team Section (Conditional: Hide if no team members) */}
         {data.team && data.team.length > 0 && (
-          <div id="section-team" className={`px-6 py-12 max-w-3xl mx-auto ${isDark ? 'text-zinc-100' : ''}`}>
+          <div id="team" className={`px-6 py-12 max-w-3xl mx-auto scroll-mt-20 ${isDark ? 'text-zinc-100' : ''}`}>
             <div className="text-center mb-8">
-              <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>Talented Professionals</span>
-              <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>{getTeamTitle()}</h3>
-              <p className="text-xs text-gray-500 mt-1">Book your preferred expert for a tailored experience.</p>
+              <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>{copy.teamEyebrow}</span>
+              <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>{copy.teamTitle}</h3>
+              <p className="text-xs text-gray-500 mt-1">{copy.teamBody}</p>
             </div>
 
             <div className={`grid gap-5 ${mode === 'desktop' ? 'grid-cols-2' : 'grid-cols-1'}`}>
@@ -358,11 +396,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
                     )}
                     <button
                       type="button"
+                      data-testid="book-with-stylist-cta"
                       onClick={() => openBooking({ kind: 'stylist', stylist: { id: member.id, name: pub.name, role: pub.role } })}
                       className={`w-full py-2 rounded-xl text-xs font-bold transition-colors mt-auto hover:brightness-90`}
                       style={brandButtonStyle}
                     >
-                      Book with {pub.name.split(' ')[0]}
+                      {copy.bookWithLabel(pub.name)}
                     </button>
                   </div>
                 );
@@ -373,12 +412,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
 
         {/* Gallery Section (Conditional: Hide if empty) */}
         {data.gallery && data.gallery.length > 0 && (
-          <div id="section-gallery" className={`px-6 py-12 border-t ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-gray-50 border-gray-100'}`}>
+          <div id="gallery" className={`px-6 py-12 border-t scroll-mt-20 ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-gray-50 border-gray-100'}`}>
             <div className="max-w-3xl mx-auto">
               <div className="text-center mb-8">
-                <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>Visual Showcase</span>
-                <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>Our Space & Work Gallery</h3>
-                <p className="text-xs text-gray-500 mt-1">Explore our salon ambience and client transformations.</p>
+                <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>{copy.galleryEyebrow}</span>
+                <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>{copy.galleryTitle}</h3>
+                <p className="text-xs text-gray-500 mt-1">{copy.galleryBody}</p>
               </div>
               <div className={`grid gap-3 ${mode === 'desktop' ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 {data.gallery.map(item => (
@@ -386,7 +425,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
                     <img src={item.url} alt={item.alt || 'Gallery photo'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2.5 flex flex-col justify-end">
                       <span className="text-[10px] font-bold text-white bg-black/60 px-2 py-0.5 rounded-md w-fit">
-                        {item.category || 'General'}
+                        {item.category || copy.galleryCategoryFallback}
                       </span>
                     </div>
                   </div>
@@ -396,21 +435,37 @@ export default function TemplateRenderer({ data, mode }: Props) {
           </div>
         )}
 
-        {/* Social Videos Section (Conditional: Hide if no social videos) */}
+        {/* Reels & Styling Videos — interactive thumbnails open the video
+            player (YouTube/Instagram embeds, HTML5 <video> for direct
+            files, original-platform fallback otherwise). */}
         {data.socialVideos && data.socialVideos.length > 0 && (
-          <div id="section-social" className={`px-6 py-12 max-w-3xl mx-auto ${isDark ? 'text-zinc-100' : ''}`}>
+          <div id="videos" className={`px-6 py-12 max-w-3xl mx-auto scroll-mt-20 ${isDark ? 'text-zinc-100' : ''}`}>
             <div className="text-center mb-8">
               <span className="text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-1" style={accentStyle}>
-                <Video className="w-3 h-3" /> Social Feed
+                <Video className="w-3 h-3" /> {copy.videosEyebrow}
               </span>
-              <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>Reels & Styling Videos</h3>
+              <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>{copy.videosTitle}</h3>
             </div>
             <div className={`grid gap-4 ${mode === 'desktop' ? 'grid-cols-3' : 'grid-cols-2'}`}>
               {data.socialVideos.map(video => (
-                <div key={video.id} className="relative aspect-[9/16] rounded-xl overflow-hidden group border border-gray-200 shadow-xs bg-gray-900">
+                <button
+                  key={video.id}
+                  type="button"
+                  data-testid="reel-card"
+                  aria-label={`Play video: ${video.title}`}
+                  onClick={() => setPlayingVideo(video)}
+                  className="relative aspect-[9/16] rounded-xl overflow-hidden group border border-gray-200 shadow-xs bg-gray-900 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                  style={{ ['--tw-ring-color' as string]: brandColor }}
+                >
                   <img src={video.thumbnailUrl} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                  <div className="absolute bottom-3 left-3 right-3 text-white">
+                  {/* Play affordance */}
+                  <span className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                    <span className="w-12 h-12 rounded-full bg-black/55 backdrop-blur-[2px] border border-white/40 flex items-center justify-center group-hover:scale-110 group-hover:bg-black/70 transition-all duration-300">
+                      <Play className="w-5 h-5 fill-white text-white translate-x-[1px]" />
+                    </span>
+                  </span>
+                  <div className="absolute bottom-3 left-3 right-3 text-white z-20">
                     <p className="text-xs font-bold line-clamp-2">{video.title}</p>
                     {video.likesCount && (
                       <span className="flex items-center gap-1 text-[10px] text-pink-400 font-semibold mt-1">
@@ -418,52 +473,62 @@ export default function TemplateRenderer({ data, mode }: Props) {
                       </span>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
+        )}
+
+        {/* Lightbox player for the selected reel */}
+        {playingVideo && (
+          <ReelsVideoPlayer
+            video={playingVideo}
+            salonName={data.salonName}
+            onClose={() => setPlayingVideo(null)}
+          />
         )}
 
         {/* Location & Opening Hours Section */}
         <div id="section-location" className={`px-6 py-12 border-t ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-gray-50 border-gray-100'}`}>
           <div className="max-w-3xl mx-auto">
             <div className="text-center mb-8">
-              <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>Visit Us</span>
-              <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>Location & Hours</h3>
+              <span className="text-[10px] font-bold uppercase tracking-widest" style={accentStyle}>{copy.visitEyebrow}</span>
+              <h3 className={`text-2xl font-bold mt-1 ${config.headingFont}`}>{copy.visitTitle}</h3>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className={`p-6 rounded-2xl border shadow-xs space-y-4 ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200/80'}`}>
                 <h4 className="font-bold text-sm flex items-center gap-2">
-                  <MapPin className="w-4 h-4" style={accentStyle} /> Studio Address
+                  <MapPin className="w-4 h-4" style={accentStyle} /> {copy.addressLabel}
                 </h4>
                 <p className={`text-xs leading-relaxed ${isDark ? 'text-zinc-300' : 'text-gray-600'}`}>
-                  {data.address?.fullAddress || 'Shop 14, Linking Road, Bandra West, Mumbai, Maharashtra 400050'}
+                  {copy.address}
                 </p>
                 <a
+                  data-testid="get-directions"
                   href={salonMapsHref(data)}
                   target="_blank"
                   rel="noreferrer"
                   className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
-                  <Navigation className="w-3.5 h-3.5" /> Get Directions
+                  <Navigation className="w-3.5 h-3.5" /> {copy.directionsCta}
                 </a>
               </div>
 
               <div className={`p-6 rounded-2xl border shadow-xs space-y-3 ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200/80'}`}>
                 <h4 className="font-bold text-sm flex items-center gap-2">
-                  <Clock className="w-4 h-4" style={accentStyle} /> Opening Hours
+                  <Clock className="w-4 h-4" style={accentStyle} /> {copy.hoursLabel}
                 </h4>
                 <div className={`space-y-2 text-xs ${isDark ? 'text-zinc-300' : 'text-gray-600'}`}>
                   {data.openingHours ? (
                     Object.entries(data.openingHours).map(([day, sch]) => (
                       <div key={day} className={`flex justify-between border-b pb-1.5 capitalize ${isDark ? 'border-zinc-800' : 'border-gray-100'}`}>
                         <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{day}</span>
-                        {sch.open ? <span>{sch.startTime} – {sch.endTime}</span> : <span className="text-red-500 font-bold">Closed</span>}
+                        {sch.open ? <span>{sch.startTime} – {sch.endTime}</span> : <span className="text-red-500 font-bold">{copy.closedLabel}</span>}
                       </div>
                     ))
                   ) : (
-                    <div className="flex justify-between"><span>Mon - Sat</span><span>10:00 AM - 8:00 PM</span></div>
+                    <div className="flex justify-between"><span>{copy.defaultHoursDay}</span><span>{copy.defaultHoursTime}</span></div>
                   )}
                 </div>
               </div>
@@ -472,51 +537,54 @@ export default function TemplateRenderer({ data, mode }: Props) {
         </div>
 
         {/* Contact & Booking Options Section */}
-        <div id="section-contact" className={`px-6 py-12 max-w-xl mx-auto text-center ${isDark ? 'text-zinc-100' : ''}`}>
+        <div id="contact" className={`px-6 py-12 max-w-xl mx-auto text-center scroll-mt-20 ${isDark ? 'text-zinc-100' : ''}`}>
           <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center mb-3" style={{ backgroundColor: withHexAlpha(brandColor, '1a') }}>
             <CalendarCheck className="w-6 h-6" style={accentStyle} />
           </div>
-          <h3 className={`text-2xl font-bold mb-6 ${config.headingFont}`}>Ready to Transform Your Look?</h3>
+          <h3 className={`text-2xl font-bold mb-6 ${config.headingFont}`}>{copy.contactTitle}</h3>
           
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <a
+              data-testid="call-now"
               href={telHref}
               className="py-3 bg-white border border-gray-200 hover:border-gray-400 text-gray-900 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
             >
-              <Phone className="w-4 h-4" style={accentStyle} /> Call Now
+              <Phone className="w-4 h-4" style={accentStyle} /> {copy.callCta}
             </a>
             <a
+              data-testid="whatsapp-cta"
               href={whatsappHref}
               target="_blank"
               rel="noreferrer"
               className="py-3 bg-[#25D366] text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
             >
-              <MessageCircle className="w-4 h-4" /> WhatsApp
+              <MessageCircle className="w-4 h-4" /> {copy.whatsappCta}
             </a>
             <button
               type="button"
+              data-testid="book-online-cta"
               onClick={() => openBooking({ kind: 'general' })}
               className={`py-3 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2 hover:brightness-90`}
               style={brandButtonStyle}
             >
-              <CalendarCheck className="w-4 h-4" /> Book Online
+              <CalendarCheck className="w-4 h-4" /> {copy.bookOnlineCta}
             </button>
           </div>
 
           <div className={`p-4 rounded-xl border text-left text-xs space-y-2 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-gray-200'}`}>
             <div className={`flex items-center justify-between font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              <span className="flex items-center gap-1.5"><CreditCard className="w-4 h-4" style={accentStyle} /> Online Booking Deposit</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ color: brandColor, backgroundColor: withHexAlpha(brandColor, '1a') }}>25% Advance</span>
+              <span className="flex items-center gap-1.5"><CreditCard className="w-4 h-4" style={accentStyle} /> {copy.depositTitle}</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ color: brandColor, backgroundColor: withHexAlpha(brandColor, '1a') }}>{copy.depositBadge}</span>
             </div>
-            <p className={isDark ? 'text-zinc-400' : 'text-gray-500'}>Secure your appointment instantly with a 25% advance deposit. Remaining payable at salon.</p>
+            <p className={isDark ? 'text-zinc-400' : 'text-gray-500'}>{copy.depositBody}</p>
           </div>
         </div>
 
         {/* Footer */}
         <footer id="section-footer" className={`px-6 py-8 text-center text-xs border-t border-gray-800 ${config.footerBg}`}>
           <p className="font-bold text-sm mb-1" style={getSalonNameStyle(data)}>{data.salonName || 'Your Salon'}</p>
-          <p className="opacity-70 mb-4">{data.tagline || 'Excellence in Hair & Beauty'}</p>
-          <p className="opacity-50 text-[10px]">© 2026 {data.salonName || 'Salon'}. {DEFAULT_BRAND_CONFIG.platform.poweredByText}.</p>
+          <p className="opacity-70 mb-4">{data.tagline || copy.footerTagline}</p>
+          <p className="opacity-50 text-[10px]">© {new Date().getFullYear()} {data.salonName || 'Salon'}. {DEFAULT_BRAND_CONFIG.platform.poweredByText}.</p>
         </footer>
 
         {/* M41 — shared booking modal for all Book CTAs (database-backed). */}

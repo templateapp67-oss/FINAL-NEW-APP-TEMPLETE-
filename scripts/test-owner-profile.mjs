@@ -73,7 +73,10 @@ test('owner initials fallback uses first and last name', () => {
 test('SalonData stores ownerPhotoUrl and demo data includes it', () => {
   const types = read('src/types.ts');
   assert.match(types, /ownerPhotoUrl\?: string/);
-  assert.match(types, /ownerPhotoUrl: 'https:\/\/images\.unsplash\.com/);
+  // White-label refactor: the demo photo is resolved from the central brand
+  // config (single source of truth) instead of a hardcoded literal here.
+  assert.match(types, /ownerPhotoUrl: DEFAULT_BRAND_CONFIG\.defaultSalon\.ownerPhotoUrl/);
+  assert.match(read('src/config/brandConfig.ts'), /ownerPhotoUrl: 'https:\/\/images\.unsplash\.com/);
 });
 
 test('Step Details photo input and role select are wired to salon data', () => {
@@ -128,7 +131,8 @@ test('owner photo and role survive the same JSON save/reload merge as App.tsx', 
 test('onboarding localStorage payload still owns owner fields — no schema change', () => {
   const app = read('src/App.tsx');
   assert.match(app, /nexora_onboarding_state/);
-  assert.match(app, /localStorage\.setItem/);
+  // Writes go through the safeStorage wrapper (safeSetItem) or raw localStorage.
+  assert.match(app, /safeSetItem|localStorage\.setItem/);
   const migrations = read('supabase/migrations/20260811000301_m03_membership_access.sql');
   assert.match(migrations, /photo_url text/);
   assert.match(migrations, /role_title text/);

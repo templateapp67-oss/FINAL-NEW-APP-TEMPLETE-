@@ -45,6 +45,29 @@ The app contains:
   table; prices are snapshotted server-side and slots conflict-check against
   both `website_bookings` and canonical `bookings`. Call/WhatsApp/Directions
   are direct `tel:`/`wa.me`/maps actions. `npm run test:m41:all`.
+- **Legacy public site interactive layer** — the same legacy `hair` template
+  is fully interactive and white-label dynamic:
+  - Section IDs `#home`, `#services`, `#team`, `#gallery`, `#videos`,
+    `#contact` + real navbar anchors with smooth scrolling
+    (`html { scroll-behavior: smooth; }` in `src/index.css`).
+  - "Reels & Styling Videos" thumbnails open `src/components/ReelsVideoPlayer.tsx`
+    (lightbox): YouTube/Instagram official embeds, HTML5 `<video controls>`
+    for direct media files, "Watch on platform" fallback otherwise.
+  - Booking validation (Service + Date + Time + Name + Phone gate with a
+    missing-fields checklist), per-date slot population, and an OFFLINE
+    fallback: when the booking API is unreachable the request is saved to
+    localStorage (`src/lib/offlineBookings.ts`) with an `NX-OFF-` reference.
+  - ALL customer-facing strings resolve through `resolveWebsiteCopy(data)`
+    (`src/lib/websiteCopy.ts`) from the new `SalonData.websiteCopy`
+    white-label field (persisted in `salon_public_websites.config`, passed
+    through by `PublicSalonView`); WhatsApp CTAs carry a pre-filled
+    `?text=` message.
+  - Dynamic routing: `server/hostRouting.ts` rewrites subdomain requests
+    (`salon.<brand-base-host>/*` → `/salon/*`) — the Express equivalent of
+    the Next.js middleware; the client `RootRouter`
+    (`extractSubdomainSlug`) resolves the same slugs. Never touches
+    `/api`, `/assets` or exact client routes.
+  - `npm run test:legacy-site` (22 checks) covers all of the above.
 - **Owner auth + shop location** — Supabase Auth, Leaflet map with Nominatim
   geocoding, and a **public nearby-salon search** at the `/nearby` route
   (`src/components/NearbySalonSearch.tsx`).

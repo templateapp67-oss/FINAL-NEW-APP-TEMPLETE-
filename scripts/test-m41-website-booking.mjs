@@ -6,7 +6,8 @@
  *   1. On component load, services/experts/slots are fetched from
  *      GET /api/salons/:slug/booking-context (database API).
  *   2. "Call Now" renders href="tel:+919876543210" and "WhatsApp" renders
- *      href="https://wa.me/919876543210" (direct actions).
+ *      href="https://wa.me/919876543210?text=<pre-filled message>" (direct
+ *      actions; the message is white-label overridable via websiteCopy).
  *   3. Book Slot / Book Bundle / Book with Stylist / Book Appointment Now /
  *      Book Online each open the shared BookingModal.
  *   4. The modal pre-fills Service Name, Price and Duration from the clicked
@@ -163,10 +164,15 @@ await test('"Call Now" renders tel:+919876543210', async () => {
   assert.equal(call.getAttribute('href'), 'tel:+919876543210');
 });
 
-await test('"WhatsApp" renders https://wa.me/919876543210', async () => {
+await test('"WhatsApp" renders https://wa.me/919876543210 with a pre-filled message', async () => {
   const wa = buttonByText(container, 'WhatsApp');
   assert.equal(wa.tagName, 'A');
-  assert.equal(wa.getAttribute('href'), 'https://wa.me/919876543210');
+  const href = wa.getAttribute('href');
+  assert.ok(href.startsWith('https://wa.me/919876543210'), `WhatsApp base number wrong: ${href}`);
+  const parsed = new URL(href);
+  assert.ok(parsed.searchParams.has('text'), 'WhatsApp message pre-fill missing');
+  const message = parsed.searchParams.get('text');
+  assert.ok(message.includes('Royal Hair & Beauty Studio'), `WhatsApp pre-fill should name the salon: ${message}`);
 });
 
 /* ------------------------------------------------------------------ */

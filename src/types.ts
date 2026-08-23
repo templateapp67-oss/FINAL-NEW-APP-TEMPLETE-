@@ -368,6 +368,84 @@ export interface ReviewedContent {
   bookingCTA: string;
 }
 
+/**
+ * White-label copy overrides for the public (legacy) salon website.
+ *
+ * Every customer-facing string in the public template renderer can be
+ * overridden here — by the owner's saved website config
+ * (`salon_public_websites.config.websiteCopy`), the wizard draft, or the
+ * central brand configuration. Unset fields fall back to built-in defaults
+ * (see `src/lib/websiteCopy.ts`), so a partial override can never break the
+ * UI. The `{name}` placeholder in `bookWithCta` and `{salon}` in
+ * `whatsappMessage` are resolved at render time.
+ */
+export interface WebsiteCopy {
+  /** Navigation labels (Home / Services / Team / Gallery / Videos / Contact). */
+  nav?: Partial<Record<'home' | 'services' | 'team' | 'gallery' | 'videos' | 'contact', string>>;
+  /** Small badge above the hero headline (e.g. "Premier Hair & Beauty"). */
+  heroBadge?: string;
+  /** Overrides `salonName`/tagline fallback for the hero headline. */
+  heroHeadline?: string;
+  /** Overrides the hero sub-line (`about` text). */
+  heroSubline?: string;
+  /** Hero primary CTA ("Book Appointment Now"). */
+  bookNowCta?: string;
+  servicesEyebrow?: string;
+  servicesTitle?: string;
+  servicesBody?: string;
+  bookSlotCta?: string;
+  packagesEyebrow?: string;
+  packagesTitle?: string;
+  packagesBody?: string;
+  /** Badge on package rows (e.g. "Best Value"). */
+  bestValueBadge?: string;
+  bookBundleCta?: string;
+  /** Fallback for a missing owner role. */
+  ownerRoleFallback?: string;
+  /** Fallback for a missing owner intro. */
+  ownerIntroFallback?: string;
+  teamEyebrow?: string;
+  teamTitle?: string;
+  teamBody?: string;
+  /** Team-card CTA — `{name}` is replaced with the stylist's first name. */
+  bookWithCta?: string;
+  galleryEyebrow?: string;
+  galleryTitle?: string;
+  galleryBody?: string;
+  /** Fallback category label for gallery photos. */
+  galleryCategoryFallback?: string;
+  videosEyebrow?: string;
+  videosTitle?: string;
+  visitEyebrow?: string;
+  visitTitle?: string;
+  addressLabel?: string;
+  /** Fallback address when the salon has none configured. */
+  addressFallback?: string;
+  hoursLabel?: string;
+  closedLabel?: string;
+  /** Fallback weekday label when no opening hours are configured. */
+  defaultHoursDay?: string;
+  /** Fallback time-range label when no opening hours are configured. */
+  defaultHoursTime?: string;
+  directionsCta?: string;
+  contactTitle?: string;
+  callCta?: string;
+  whatsappCta?: string;
+  bookOnlineCta?: string;
+  depositTitle?: string;
+  /** Overrides the computed "N% Advance" deposit badge. */
+  depositBadge?: string;
+  /** Overrides the computed deposit body copy (uses the configured percentage). */
+  depositBody?: string;
+  /** Fallback footer tagline. */
+  footerTaglineFallback?: string;
+  /**
+   * Pre-filled WhatsApp message opened by every WhatsApp CTA.
+   * `{salon}` is replaced with the salon name at render time.
+   */
+  whatsappMessage?: string;
+}
+
 export type PublishState = 'draft' | 'publishing' | 'published';
 
 export interface SalonData {
@@ -432,6 +510,11 @@ export interface SalonData {
   /** Brand identity: text color (hex) for the salon name (see SALON_NAME_COLORS). */
   salonNameColor?: string;
   reviewedContent?: ReviewedContent;
+  /**
+   * White-label copy overrides for the public website (all fields optional —
+   * see `WebsiteCopy`). Persisted inside `salon_public_websites.config`.
+   */
+  websiteCopy?: WebsiteCopy;
   websiteSlug?: string;
   publishState?: PublishState;
   publishedUrl?: string;

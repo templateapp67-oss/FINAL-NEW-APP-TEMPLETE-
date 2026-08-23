@@ -1,10 +1,92 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-23** (session `arena/01a02e25-final-new-app-templete`, M41 — public-site guest booking: Book Slot / Book Appointment / Book Bundle / Book with Stylist wired to the database API on the legacy templates, e.g. `/royal-hair-studio`).
+> Last updated: **2026-08-23** (session `arena/01a02e78-final-new-app-templete`, legacy public site fix — navigation/section IDs + smooth scrolling, interactive Reels & Styling Videos player, booking-flow validation + offline save, white-label dynamic copy, and host/subdomain dynamic routing).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## M41 — website guest bookings (this PR)
+## Legacy public site interactive fixes (this PR)
+
+**Scope:** the deployed white-label salon at `/royal-hair-studio` (legacy
+`TemplateRenderer`, templateId `hair`) had dead nav links, static video
+thumbnails, a fragile offline booking path and hardcoded English copy. All
+customer-facing behavior is now dynamic and interactive; the five themed
+templates are untouched.
+
+- **Navigation & smooth scrolling — `TemplateRenderer.tsx` + `index.css`:**
+  - Sections now carry the canonical IDs `#home`, `#services`, `#team`,
+    `#gallery`, `#videos`, `#contact` (with `scroll-mt-20` offsets for the
+    sticky header).
+  - Navbar links are real anchors (`href="#home"` etc., one per visible
+    section; "Videos" appears when `data.socialVideos` is non-empty) that
+    smooth-scroll via `scrollToSiteSection` (existing Phase 10.1 helper) and
+    update the URL hash. The logo scrolls to `#home`.
+  - `html { scroll-behavior: smooth; }` (plus the `.site-legacy-scroll`
+    in-frame scroller) in `src/index.css`, with a `prefers-reduced-motion`
+    opt-out.
+- **Reels & Styling Videos — `src/components/ReelsVideoPlayer.tsx` (new):**
+  - Reel thumbnails are now buttons with a play affordance; clicking opens a
+    lightbox (`role="dialog"`, Escape/backdrop close, focus + scroll lock):
+    - YouTube (watch / youtu.be / Shorts / embed, 11-char id via existing
+      `parseYoutubeVideoId`) → embedded iframe with `autoplay=1`.
+    - Instagram reel/post → official Instagram embed
+      (`instagramEmbedUrl` from `siteSocialFeed`).
+    - Direct media files (mp4/webm/ogv/ogg/mov/m4v) → HTML5
+      `<video controls autoPlay>`.
+    - TikTok / Facebook / anything unparseable → graceful "Watch on
+      <platform>" card (never fakes an embed).
+  - Video list/titles/URLs stay 100% from `data.socialVideos` (CMS).
+- **Booking flow — `BookingModal.tsx` + `src/lib/offlineBookings.ts` (new):**
+  - "Confirm Booking" stays disabled until **Service, Date, Time Slot, Name
+    (≥2 chars) and Phone (10–15 digits)** are all provided; a live checklist
+    ("Add time slot, name, phone number…") shows what is missing.
+  - Selecting a date populates the slot grid (live API per-date fetch, or the
+    local hours grid when offline). Bundle bookings prefill the bundle
+    (name/price/duration) in the summary and book the slot under the
+    (auto-prefilled) selected service, with the bundle recorded in the note —
+    the API contract (`serviceId` uuid) is unchanged.
+  - Offline fallback: when `POST /api/bookings` is unreachable the request is
+    persisted to `localStorage` (keyed per salon slug, capped at 25) with an
+    `NX-OFF-…` reference, and the success screen says so — making the
+    "Your request will still be saved" banner true.
+  - "WhatsApp" CTAs open `https://wa.me/<digits>?text=<pre-filled message>`
+    (message white-label overridable via `websiteCopy.whatsappMessage`,
+    `{salon}` placeholder). "Call Now" stays `tel:`; "Get Directions" stays
+    Google Maps.
+- **White-label dynamic data — `src/types.ts` (`WebsiteCopy`) +
+  `src/lib/websiteCopy.ts` (new):**
+  - Every hardcoded string in the legacy public template (hero badge/
+    headline/sub-line, nav labels, section eyebrows/titles/bodies, all CTA
+    labels, address + hours fallbacks, deposit badge/body, footer tagline,
+    WhatsApp pre-fill) resolves through `resolveWebsiteCopy(data)`:
+    built-in defaults ← `data.websiteCopy` overrides.
+  - `SalonData.websiteCopy` is persisted inside
+    `salon_public_websites.config`; `PublicSalonView.loadCanonicalPublicData`
+    now passes `config.websiteCopy` (and `config.reviewedContent`) through to
+    the renderer, so CMS edits rebrand the site without UI changes.
+  - Deposit badge/body are computed from
+    `bookingRules.advanceDepositPercentage` (default 25%).
+- **Dynamic routing — `server/hostRouting.ts` (new) + `server.ts`:**
+  - Express equivalent of the Next.js middleware rewrite: requests whose
+    Host is a subdomain of the brand base host
+    (`DEFAULT_BRAND_CONFIG.platform.websiteUrl`, overridable with
+    `NEXORA_BASE_HOST`) are internally rewritten to `/<slug><pathname>`
+    before static/API handling. `/api/…`, `/assets/…` and the exact client
+    routes (`/signup`, `/auth/callback`, `/reset-password`, `/dashboard`,
+    `/builder`, `/nearby`) are never rewritten. The base domain and
+    localhost/preview hosts are never misread as slugs.
+  - The client `RootRouter` already resolves the same subdomain slugs
+    (`extractSubdomainSlug`), so Vercel (static SPA) and self-hosted
+    (Express) deployments agree; a unit test asserts server/client parity.
+- **Storage hardening — `src/lib/safeStorage.ts`:** resolves storage through
+  `window.localStorage` (never the bare global) so the module behaves
+  identically in browsers, preview iframes and jsdom.
+- **Tests:** `npm run test:legacy-site` (new, 22 checks — IDs/anchors/smooth
+  scroll, all four playback kinds, tel:/wa.me/maps, validation checklist,
+  slot population, offline save, white-label overrides, host rewrite) and the
+  updated `npm run test:m41` (WhatsApp pre-fill assertion). All existing
+  Phase 10/15/16 suites, `test:m41:all` and `tsc --noEmit` still pass.
+
+## M41 — website guest bookings (previous PR)
 
 **Scope:** the public salon sites rendered by the LEGACY `TemplateRenderer`
 (templateId `hair` — the one deployed at `/royal-hair-studio`) had DEAD booking

@@ -1,8 +1,19 @@
+import { useEffect, useState } from 'react';
 import { SalonData, getPublicStaffData } from '../types';
 import { getSalonNameStyle } from '../lib/brandIdentity';
 import { getReadableTextColor, withHexAlpha } from '../lib/websiteCustomization';
 import { normalizeThemeId } from '../lib/themeServices';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
+import { digitsOnly, salonMapsHref } from '../lib/siteBooking';
+import {
+  type BookingContext,
+  type BookingExpertOption,
+  type BookingServiceOption,
+  type DayScheduleInfo,
+  fetchBookingContext,
+  normalizeHHMM,
+} from '../lib/websiteBooking';
+import BookingModal, { type BookingPrefill } from './BookingModal';
 import OwnerAvatar from './OwnerAvatar';
 import BarberTemplateRenderer from './BarberTemplateRenderer';
 import HairStudioTemplateRenderer from './HairStudioTemplateRenderer';
@@ -19,6 +30,55 @@ interface Props {
 
 export default function TemplateRenderer({ data, mode }: Props) {
   const templateId = normalizeThemeId(data.templateId);
+
+  /* ------------------------------------------------------------------ */
+  /* M41 — dynamic booking wiring (legacy public templates).             */
+  /*                                                                     */
+  /* 1. Every Book button opens ONE shared BookingModal (name, phone,    */
+  /*    date, time slot) pre-filled with the clicked Service/Bundle/     */
+  /*    Stylist. Submitting POSTs to /api/bookings (guest pipeline).     */
+  /* 2. Services, experts and available slots are fetched from the       */
+  /*    database API on component load (useEffect below); page data is   */
+  /*    only an offline fallback.                                        */
+  /* ------------------------------------------------------------------ */
+  const [bookingPrefill, setBookingPrefill] = useState<BookingPrefill | null>(null);
+  const [liveContext, setLiveContext] = useState<BookingContext | null>(null);
+  const publicSlug = (data.websiteSlug || '').trim().toLowerCase();
+
+  useEffect(() => {
+    if (!publicSlug) return;
+    let active = true;
+    fetchBookingContext(publicSlug)
+      .then((context) => { if (active) setLiveContext(context); })
+      .catch(() => { if (active) setLiveContext(null); });
+    return () => { active = false; };
+  }, [publicSlug]);
+
+  const openBooking = (prefill: BookingPrefill) => setBookingPrefill(prefill);
+
+  // Direct actions — Call Now / WhatsApp use the salon's real number.
+  const brandPhone = DEFAULT_BRAND_CONFIG.defaultSalon.phone;
+  const rawPhone = (data.phone || '').trim() || brandPhone;
+  const callDigits = digitsOnly(rawPhone) || digitsOnly(brandPhone);
+  const telHref = callDigits ? `tel:${rawPhone.startsWith('+') ? '+' : ''}${callDigits}` : 'tel:';
+  const waDigits = digitsOnly(data.whatsappPhone || data.phone) || digitsOnly(brandPhone);
+  const whatsappHref = waDigits ? `https://wa.me/${waDigits}` : 'https://wa.me/';
+
+  // Offline fallbacks for the modal (local draft / preview without API).
+  const fallbackServices: BookingServiceOption[] = (data.services || []).map((service) => ({
+    id: service.id, name: service.name, price: service.price, duration: service.duration, featured: service.featured,
+  }));
+  const fallbackExperts: BookingExpertOption[] = (data.team || []).map((member) => ({
+    id: member.id, name: member.name, role: member.role || 'Stylist',
+  }));
+  const fallbackHours: Record<string, DayScheduleInfo> | null = data.openingHours
+    ? Object.fromEntries(
+        Object.entries(data.openingHours).map(([day, schedule]) => [
+          day,
+          { open: schedule.open, startTime: normalizeHHMM(schedule.startTime), endTime: normalizeHHMM(schedule.endTime) },
+        ]),
+      )
+    : null;
 
   // The Barber, Hair Studio and Beauty/Spa themes are fully separate renderers —
   // not colour variations of the other themes. Render each through its own component.
@@ -143,7 +203,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
               <p className="text-xs md:text-sm text-gray-200 mb-6 max-w-md mx-auto leading-relaxed opacity-90">
                 {data.about || 'Experience world-class care, top-tier styling, and ultimate relaxation in our studio.'}
               </p>
-              <button className={`px-6 py-3 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95 hover:brightness-90`} style={brandButtonStyle}>
+              <button
+                type="button"
+                onClick={() => openBooking({ kind: 'general' })}
+                className={`px-6 py-3 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95 hover:brightness-90`}
+                style={brandButtonStyle}
+              >
                 Book Appointment Now
               </button>
             </>
@@ -178,6 +243,8 @@ export default function TemplateRenderer({ data, mode }: Props) {
                 <div className="flex justify-between items-center pt-2 border-t border-gray-100/20 text-[11px]">
                   <span className="opacity-60 font-medium">{s.duration} mins</span>
                   <button
+                    type="button"
+                    onClick={() => openBooking({ kind: 'service', item: { id: s.id, name: s.name, price: s.price, duration: s.duration } })}
                     className="font-bold text-xs transition-colors hover:brightness-90 px-4 py-1.5 rounded-lg"
                     style={brandButtonStyle}
                   >
@@ -214,7 +281,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
                     </div>
                     <div className="flex items-center justify-between md:flex-col md:items-end gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-0 border-gray-150">
                       <BundlePrice bundle={p} offers={data.offers} className="font-extrabold text-base md:text-lg" style={accentStyle} dark={isDark} />
-                      <button className={`px-4 py-1.5 rounded-lg font-bold text-xs transition-colors hover:brightness-90`} style={brandButtonStyle}>
+                      <button
+                        type="button"
+                        onClick={() => openBooking({ kind: 'bundle', item: { id: p.id, name: p.name, price: p.price, duration: p.duration } })}
+                        className={`px-4 py-1.5 rounded-lg font-bold text-xs transition-colors hover:brightness-90`}
+                        style={brandButtonStyle}
+                      >
                         Book Bundle
                       </button>
                     </div>
@@ -284,7 +356,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
                         "{pub.bio}"
                       </p>
                     )}
-                    <button className={`w-full py-2 rounded-xl text-xs font-bold transition-colors mt-auto hover:brightness-90`} style={brandButtonStyle}>
+                    <button
+                      type="button"
+                      onClick={() => openBooking({ kind: 'stylist', stylist: { id: member.id, name: pub.name, role: pub.role } })}
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition-colors mt-auto hover:brightness-90`}
+                      style={brandButtonStyle}
+                    >
                       Book with {pub.name.split(' ')[0]}
                     </button>
                   </div>
@@ -363,9 +440,14 @@ export default function TemplateRenderer({ data, mode }: Props) {
                 <p className={`text-xs leading-relaxed ${isDark ? 'text-zinc-300' : 'text-gray-600'}`}>
                   {data.address?.fullAddress || 'Shop 14, Linking Road, Bandra West, Mumbai, Maharashtra 400050'}
                 </p>
-                <button className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2">
+                <a
+                  href={salonMapsHref(data)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
                   <Navigation className="w-3.5 h-3.5" /> Get Directions
-                </button>
+                </a>
               </div>
 
               <div className={`p-6 rounded-2xl border shadow-xs space-y-3 ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200/80'}`}>
@@ -397,13 +479,26 @@ export default function TemplateRenderer({ data, mode }: Props) {
           <h3 className={`text-2xl font-bold mb-6 ${config.headingFont}`}>Ready to Transform Your Look?</h3>
           
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-            <button className="py-3 bg-white border border-gray-200 hover:border-gray-400 text-gray-900 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2">
+            <a
+              href={telHref}
+              className="py-3 bg-white border border-gray-200 hover:border-gray-400 text-gray-900 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
+            >
               <Phone className="w-4 h-4" style={accentStyle} /> Call Now
-            </button>
-            <button className="py-3 bg-[#25D366] text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2">
+            </a>
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noreferrer"
+              className="py-3 bg-[#25D366] text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
+            >
               <MessageCircle className="w-4 h-4" /> WhatsApp
-            </button>
-            <button className={`py-3 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2 hover:brightness-90`} style={brandButtonStyle}>
+            </a>
+            <button
+              type="button"
+              onClick={() => openBooking({ kind: 'general' })}
+              className={`py-3 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2 hover:brightness-90`}
+              style={brandButtonStyle}
+            >
               <CalendarCheck className="w-4 h-4" /> Book Online
             </button>
           </div>
@@ -423,6 +518,21 @@ export default function TemplateRenderer({ data, mode }: Props) {
           <p className="opacity-70 mb-4">{data.tagline || 'Excellence in Hair & Beauty'}</p>
           <p className="opacity-50 text-[10px]">© 2026 {data.salonName || 'Salon'}. {DEFAULT_BRAND_CONFIG.platform.poweredByText}.</p>
         </footer>
+
+        {/* M41 — shared booking modal for all Book CTAs (database-backed). */}
+        <BookingModal
+          prefill={bookingPrefill}
+          initialContext={liveContext}
+          salonSlug={publicSlug}
+          salonName={data.salonName}
+          brandColor={brandColor}
+          fallbackServices={fallbackServices}
+          fallbackExperts={fallbackExperts}
+          fallbackHours={fallbackHours}
+          phoneHref={telHref}
+          whatsappHref={whatsappHref}
+          onClose={() => setBookingPrefill(null)}
+        />
 
       </div>
     </div>

@@ -1,10 +1,78 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-22** (session `arena/01a029d0-final-new-app-templete`, dynamic referral system + `/signup` page; merged `main` 2200baf — safeStorage adopted, duplicate referral model consolidated).
+> Last updated: **2026-08-23** (session `arena/01a02e25-final-new-app-templete`, M41 — public-site guest booking: Book Slot / Book Appointment / Book Bundle / Book with Stylist wired to the database API on the legacy templates, e.g. `/royal-hair-studio`).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Dynamic referral system & Sign-Up page (this PR)
+## M41 — website guest bookings (this PR)
+
+**Scope:** the public salon sites rendered by the LEGACY `TemplateRenderer`
+(templateId `hair` — the one deployed at `/royal-hair-studio`) had DEAD booking
+buttons. This PR connects every booking/contact CTA to the database via the
+existing server API + one new migration.
+
+- **Migration — `supabase/migrations/20260823000101_m41_website_guest_bookings.sql`:**
+  - NEW `public.website_bookings` table (guest bookings, deny-by-default RLS,
+    `NX-` + 6-digit unique reference, status/source enums, phone-format check).
+    Deliberately a new, fully-specified table — the canonical `bookings` table
+    (auth-linked customer identity) is only READ for cross-system slot
+    conflicts, never written (M38 "never invent business facts" guardrail).
+  - `public.create_website_booking()` — the ONLY guest write path.
+    `security definer`, service_role-only: resolves the PUBLISHED salon by
+    slug, snapshots price/duration from the live `services` row (guests can
+    never set their own financial state), validates the stylist through the
+    KNOWN staff columns only (id/salon_id/is_active), computes the end time
+    server-side, rejects past slots (Asia/Kolkata), and blocks slots already
+    taken by `website_bookings` OR canonical `bookings` rows.
+  - `public.get_website_bookings(p_salon_id)` — owner read surface.
+  - `public.verify_m41_website_bookings()` — post-apply self-test
+    (create → conflict → cancel, skips cleanly when no published salon).
+  - **Apply:** paste the whole file in the Supabase SQL Editor or
+    `SUPABASE_ACCESS_TOKEN=... npm run db:apply:live` (extend `--all`
+    coverage). **Not yet applied to the live project — needs the user's
+    explicit go-ahead (AGENTS.md).** Until applied, the API degrades
+    gracefully: the modal shows an "availability offline" banner and falls
+    back to the saved website hours.
+- **Server API — `server/websiteBookingRoutes.ts` (new) + `api-routes.ts`:**
+  - `GET /api/salons/:slug/booking-context[?date=&days=]` → published salon,
+    active `services` rows (price in paise→rupees), experts (live `staff`
+    table with a dynamic name-column probe, else `config.team`), opening
+    hours (`config.openingHours`, else 10:00–20:00 default), per-day free-slot
+    counts for the next 14 days, and the exact 30-minute slot grid for the
+    requested date — occupancy = `website_bookings` + canonical `bookings`.
+  - `POST /api/bookings/website` — guest booking (no auth). The legacy
+    `POST /api/bookings` handler now detects the guest-shaped payload
+    (`salonSlug` + `customerName/customerPhone`, no idempotencyKey) and
+    delegates to the same pipeline — so the documented single
+    `POST /api/bookings` endpoint works for both flows; the authenticated
+    (idempotency-key) path is untouched (its 401 regex was also fixed).
+  - `GET /api/bookings/website?salonId=` — owner read (requires a signed-in
+    Supabase session).
+- **Frontend — `src/components/BookingModal.tsx` (new) + `TemplateRenderer.tsx`:**
+  - ONE shared modal for all Book CTAs: pre-filled Service Name / Price /
+    Duration (service card, bundle card, or hero/online "Book"), stylist
+    select (preselected from "Book with {Name}"), 14-day date strip, 30-min
+    slot grid (a slot is selectable only when every 30-min chunk the service
+    duration spans is free), Name + Mobile form, submit → `POST /api/bookings`,
+    success screen with the server-returned `NX-XXXXXX` reference.
+  - On component load, `TemplateRenderer` fetches the booking context from
+    the database API (useEffect) — services/experts/slots come from the DB;
+    page data is only the offline fallback (local drafts / preview).
+  - Direct actions: **Call Now** → `tel:+919876543210`, **WhatsApp** →
+    `https://wa.me/919876543210` (derived from the salon's real
+    `phone`/`whatsappPhone` digits, brand config as fallback), **Get
+    Directions** → Google Maps query of the stored address.
+  - `src/lib/websiteBooking.ts` (new) — client + types + formatting helpers
+    (`formatINR`, `slotFitsService`, `normalizeHHMM`).
+- **Tests:** `npm run test:m41` (8 jsdom E2E checks: context fetch on load,
+  tel/wa hrefs, every CTA opens the prefilled modal, full submit flow POSTs
+  the guest payload and shows the reference), `npm run test:m41:migration`
+  (12 PGlite checks: idempotency, RLS, service_role gate, P0002/22023/23P01
+  paths, server-priced snapshot, cross-system conflict, self-test).
+  Regression: `test:phase-10.4` (118), `test:phase-10.6` (107), `test:phase1a`,
+  `test:theme-catalog`, `test:service-saving` all pass.
+
+## Dynamic referral system & Sign-Up page (previous PR)
 
 **Scope:** dynamic referral codes in the standard `NX-[WEBSITE_SHORT_NAME]-<YEAR>`
 format, referral links retargeted at the Sign-Up page, `?ref=` capture +
@@ -2081,6 +2149,9 @@ wiring step must upsert each owner's existing draft/progress payload.
 npm run lint                # TypeScript type check (tsc --noEmit)
 npm run test:auth           # Auth modal and login reliability regression tests
 npm run test:referral       # Dynamic referral codes, /signup?ref= capture, sharing, live dashboard, safeStorage (20 tests)
+npm run test:m41            # M41 website guest booking UI wiring (8 jsdom E2E checks)
+npm run test:m41:migration  # M41 migration smoke test on PGlite (12 checks)
+npm run test:m41:all        # both M41 suites
 node verify-22-screens.js   # Static verification of all 25 screens & features
 npm run generate:theme-seed # regenerate M18 from the TypeScript source
 npm run validate:migrations # source-check M18 + apply M01–M24 twice + tests A–T

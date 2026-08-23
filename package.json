@@ -127,7 +127,10 @@
     "test:phase-15.8": "tsx scripts/test-phase-15.8.mjs",
     "test:phase-15.10": "tsx scripts/test-phase-15.10.mjs",
     "test:phase-15": "npm run test:phase-15.1 && npm run test:phase-15.2 && npm run test:phase-15.3 && npm run test:phase-15.4 && npm run test:phase-15.5 && npm run test:phase-15.6 && npm run test:phase-15.7 && npm run test:phase-15.8 && npm run test:phase-15.10",
-    "test:referral": "tsx scripts/test-referral-system.mjs"
+    "test:referral": "tsx scripts/test-referral-system.mjs",
+    "test:m41": "tsx scripts/test-m41-website-booking.mjs",
+    "test:m41:migration": "tsx scripts/test-m41-migration.mjs",
+    "test:m41:all": "npm run test:m41 && npm run test:m41:migration"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

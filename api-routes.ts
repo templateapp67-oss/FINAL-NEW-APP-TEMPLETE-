@@ -13,6 +13,7 @@ import express from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { setupPaymentRoutes } from './server/paymentRoutes';
 import { registerBookingRoutes } from './server/bookingRoutes';
+import { registerWebsiteBookingRoutes } from './server/websiteBookingRoutes';
 import { requireAuthenticatedUser } from './server/supabaseAdmin';
 
 /* ------------------------------------------------------------------ *
@@ -292,6 +293,7 @@ export function setupApiRoutes(app: express.Express): void {
 
   registerBookingRoutes(app);
   setupPaymentRoutes(app);
+  registerWebsiteBookingRoutes(app);
 
   // Paid AI calls are owner tools. When a paid key is configured, require a
   // real Supabase session and enforce a small per-user in-memory burst limit.

@@ -16,6 +16,7 @@ import { captureReferralFromUrl } from './lib/referral.ts';
 import {
   normalizeRouteSlug,
   matchesBrandFallbackSlug,
+  extractSubdomainSlug,
 } from './lib/salonRouting.ts';
 import { PUBLIC_SALON_CATALOG_VIEW } from './lib/nearbySalons.ts';
 import { slugifySalonName } from './lib/publicWebsiteUrl.ts';
@@ -54,22 +55,28 @@ function ProtectedApp() {
 }
 
 /**
- * Dynamic path-based routing component.
- * Evaluates the pathname, dynamically querying Supabase 'salons' table for registered slugs
- * to prevent 404 errors for any dynamic paths, while loading a fallback NotFound page when 
- * no slug is found.
+ * Dynamic routing component (path-based AND host/subdomain-based).
+ * Evaluates the pathname and the request hostname, dynamically querying
+ * Supabase for registered slugs (with a salon-name fallback) to prevent 404
+ * errors for any dynamic public-salon route, while loading a fallback NotFound
+ * page (or the configured brand-default salon) when no slug is found.
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
   const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
 
-  // NOTE: only `location.pathname` feeds slug resolution — query parameters
-  // (e.g. `?ref=NX-ROYAL-2026`) are never part of the path, so referral links
-  // on any route keep resolving slugs cleanly (no 404 / "Salon Not Found").
+  // NOTE: slug resolution is fed by `location.pathname` and (when present)
+  // `location.hostname` (subdomain). Query parameters (e.g. `?ref=NX-ROYAL-2026`)
+  // are never part of either, so referral links on any route keep resolving
+  // slugs cleanly (no 404 / "Salon Not Found").
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  // Host-based (subdomain) routing: `royal-hair-studio.yourdomain.com` =>
+  // slug `royal-hair-studio`. Falls back to the path slug when no subdomain
+  // is present (e.g. the canonical `/royal-hair-studio` path form).
+  const subdomainSlug = extractSubdomainSlug(window.location.hostname);
   // Normalise the slug: lowercase, trim, slugify — so `/Royal-Hair-Studio`,
   // `/Royal Hair Studio`, and `/royal-hair-studio` all resolve identically.
-  const normalizedPath = normalizeRouteSlug(pathname);
+  const normalizedPath = subdomainSlug || normalizeRouteSlug(pathname);
 
   useEffect(() => {
     // NOTE: the `?ref=` capture lives at module scope (captureReferralFromUrl,

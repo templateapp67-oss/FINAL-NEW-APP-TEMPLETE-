@@ -95,3 +95,37 @@ export function buildBrandFallbackSalonData(slug: string): SalonData {
     },
   };
 }
+
+/**
+ * Resolve the configured "base host" (registrable domain) from the brand
+ * platform website URL. Subdomain-based salon routing is only activated when
+ * the incoming request host ends with this base, so preview/dev hosts
+ * (e.g. `*.e2b.app`), `localhost`, and raw IPs are never misinterpreted as a
+ * salon slug.
+ */
+export function getBrandBaseHost(): string {
+  try {
+    const raw = DEFAULT_BRAND_CONFIG.platform.websiteUrl || '';
+    return new URL(raw).host.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Extract a salon slug from the request **subdomain** (host-based routing).
+ *
+ * Returns `''` when there is no usable subdomain — the apex domain, localhost,
+ * an IP address, an unknown/preview host, or the `www` label. When the brand
+ * base host is `yourdomain.com`, a visit to `royal-hair-studio.yourdomain.com`
+ * resolves to the slug `royal-hair-studio`.
+ */
+export function extractSubdomainSlug(hostname: string): string {
+  const host = (hostname || '').split(':')[0].toLowerCase();
+  const base = getBrandBaseHost();
+  if (!host || !base) return '';
+  if (host === base || !host.endsWith(`.${base}`)) return '';
+  const prefix = host.slice(0, -(base.length + 1));
+  if (!prefix || prefix === 'www') return '';
+  return normalizeRouteSlug(prefix);
+}

@@ -16,6 +16,17 @@ if (fs.existsSync(envLocalPath)) {
 const app = express();
 const PORT = 3000;
 
+// Host-header parsing for wildcard/subdomain-based salon routing.
+// The SPA client resolves the salon slug from window.location.hostname, but we
+// also normalise and surface the Host header here so server logs, API context,
+// and any future server-rendered path can rely on the parsed host (and so the
+// SPA fallback below serves index.html for `*.yourdomain.com` requests too).
+app.use((req, res, next) => {
+  const host = (req.headers.host || '').split(':')[0].toLowerCase();
+  res.locals.host = host;
+  next();
+});
+
 // Register all API routes (health, geocode, video-metadata, generate-bio, improve-text)
 setupApiRoutes(app);
 

@@ -1,4 +1,4 @@
-import { normalizeRouteSlug, matchesBrandFallbackSlug, buildBrandFallbackSalonData, BRAND_FALLBACK_SLUG } from '../src/lib/salonRouting';
+import { normalizeRouteSlug, matchesBrandFallbackSlug, buildBrandFallbackSalonData, extractSubdomainSlug, getBrandBaseHost, BRAND_FALLBACK_SLUG } from '../src/lib/salonRouting';
 
 let failures = 0;
 function assert(label: string, cond: boolean, detail?: unknown) {
@@ -34,6 +34,18 @@ assert('address fullAddress present', !!data.address?.fullAddress, data.address?
 assert('socialProfiles present', !!data.socialProfiles?.instagram, data.socialProfiles);
 assert('services array exists', Array.isArray(data.services), data.services);
 assert('openingHours exist', !!data.openingHours, data.openingHours);
+
+console.log('\n# host-context / subdomain extraction');
+const baseHost = getBrandBaseHost();
+console.log('  base host =', baseHost);
+assert('base host derived from brand websiteUrl', typeof baseHost === 'string' && baseHost.length > 0, baseHost);
+assert('subdomain -> slug', extractSubdomainSlug(`royal-hair-studio.${baseHost}`) === 'royal-hair-studio', extractSubdomainSlug(`royal-hair-studio.${baseHost}`));
+assert('subdomain with port -> slug', extractSubdomainSlug(`Royal-Hair-Studio.${baseHost}:3000`) === 'royal-hair-studio', extractSubdomainSlug(`Royal-Hair-Studio.${baseHost}:3000`));
+assert('apex domain -> empty', extractSubdomainSlug(baseHost) === '', extractSubdomainSlug(baseHost));
+assert('www label -> empty', extractSubdomainSlug(`www.${baseHost}`) === '', extractSubdomainSlug(`www.${baseHost}`));
+assert('unknown/preview host (e2b.app) -> empty', extractSubdomainSlug('royal-hair-studio.e2b.app') === '', extractSubdomainSlug('royal-hair-studio.e2b.app'));
+assert('localhost -> empty', extractSubdomainSlug('localhost') === '', extractSubdomainSlug('localhost'));
+assert('IP address -> empty', extractSubdomainSlug('127.0.0.1') === '', extractSubdomainSlug('127.0.0.1'));
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);
 process.exit(failures === 0 ? 0 : 1);

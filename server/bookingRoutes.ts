@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { getSupabaseAdmin, requireAuthenticatedUser } from './supabaseAdmin';
+import { handleGuestWebsiteBooking, isGuestWebsiteBooking } from './websiteBookingRoutes';
 
 const createBookingSchema = z.object({
   salonId: z.string().uuid(),
@@ -21,6 +22,13 @@ function sendError(response: Response, status: number, message: string) {
 
 export function registerBookingRoutes(app: Express): void {
   app.post('/api/bookings', async (request: Request, response: Response) => {
+    // M41 — guest website booking: the public salon sites POST a
+    // { salonSlug, serviceId, date, time, customerName, customerPhone, ... }
+    // payload without an auth session. Delegate to the guest pipeline; the
+    // authenticated (idempotency-key) flow below is untouched.
+    if (isGuestWebsiteBooking(request.body)) {
+      return handleGuestWebsiteBooking(request, response);
+    }
     try {
       const user = await requireAuthenticatedUser(request);
       const parsed = createBookingSchema.safeParse(request.body);
@@ -68,7 +76,7 @@ export function registerBookingRoutes(app: Express): void {
         appointmentEnd: booking.appointment_end,
       });
     } catch (error) {
-      const status = error instanceof Error && /bearer|session|authenticated/i.test(error.message) ? 401 : 500;
+      const status = error instanceof Error && /bearer|session|authenticat/i.test(error.message) ? 401 : 500;
       sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to create the booking.');
     }
   });

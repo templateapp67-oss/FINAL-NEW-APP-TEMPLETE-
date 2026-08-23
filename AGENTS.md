@@ -34,6 +34,17 @@ The app contains:
   public-site confirmation is `src/components/SiteBookingConfirmation.tsx`
   over `src/lib/siteBookingConfirmation.ts`), **Share Referral Premium**,
   **Branding White-label**.
+- **Website guest bookings (M41)** — the LEGACY public templates
+  (templateId `hair`, e.g. the deployed `/royal-hair-studio`) have all their
+  Book CTAs (Book Slot / Book Bundle / Book with Stylist / Book Appointment /
+  Book Online) wired to ONE shared `src/components/BookingModal.tsx`, prefilled
+  with Service Name/Price/Duration, backed by `GET /api/salons/:slug/booking-context`
+  and `POST /api/bookings` (guest pipeline, no auth) in
+  `server/websiteBookingRoutes.ts`. Persisted through the service-role RPC
+  `create_website_booking` (migration M41) into the new `website_bookings`
+  table; prices are snapshotted server-side and slots conflict-check against
+  both `website_bookings` and canonical `bookings`. Call/WhatsApp/Directions
+  are direct `tel:`/`wa.me`/maps actions. `npm run test:m41:all`.
 - **Owner auth + shop location** — Supabase Auth, Leaflet map with Nominatim
   geocoding, and a **public nearby-salon search** at the `/nearby` route
   (`src/components/NearbySalonSearch.tsx`).

@@ -11,7 +11,7 @@ const check = (desc, condition, details='') => {
 };
 
 // The production owner flow is intentionally 14 steps:
-// Login → Complete Setup → Template → Preview → persisted Publish.
+// Login → Business Setup → Choose Template → Customize → Preview → persisted Publish.
 console.log('=== 1. OWNER SETUP (01-14) ===');
 const ownerSetupScreens = [
   { id: '01', file: 'src/screens/HeroSplit.tsx', name: 'Login' },
@@ -22,11 +22,11 @@ const ownerSetupScreens = [
   { id: '06', file: 'src/screens/StepSocials.tsx', name: 'Socials & Reels' },
   { id: '07', file: 'src/screens/StepLocation.tsx', name: 'Location & Hours' },
   { id: '08', file: 'src/screens/StepContactBooking.tsx', name: 'Contact & Booking Rules' },
-  { id: '09', file: 'src/screens/StepPublish.tsx', name: 'Website Appearance' },
-  { id: '10', file: 'src/screens/StepAIContentReview.tsx', name: 'Content Review' },
-  { id: '11', file: 'src/screens/StepTemplate.tsx', name: 'Template Selection' },
+  { id: '09', file: 'src/screens/StepTemplate.tsx', name: 'Choose Template' },
+  { id: '10', file: 'src/screens/StepPublish.tsx', name: 'Customize Appearance & Services' },
+  { id: '11', file: 'src/screens/StepAIContentReview.tsx', name: 'AI Content Review' },
   { id: '12', file: 'src/screens/StepFullWebsitePreview.tsx', name: 'Full Website Preview' },
-  { id: '13', file: 'src/screens/StepPublishSetup.tsx', name: 'Supabase Publish' },
+  { id: '13', file: 'src/screens/StepPublishSetup.tsx', name: 'Supabase Publish (persisted)' },
   { id: '14', file: 'src/screens/StepPublishSuccess.tsx', name: 'Persisted Publish Success' },
 ];
 ownerSetupScreens.forEach(s => {
@@ -79,8 +79,8 @@ check('Vite cors:true', viteContent.includes('cors: true'));
 check('Vite host 0.0.0.0', viteContent.includes("host: '0.0.0.0'") || viteContent.includes('host: "0.0.0.0"'));
 
 console.log('\n=== 6. BUILD & FLOW INTEGRITY ===');
-check('14-step owner flow constant', appContent.includes('const TOTAL_STEPS = 14'));
-check('Template follows setup', appContent.indexOf('step === 10') < appContent.indexOf('step === 11'));
+check('14-step owner flow constant', appContent.includes('const TOTAL_STEPS = TOTAL_OWNER_STEPS'));
+check('Choose Template precedes Customize', appContent.indexOf('step === 8 && <StepTemplate') < appContent.indexOf('step === 9 && <StepPublish'));
 check('Preview precedes publish', appContent.indexOf('<StepFullWebsitePreview') < appContent.indexOf('<StepPublishSetup'));
 
 console.log('\n' + (allPassed ? '✅ CURRENT OWNER WORKSPACE VERIFIED' : '❌ SOME CHECKS FAILED — REVIEW ABOVE'));

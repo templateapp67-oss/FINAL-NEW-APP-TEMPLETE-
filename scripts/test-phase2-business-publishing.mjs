@@ -216,6 +216,7 @@ await execMigration(await read('20260824000101_m44_business_publishing.sql'));
 await execMigration(await read('20260824000201_m45_business_slug_hardening.sql'));
 await execMigration(await read('20260824000301_m46_public_access_security.sql'));
 await execMigration(await read('20260824000601_m49_public_template_config.sql'));
+await execMigration(await read('20260825000101_m50_publish_readiness_validation.sql'));
 ok('Phase 2 migrations apply over the existing publishing architecture');
 assert.equal(slugifySalonName('  Nexora Salon!!!  '), 'nexora-salon');
 assert.equal(slugifySalonName('Foo___---@@ Bar'), 'foo-bar');

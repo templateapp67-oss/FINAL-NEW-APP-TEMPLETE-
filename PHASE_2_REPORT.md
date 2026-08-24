@@ -25,7 +25,9 @@ Migrations: M39 (publish/unpublish) → white-label provision → **M44–M46** 
 
 ## Owner journey
 
-Login → business setup → template + config → preview → **explicit publish** (`StepPublishSetup` → `publishOwnerSalonWebsite` → readiness gate) → success URL from **RPC slug** only.
+**Login → Business Setup → Choose Template → Customize → Preview → Publish** (`src/lib/ownerFlow.ts` is the canonical step map: Login 1, Business Setup 2–8, Choose Template 9, Customize 10–11, Preview 12, Publish 13–14).
+
+The Publish action is real: `StepPublishSetup` → `publishOwnerSalonWebsite` → `publish_owner_salon_website` RPC (readiness gate) → only a database-confirmed `is_published = true` row renders the success screen. The success URL comes from the **RPC-returned slug only**, never from a client-generated draft URL.
 
 Drafts are never public. Duplicate names get `name-2`. First `published_at` permanently allocates the URL.
 
@@ -42,6 +44,7 @@ npm run test:public-security
 npm run test:public-template-rendering
 npm run test:publish-readiness
 npm run test:owner-publish-flow
+npm run test:owner-publish-real   # app publish path → real persisted row (PGlite)
 npm run lint
 npm run build
 ```

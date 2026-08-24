@@ -24,6 +24,7 @@ import {
   TAGLINE_SUBCATEGORIES,
   withHexAlpha,
 } from '../lib/websiteCustomization';
+import { STEP_CUSTOMIZE } from '../lib/ownerFlow';
 import { SalonData, Service } from '../types';
 
 interface Props {
@@ -70,8 +71,8 @@ export default function StepPublish({ data, setData, onNext, onPrev, onSave }: P
   };
 
   const selectTagline = (tagline: string) => {
-    // Keep the reviewed copy aligned too. Otherwise Step 12/13 can restore an
-    // older tagline over the owner's new selection.
+    // Keep the reviewed copy aligned too. Otherwise the content-review step
+    // can restore an older tagline over the owner's new selection.
     commitData({
       ...data,
       tagline,
@@ -128,7 +129,7 @@ export default function StepPublish({ data, setData, onNext, onPrev, onSave }: P
     const updated: SalonData = {
       ...data,
       websiteAppearance: appearance,
-      lastCompletedStep: Math.max(data.lastCompletedStep || 0, 8),
+      lastCompletedStep: Math.max(data.lastCompletedStep || 0, STEP_CUSTOMIZE),
     };
     setData(updated);
     onSave?.(updated);
@@ -166,10 +167,10 @@ export default function StepPublish({ data, setData, onNext, onPrev, onSave }: P
               </span>
               <span className="text-xs font-medium text-[#ac0053]">Live Sync Active</span>
             </div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#ac0053]">Step 9 • Appearance</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#ac0053]">Step {STEP_CUSTOMIZE + 1} • Customize</span>
           </div>
           <h1 className="text-2xl md:text-4xl font-bold text-[#1a1c1c] mb-2">Make the Website Yours</h1>
-          <p className="text-sm text-[#5f5e5e]">Tagline, colors, services and appearance update in the preview instantly.</p>
+          <p className="text-sm text-[#5f5e5e]">Customize the template you chose — tagline, colors, services and appearance update in the preview instantly.</p>
           <p aria-live="polite" className="mt-3 min-h-5 text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
             <CheckCircle2 className="w-3.5 h-3.5" /> {liveMessage}
           </p>

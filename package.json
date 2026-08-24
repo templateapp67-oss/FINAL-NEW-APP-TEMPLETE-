@@ -148,6 +148,7 @@
     "test:phase2-publishing": "tsx scripts/test-phase2-business-publishing.mjs",
     "test:phase3": "node scripts/test-phase3-customer-booking.mjs",
     "test:owner-publish-flow": "tsx scripts/test-owner-setup-publish-flow.mjs",
+    "test:owner-publish-real": "tsx scripts/test-owner-publish-persists.mjs",
     "test:publish-readiness": "tsx scripts/test-publish-readiness.mjs",
     "test:owner-session-persistence": "tsx scripts/test-owner-session-persistence.mjs",
     "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",

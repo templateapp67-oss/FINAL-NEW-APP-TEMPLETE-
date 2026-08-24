@@ -47,13 +47,19 @@ import { templateSwitchProtectedRevision, templateVisualConfigRevision } from '.
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
+import {
+  MAX_OWNER_STEP_INDEX,
+  TOTAL_OWNER_STEPS,
+} from './lib/ownerFlow';
 
 const STORAGE_KEY = OWNER_ONBOARDING_CACHE_KEY;
 const DASHBOARD_TAB_KEY = OWNER_DASHBOARD_TAB_CACHE_KEY;
-// Owner journey: Login → Complete Business Setup → Select Template → Preview → Publish.
-// Business setup spans the guided detail/catalog/team/media/location/contact/content screens.
-const TOTAL_STEPS = 14;
-const MAX_STEP_INDEX = 13; // 0-based: 0..13 => 1..14
+// Canonical owner journey:
+//   Login → Business Setup → Choose Template → Customize → Preview → Publish.
+// Business setup spans the guided detail/catalog/team/media/location/contact
+// screens (steps 1–7); step indexes come from src/lib/ownerFlow.ts.
+const TOTAL_STEPS = TOTAL_OWNER_STEPS;
+const MAX_STEP_INDEX = MAX_OWNER_STEP_INDEX; // 0-based: 0..13 => 1..14
 
 // Dashboard tab mapping for screens 18-25
 type DashboardTab = 'overview' | 'website' | 'bookings' | 'payments' | 'share' | 'settings' | 'referral' | 'branding';
@@ -790,7 +796,8 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       
       <main className="flex-1 flex overflow-hidden">
         <>
-          {/* Complete Business Setup */}
+          {/* Business Setup (steps 2–8). Every step persists into the owner
+              draft before the owner chooses a template. */}
           {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
           {step === 2 && <StepServices data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 3 && (
@@ -815,11 +822,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           {step === 7 && (
             <StepContactBooking data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />
           )}
-          {step === 8 && <StepPublish data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 9 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
 
-          {/* Select Template → Preview → persisted Publish */}
-          {step === 10 && <StepTemplate data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
+          {/* Choose Template → Customize → Preview → persisted Publish */}
+          {step === 8 && <StepTemplate data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
+          {step === 9 && <StepPublish data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 10 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 11 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeSwitchPreview} />}
           {step === 12 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 13 && data.publishState === 'published' && data.publishedUrl ? (

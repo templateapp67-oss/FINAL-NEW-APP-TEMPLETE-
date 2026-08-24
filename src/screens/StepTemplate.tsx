@@ -5,6 +5,7 @@ import ThemeSelector from '../components/ThemeSelector';
 import TemplateConfigPanel from '../components/TemplateConfigPanel';
 import { normalizeThemeId, type ThemeId } from '../lib/themeServices';
 import { switchSalonTemplatePresentation } from '../lib/templateConfig';
+import { STEP_TEMPLATE, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 import { CheckCircle2, ArrowRight, ArrowLeft, Eye, Layout, Monitor, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -84,7 +85,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#ac0053]">
-              <Layout className="w-4 h-4" /> STEP 11 • WEBSITE TEMPLATE
+              <Layout className="w-4 h-4" /> STEP {STEP_TEMPLATE + 1} • WEBSITE TEMPLATE
             </div>
             <span className="text-[11px] font-medium text-gray-500">
               {saveStatus === 'saving' ? 'Saving…' : 'Saved ✓'}
@@ -178,14 +179,14 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         </button>
 
         <div className="hidden sm:block text-xs font-medium text-gray-400">
-          Step 11 of 14 • Website Template
+          Step {STEP_TEMPLATE + 1} of {TOTAL_OWNER_STEPS} • Website Template
         </div>
 
         <button
           onClick={onNext}
           className="bg-[#ac0053] text-white rounded-xl px-6 py-2.5 font-semibold text-xs hover:bg-[#ba005b] transition-colors flex items-center gap-2 shadow-xs"
         >
-          <span>Continue</span>
+          <span>Continue to Customize</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </footer>

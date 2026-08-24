@@ -4400,7 +4400,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Can I update my template styling later?
                   </h4>
                   <p className="text-gray-500 leading-relaxed font-semibold">
-                    Yes! You can re-run the Onboarding wizard or jump to Step 10 Template Appearance at any time via the sidebar control.
+                    Yes! You can re-run the Onboarding wizard or jump to Step 10 (Customize) at any time via the sidebar control.
                   </p>
                 </div>
 

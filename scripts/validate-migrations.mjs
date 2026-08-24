@@ -69,6 +69,10 @@ const m48MigrationFiles = migrationFiles.filter((name) => name.includes('_m48_')
 assert.deepEqual(m48MigrationFiles, [
   '20260824000501_m48_template_switch_isolation.sql',
 ], 'expected the additive M48 template-switch isolation migration after M47');
+const m50MigrationFiles = migrationFiles.filter((name) => name.includes('_m50_') || name.includes('_publish_readiness_validation'));
+assert.deepEqual(m50MigrationFiles, [
+  '20260825000101_m50_publish_readiness_validation.sql',
+], 'expected the M50 publish-readiness validation migration (read gate, owner-only)');
 const m48Source = await readFile(join(migrationsDir, m48MigrationFiles[0]), 'utf8');
 const m48SwitchBody = m48Source.slice(
   m48Source.indexOf('create or replace function public.set_owner_salon_template'),

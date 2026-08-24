@@ -4,6 +4,7 @@ import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Monitor, Smartphone, Tablet, Eye, Sparkles, Layout, Compass, Info } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
 import { publicWebsiteHref, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
+import { STEP_PREVIEW, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 import type { ThemeId } from '../lib/themeServices';
 
 interface Props {
@@ -64,7 +65,7 @@ export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) 
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="bg-[#ffd9e1] text-[#ac0053] font-bold text-[10px] uppercase tracking-wider px-2 py-0.5 rounded">
-              Step 12 of 14
+              Step {STEP_PREVIEW + 1} of {TOTAL_OWNER_STEPS}
             </span>
             <span className="text-xs text-gray-400 font-medium">|</span>
             <span className="text-xs text-gray-500 font-semibold uppercase tracking-wider flex items-center gap-1">

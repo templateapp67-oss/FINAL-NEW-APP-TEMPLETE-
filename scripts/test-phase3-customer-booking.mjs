@@ -40,6 +40,7 @@ const MIGRATIONS = [
   '20260824000201_m45_business_slug_hardening.sql',
   '20260824000301_m46_public_access_security.sql',
   '20260824000401_m47_phase3_customer_booking_advance.sql',
+  '20260825000101_m50_publish_readiness_validation.sql',
 ];
 
 const db = new PGlite({ extensions: { btree_gist, pgcrypto } });

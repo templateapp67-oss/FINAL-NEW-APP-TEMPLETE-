@@ -1,9 +1,17 @@
 import type { SalonData } from '../types';
 import { resolveOwnerSalonId } from './ownerSalon';
 import { isValidWebsiteSlug, suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
-import { requireSupabase } from './supabaseClient';
+import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { DEFAULT_THEME_ID, normalizeThemeId } from './themeServices';
-import { assertPublishReady } from './publishReadiness';
+import {
+  assertPublishReady,
+  evaluatePublishReadiness,
+  PUBLISH_INCOMPLETE_ERROR,
+  PUBLISH_INCOMPLETE_LABEL,
+  readinessFromMissingLabels,
+  type PublishReadiness,
+} from './publishReadiness';
+import { isOwnerTemplateKey } from './ownerProvisioning';
 import {
   activeTemplateConfigFromSalon,
   normalizeTemplateConfigs,
@@ -250,6 +258,59 @@ export const PUBLISH_OWNER_WEBSITE_FN = 'publish_owner_salon_website';
 function firstRpcRow<T>(data: T | T[] | null): T | null {
   if (data == null) return null;
   return Array.isArray(data) ? data[0] ?? null : data;
+}
+
+export const VERIFY_PUBLISH_READINESS_FN = 'verify_owner_publish_readiness';
+
+function isMissingReadinessRpc(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes(VERIFY_PUBLISH_READINESS_FN)
+    && (normalized.includes('not find') || normalized.includes('does not exist') || normalized.includes('schema cache'));
+}
+
+/**
+ * Publish-readiness validation. The client evaluates the current draft with
+ * the existing business rules; when migration M50 is deployed the same rules
+ * are re-checked inside the database against the persisted business row +
+ * draft config (so an active-theme or saved-website-state gap cannot slip
+ * through a stale client). The database result is authoritative when
+ * available; environments without M50 keep the exact client-side rules.
+ */
+export async function verifyOwnerPublishReadiness(
+  data: SalonData,
+): Promise<PublishReadiness> {
+  const local = evaluatePublishReadiness(data);
+  if (!isSupabaseConfigured) return local;
+  try {
+    const { data: rows, error } = await requireSupabase().rpc(
+      VERIFY_PUBLISH_READINESS_FN,
+      {
+        p_config: websiteConfigFromSalonData(data),
+        p_template_key: data.templateId || DEFAULT_THEME_ID,
+      },
+    );
+    if (error) {
+      if (isMissingReadinessRpc(error.message || '')) return local;
+      return {
+        ...local,
+        ready: false,
+        statusLabel: PUBLISH_INCOMPLETE_LABEL,
+        missingLabels: [],
+        missingGroupLabels: [],
+        required: local.required.map((item) => ({ ...item, done: false })),
+      };
+    }
+    const missing = Array.isArray(rows) ? rows : [];
+    const labels = missing
+      .map((row: { missing_item?: unknown }) =>
+        typeof row?.missing_item === 'string' ? row.missing_item : undefined)
+      .filter((label: string | undefined): label is string => Boolean(label));
+    return readinessFromMissingLabels(local, labels);
+  } catch {
+    // Validation failures must never block publishing behind a network error;
+    // the publish RPC remains the final invariant guard.
+    return local;
+  }
 }
 
 /** Publish the authenticated owner's salon website. Salon id is resolved in the database. */

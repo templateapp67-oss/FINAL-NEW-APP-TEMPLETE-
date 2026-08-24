@@ -74,16 +74,12 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
   const website = Array.isArray(projectionRows) ? projectionRows[0] : projectionRows;
   if (!website?.salon_id || !website.slug || !website.business_name) return null;
 
-  const { data: rows, error: serviceError } = await client.from('services')
-    .select('id,theme_id,category_id,name,description,price_paise,duration_minutes,is_featured,display_order')
-    .eq('salon_id', website.salon_id)
-    .eq('is_active', true)
-    .is('deleted_at', null)
-    .order('display_order');
+  const { data: rows, error: serviceError } = await client
+    .rpc('get_public_salon_services', { p_slug: slug });
   if (serviceError) throw serviceError;
 
-  // Services are business data, not template data. Keep every active service
-  // available when an owner moves Template 1 -> 4 (or any other transition).
+  // Services and prices come from a field-limited, published-slug RPC. The
+  // browser never receives table access or supplies a salon/business id.
   const services: Service[] = (rows || []).map((service) => ({
     id: service.id,
     name: service.name,
@@ -92,7 +88,7 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     price: Number(service.price_paise) / 100,
     duration: service.duration_minutes,
     featured: service.is_featured,
-    themeId: service.theme_id,
+    themeId: service.theme_key,
     categoryId: service.category_id,
     status: 'active',
   }));

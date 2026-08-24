@@ -33,9 +33,11 @@ assert.match(publicView, /if \(!website\?\.salon_id \|\| !website\.slug \|\| !we
 assert.doesNotMatch(publicView, /salonId\s*:\s*['"][0-9a-f]{8}-/i);
 ok('public business identity comes only from the URL-backed database projection');
 
-assert.match(publicView, /\.from\('services'\)[\s\S]*\.eq\('salon_id', website\.salon_id\)[\s\S]*\.eq\('is_active', true\)[\s\S]*\.is\('deleted_at', null\)/);
+assert.match(publicView, /\.rpc\('get_public_salon_services', \{ p_slug: slug \}\)/);
+assert.doesNotMatch(publicView, /\.from\('services'\)/);
 assert.match(publicView, /price: Number\(service\.price_paise\) \/ 100/);
-ok('active services and server-stored pricing load for the resolved business');
+assert.match(publicView, /themeId: service\.theme_key/);
+ok('active services and server-stored pricing use the field-limited slug projection');
 
 assert.match(publicView, /website\.template_key[\s\S]*themeKeys\.has\(website\.template_key\)/);
 assert.match(publicView, /templateId: selectedTheme/);

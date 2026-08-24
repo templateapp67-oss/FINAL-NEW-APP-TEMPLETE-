@@ -149,7 +149,11 @@ await db.exec(`
   -- Tenant data that must survive template switching.
   create table if not exists public.services (
     id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
-    theme_id uuid references public.themes(id), name text not null,
+    theme_id uuid references public.themes(id), category_id uuid, name text not null,
+    description text, price_paise bigint not null default 0,
+    duration_minutes integer not null default 30,
+    is_featured boolean not null default false,
+    display_order integer not null default 0,
     is_active boolean not null default true, deleted_at timestamptz
   );
   create table if not exists public.products (
@@ -210,6 +214,7 @@ await db.exec(`
 `);
 await execMigration(await read('20260824000101_m44_business_publishing.sql'));
 await execMigration(await read('20260824000201_m45_business_slug_hardening.sql'));
+await execMigration(await read('20260824000301_m46_public_access_security.sql'));
 ok('Phase 2 migrations apply over the existing publishing architecture');
 assert.equal(slugifySalonName('  Nexora Salon!!!  '), 'nexora-salon');
 assert.equal(slugifySalonName('Foo___---@@ Bar'), 'foo-bar');
@@ -222,7 +227,9 @@ const verify = (await db.query('select check_name, ok from public.verify_phase2_
 assert.ok(verify.every((r) => r.ok === true), JSON.stringify(verify));
 const verify45 = (await db.query('select check_name, ok from public.verify_m45_business_slug_hardening()')).rows;
 assert.ok(verify45.every((r) => r.ok === true), JSON.stringify(verify45));
-ok('Phase 2 database security and slug-hardening verification is green');
+const verify46 = (await db.query('select check_name, ok from public.verify_m46_public_access_security()')).rows;
+assert.ok(verify46.every((r) => r.ok === true), JSON.stringify(verify46));
+ok('Phase 2 database security, slug and anonymous-access verification is green');
 
 await db.query(`with o as (
   insert into public.organizations (name) values ('Legacy Slug Owner') returning id
@@ -293,10 +300,36 @@ assert.equal(publicA[0].public_config.tagline, 'Public tagline');
 assert.equal(publicA[0].public_config.ownerName, undefined);
 assert.equal(publicA[0].public_config.email, undefined);
 assert.equal(publicA[0].public_config.team, undefined);
-ok('publish persists and the public projection excludes private owner/staff fields');
+await asRole('anon', '', async () => {
+  await assert.rejects(
+    () => db.query(`select * from public.services`),
+    /permission denied/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.bookings`),
+    /permission denied/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.payments`),
+    /permission denied|does not exist/i,
+  );
+});
+ok('publish persists while private owner, customer and payment tables stay anonymous-denied');
 
 const themeOne = (await db.query(`select id from public.themes where theme_id='barber_mens_grooming'`)).rows[0].id;
-await db.query(`insert into public.services (salon_id,theme_id,name) values ($1,$2,'Signature Service')`, [salonA.out_salon_id, themeOne]);
+await db.query(`insert into public.services
+  (salon_id,theme_id,name,description,price_paise,duration_minutes,is_featured)
+  values ($1,$2,'Signature Service','Public description',125000,60,true)`,
+  [salonA.out_salon_id, themeOne]);
+const publicServices = await asRole('anon', '', async () => (
+  await db.query(`select * from public.get_public_salon_services('nexora-salon')`)
+).rows);
+assert.equal(publicServices.length, 1);
+assert.equal(publicServices[0].name, 'Signature Service');
+assert.equal(publicServices[0].price_paise, 125000);
+assert.equal(publicServices[0].theme_key, 'barber_mens_grooming');
+assert.equal(publicServices[0].salon_id, undefined);
+ok('anonymous service access is field-limited and resolved only by published slug');
 await db.query(`insert into public.products (salon_id,name) values ($1,'Retail Product')`, [salonA.out_salon_id]);
 await db.query(`insert into public.bookings (salon_id,customer_name) values ($1,'Existing Customer')`, [salonA.out_salon_id]);
 await db.query(`insert into public.business_locations (salon_id,address_label,approval_status)

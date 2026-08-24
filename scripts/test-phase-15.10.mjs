@@ -1783,11 +1783,14 @@ await test('no hardcoded video ids outside the theme catalog (only theme: seeds 
 await test('no duplicate video system: only one gallery component and one metadata engine exist', async () => {
   const components = (await readdir('src/components')).filter((f) => /Video|Social/i.test(f));
   assert.deepEqual(components.sort(), [
+    'ReelsVideoPlayer.tsx',
     'SiteSocialFeed.tsx',
     'SiteVideo.tsx',
     'SiteVideoGallery.tsx',
     'VideoManagementPanel.tsx',
-  ].sort(), 'no extra video components');
+  ].sort(), 'no unexpected video components');
+  // ReelsVideoPlayer and SiteVideo are retained compatibility components;
+  // the five current renderers share SiteVideoGallery.
   // SiteVideo (10.12) is legacy and unused by the five renderers.
   const componentFiles = (await readdir('src/components', { withFileTypes: true }))
     .filter((entry) => entry.isFile())

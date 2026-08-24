@@ -471,7 +471,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
             {/* Header */}
             <div>
               <span className="text-xs font-semibold tracking-wider text-[#ac0053] uppercase flex items-center gap-1">
-                <ImageIcon className="w-4 h-4" /> STEP 06 • PHOTOS + GALLERY
+                <ImageIcon className="w-4 h-4" /> STEP 05 • PHOTOS + GALLERY
               </span>
               <h1 className="text-2xl md:text-3xl font-bold text-[#1a1c1c] mt-1 mb-1">
                 Add your salon photos

@@ -3,9 +3,8 @@ import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor, Smartphone, Circle, Check } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
-import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { publishOwnerSalonWebsite } from '../lib/salonWebsiteService';
-import { publicWebsiteHref, publicWebsiteUrl, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
+import { publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
 
 interface Props {
   data: SalonData;
@@ -15,35 +14,27 @@ interface Props {
   onSave?: () => void;
 }
 
-function slugify(text: string) {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 50);
+function generatedSlug(data: SalonData): string {
+  if (data.publishState === 'published' && data.websiteSlug) return data.websiteSlug;
+  return slugifySalonName(data.salonName) || 'salon';
 }
 
 export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave }: Props) {
   const { platform } = useBrandConfig();
-  const [slug, setSlug] = useState<string>(() => suggestedWebsiteSlug(data) || slugify(data.salonName));
+  const [slug, setSlug] = useState<string>(() => generatedSlug(data));
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!data.websiteSlug) {
-      setSlug(slugify(data.salonName));
-    }
-  }, [data.salonName, data.websiteSlug]);
+    setSlug(generatedSlug(data));
+  }, [data.salonName, data.publishState, data.websiteSlug]);
 
   useEffect(() => {
     setData(prev => ({ ...prev, websiteSlug: slug }));
   }, [slug, setData]);
 
   const previewUrl = publicWebsiteHref(slug, platform.websiteUrl);
-  const fullUrl = publicWebsiteUrl(slug, platform.websiteUrl);
 
   // Checklist logic
   const checks = [
@@ -63,33 +54,38 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
   const allRequiredDone = checks.every(c => c.done);
 
   const handlePublish = async () => {
+    const previousState = data.publishState;
+    const previousUrl = data.publishedUrl;
     setPublishing(true);
     setPublishError(null);
-    setData(prev => ({ ...prev, publishState: 'publishing', publishedUrl: fullUrl, websiteSlug: slug }));
+    setData(prev => ({ ...prev, publishState: 'publishing', websiteSlug: slug }));
     if (onSave) onSave();
     try {
-      let publishedUrl = fullUrl;
-      if (isSupabaseConfigured) {
-        const saved = await publishOwnerSalonWebsite({ ...data, websiteSlug: slug });
-        publishedUrl = publicWebsiteUrl(saved.slug, platform.websiteUrl);
-        setData(prev => ({
-          ...prev,
-          salonId: saved.salonId,
-          websiteSlug: saved.slug,
-          publishState: 'published',
-          publishedUrl,
-          lastCompletedStep: 14,
-        }));
-      } else {
-        setData(prev => ({ ...prev, publishState: 'published', publishedUrl, websiteSlug: slug, lastCompletedStep: 14 }));
+      const saved = await publishOwnerSalonWebsite({ ...data, websiteSlug: slug });
+      if (!saved.isPublished || !saved.publishedAt) {
+        throw new Error('The database did not confirm publication.');
       }
+      const publishedUrl = publicWebsiteUrl(saved.slug, platform.websiteUrl);
+      setData(prev => ({
+        ...prev,
+        salonId: saved.salonId,
+        websiteSlug: saved.slug,
+        publishState: 'published',
+        publishedUrl,
+        lastCompletedStep: 13,
+      }));
       if (onSave) onSave();
       setPublishing(false);
       onNext();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to publish your website.';
       setPublishError(message);
-      setData(prev => ({ ...prev, publishState: 'draft', websiteSlug: slug }));
+      setData(prev => ({
+        ...prev,
+        publishState: previousState === 'published' ? 'published' : 'draft',
+        publishedUrl: previousUrl,
+        websiteSlug: previousState === 'published' ? prev.websiteSlug : slug,
+      }));
       setPublishing(false);
     }
   };
@@ -116,7 +112,7 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
           {/* Header section */}
           <div className="flex flex-col gap-2">
             <span className="text-[10px] font-bold text-[#ac0053] uppercase tracking-widest flex items-center gap-1">
-              <Globe className="w-3.5 h-3.5" /> STEP 14 OF 15 • PUBLISH
+              <Globe className="w-3.5 h-3.5" /> STEP 13 OF 14 • PUBLISH
             </span>
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">
               Ready to publish your website?
@@ -133,21 +129,17 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
                 Website Address *
               </label>
               <div className="relative flex items-center">
-                <span className="absolute left-3.5 text-gray-400 font-semibold text-sm">
-                  {platform.websiteUrl.replace(/^https?:\/\//, '')}/
-                </span>
                 <input
-                  className="w-full pl-[92px] pr-10 py-3 rounded-xl border border-gray-200 focus:border-[#ac0053] focus:ring-2 focus:ring-[#ffd9e1] bg-white text-gray-900 font-mono text-sm outline-none transition-all font-semibold"
+                  className="w-full px-3.5 pr-10 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 font-mono text-sm outline-none font-semibold"
                   type="text"
-                  value={slug}
-                  onChange={e => setSlug(slugify(e.target.value))}
-                  placeholder="your-salon-name"
+                  value={previewUrl}
+                  readOnly
+                  aria-label="Automatically generated public website address"
                 />
                 <CheckCircle2 className="absolute right-3.5 text-emerald-500 w-5 h-5" />
               </div>
-              <p className="mt-2 text-emerald-600 font-semibold text-xs flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-pulse"></span>
-                Address is available
+              <p className="mt-2 text-gray-500 font-medium text-xs flex items-center gap-1.5">
+                Generated from your business name. If another business has the same name, Nexora adds a unique number when you publish.
               </p>
             </div>
           </div>

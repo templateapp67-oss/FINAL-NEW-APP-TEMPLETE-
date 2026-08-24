@@ -12,7 +12,8 @@
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live            # M28 only
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m38        # M38 only
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m40        # M40 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M40
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m46        # M46 only
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M46
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --verify
  *
  * Env:
@@ -29,7 +30,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATIONS_DIR = join(root, 'supabase', 'migrations');
 const CONFIG_PATH = join(root, 'supabase', 'config.toml');
 
-const CHAIN_M28_TO_M40 = [
+const CHAIN_M28_TO_M46 = [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
   '20260821000201_m29_phase1a_razorpay_foundation.sql',
   '20260821000301_m30_phase1a_storage_foundation.sql',
@@ -43,10 +44,19 @@ const CHAIN_M28_TO_M40 = [
   '20260822000101_m38_reconciliation_fix.sql',
   '20260822000201_m39_owner_publish_website.sql',
   '20260822000301_m40_service_catalog_commerce_rpc.sql',
+  '20260823000101_m41_website_guest_bookings.sql',
+  '20260823000201_m42_owner_self_provisioning.sql',
+  '20260823000301_m43_rls_isolation_verify.sql',
+  '20260823000401_phase1_whitelabel_provisioning.sql',
+  '20260824000101_m44_business_publishing.sql',
+  '20260824000201_m45_business_slug_hardening.sql',
+  '20260824000301_m46_public_access_security.sql',
 ];
 
 const M38 = '20260822000101_m38_reconciliation_fix.sql';
 const M40 = '20260822000301_m40_service_catalog_commerce_rpc.sql';
+const M45 = '20260824000201_m45_business_slug_hardening.sql';
+const M46 = '20260824000301_m46_public_access_security.sql';
 
 const VERIFY_SQL = `
 select check_name, ok, detail
@@ -57,6 +67,18 @@ order by check_name;
 const VERIFY_SQL_M40 = `
 select check_name, ok, detail
 from public.verify_m40_service_catalog()
+order by check_name;
+`.trim();
+
+const VERIFY_SQL_M45 = `
+select check_name, ok, detail
+from public.verify_m45_business_slug_hardening()
+order by check_name;
+`.trim();
+
+const VERIFY_SQL_M46 = `
+select check_name, ok, detail
+from public.verify_m46_public_access_security()
 order by check_name;
 `.trim();
 
@@ -81,14 +103,22 @@ async function resolveProjectRef() {
 }
 
 function resolveFiles(argv) {
-  if (argv.includes('--verify') && !argv.includes('--m38') && !argv.includes('--m40') && !argv.includes('--all')) return [];
+  if (
+    argv.includes('--verify') &&
+    !argv.includes('--m38') && !argv.includes('--m40') &&
+    !argv.includes('--m45') && !argv.includes('--m46') && !argv.includes('--all')
+  ) return [];
   if (argv.includes('--m38')) return [M38];
   if (argv.includes('--m40')) return [M40];
-  if (argv.includes('--all')) return CHAIN_M28_TO_M40;
-  return [CHAIN_M28_TO_M40[0]];
+  if (argv.includes('--m45')) return [M45];
+  if (argv.includes('--m46')) return [M46];
+  if (argv.includes('--all')) return CHAIN_M28_TO_M46;
+  return [CHAIN_M28_TO_M46[0]];
 }
 
 function verifySqlFor(files) {
+  if (files.includes(M46)) return VERIFY_SQL_M46;
+  if (files.includes(M45)) return VERIFY_SQL_M45;
   if (files.includes(M40)) return VERIFY_SQL_M40;
   return VERIFY_SQL;
 }
@@ -141,9 +171,13 @@ async function main() {
 
   const projectRef = await resolveProjectRef();
   const files = resolveFiles(process.argv);
-  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40);
+  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40) || files.includes(M45) || files.includes(M46);
   const verifySql = verifySqlFor(files);
-  const verifyFnName = files.includes(M40) ? 'verify_m40_service_catalog' : 'verify_m38_reconciliation';
+  const verifyFnName = files.includes(M46)
+    ? 'verify_m46_public_access_security'
+    : files.includes(M45)
+      ? 'verify_m45_business_slug_hardening'
+    : files.includes(M40) ? 'verify_m40_service_catalog' : 'verify_m38_reconciliation';
 
   console.log(`Target project: ${projectRef}`);
   if (files.length) {

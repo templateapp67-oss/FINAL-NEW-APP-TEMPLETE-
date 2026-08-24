@@ -24,6 +24,7 @@ import NailLashStudioTemplateRenderer from './NailLashStudioTemplateRenderer';
 import { BundlePrice, ServicePrice } from './PromotionalPricing';
 import { resolveWebsiteCopy, buildWhatsAppHref } from '../lib/websiteCopy';
 import { scrollToSiteSection } from '../lib/siteNavigation';
+import { publicWebsiteHref } from '../lib/publicWebsiteUrl';
 import { Sparkles, Phone, MessageCircle, CalendarCheck, MapPin, Clock, Navigation, Instagram, Facebook, Youtube, Video, Heart, ExternalLink, CreditCard, Play } from 'lucide-react';
 
 interface Props {
@@ -32,7 +33,10 @@ interface Props {
 }
 
 export default function TemplateRenderer({ data, mode }: Props) {
-  const templateId = normalizeThemeId(data.templateId);
+  // Preserve the deployed legacy `hair` renderer while canonicalising the five
+  // current owner templates. Mapping `hair` to the default canonical theme
+  // here made existing published legacy sites silently render the wrong UI.
+  const templateId = data.templateId === 'hair' ? 'hair' : normalizeThemeId(data.templateId);
 
   /* ------------------------------------------------------------------ */
   /* M41 — dynamic booking wiring (legacy public templates).             */
@@ -163,7 +167,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
             <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
           </div>
           <div className={`mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide ${isDark ? 'bg-zinc-950 text-zinc-400 border-zinc-700' : 'bg-white text-gray-500 border-gray-200'}`}>
-            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}
+            {publicWebsiteHref(data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon')}
           </div>
         </div>
       ) : (

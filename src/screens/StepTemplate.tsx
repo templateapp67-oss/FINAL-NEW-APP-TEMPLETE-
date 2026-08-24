@@ -89,7 +89,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#ac0053]">
-              <Layout className="w-4 h-4" /> STEP 02 • WEBSITE TEMPLATE
+              <Layout className="w-4 h-4" /> STEP 11 • WEBSITE TEMPLATE
             </div>
             <span className="text-[11px] font-medium text-gray-500">
               {saveStatus === 'saving' ? 'Saving…' : 'Saved ✓'}
@@ -170,7 +170,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         </button>
 
         <div className="hidden sm:block text-xs font-medium text-gray-400">
-          Step 2 of 15 • Website Template
+          Step 11 of 14 • Website Template
         </div>
 
         <button

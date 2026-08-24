@@ -48,6 +48,8 @@
     "db:apply:live:all": "node scripts/apply-live-migration.mjs --all",
     "db:apply:live:m38": "node scripts/apply-live-migration.mjs --m38 --verify",
     "db:apply:live:m40": "node scripts/apply-live-migration.mjs --m40 --verify",
+    "db:apply:live:m45": "node scripts/apply-live-migration.mjs --m45 --verify",
+    "db:apply:live:m46": "node scripts/apply-live-migration.mjs --m46 --verify",
     "db:verify:live:m38": "node scripts/apply-live-migration.mjs --verify",
     "test:m38": "tsx scripts/test-m38-reconciliation.mjs",
     "test:m39": "tsx scripts/test-m39-owner-publish.mjs",
@@ -132,7 +134,11 @@
     "test:m41": "tsx scripts/test-m41-website-booking.mjs",
     "test:m41:migration": "tsx scripts/test-m41-migration.mjs",
     "test:m41:all": "npm run test:m41 && npm run test:m41:migration",
-    "test:legacy-site": "tsx scripts/test-legacy-site-fixes.mjs"
+    "test:legacy-site": "tsx scripts/test-legacy-site-fixes.mjs",
+    "test:phase2-publishing": "tsx scripts/test-phase2-business-publishing.mjs",
+    "test:owner-publish-flow": "tsx scripts/test-owner-setup-publish-flow.mjs",
+    "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
+    "test:public-security": "tsx scripts/test-public-access-security.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

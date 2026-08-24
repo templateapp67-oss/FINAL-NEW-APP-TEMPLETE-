@@ -272,7 +272,9 @@ html {
   height: calc(6.25rem + env(safe-area-inset-bottom, 0px));
 }
 
-/* 1. Set flex-based column layout on booking modal containers */
+/* Compact booking card shared by all five public templates. The flow used to
+   stretch every step to the viewport and push its actions to the far edge,
+   leaving a large blank band above Back / Continue. */
 .booking-page-container,
 .booking-wrapper,
 .step-container,
@@ -281,33 +283,44 @@ html {
   position: relative !important;
   display: flex !important;
   flex-direction: column !important;
-  justify-content: space-between !important;
+  justify-content: flex-start !important;
   align-items: stretch !important;
-  height: 100% !important;
+  min-height: auto !important;
+  height: auto !important;
   max-height: 100% !important;
   overflow: hidden !important;
 }
 
-/* 2. Ensure main content wrapper uses flex-1 and scrollable layout */
+/* Step content sizes to its real content, then may shrink and scroll only when
+   the available template/modal frame is genuinely smaller. */
+.booking-step-wrapper,
 .booking-step-content,
-.selection-summary-container,
 .booking-modal > main,
 .booking-container > main,
 .booking-modal > .booking-step-content,
 .booking-container > .booking-step-content {
-  flex: 1 1 auto !important;
-  flex-grow: 1 !important;
+  flex: 0 1 auto !important;
+  flex-grow: 0 !important;
+  min-height: auto !important;
+  height: auto !important;
   overflow-y: auto !important;
   display: flex !important;
   flex-direction: column !important;
-  justify-content: space-between !important;
-  height: auto !important;
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
+  justify-content: flex-start !important;
+  gap: 1.5rem !important;
+  padding-top: 1rem !important;
+  padding-bottom: 1.5rem !important;
   margin-bottom: 0 !important;
 }
 
-/* 3. Remove unnecessary inline vertical margins and stretching from inner wrapper containers */
+/* Selection totals belong inside the footer and must never flex-grow. */
+.selection-summary-container {
+  flex: 0 0 auto !important;
+  min-height: auto !important;
+  height: auto !important;
+}
+
+/* Remove legacy viewport-height utilities inside the shared booking surface. */
 .booking-container .my-auto,
 .booking-container .py-20,
 .booking-container .min-h-screen,
@@ -321,29 +334,41 @@ html {
   margin-bottom: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
-  min-height: 0 !important;
+  min-height: auto !important;
   height: auto !important;
 }
 
-/* 4. Ensure the navigation footer attaches seamlessly and is docked immediately below content */
+/* Action bar follows the card content in normal flow: no auto-margin spacer,
+   no fixed/sticky viewport gap. Padding is exactly 16px on every breakpoint. */
 .booking-action-bar,
+.booking-actions-bar,
 .navigation-footer,
-footer.booking-action-bar {
-  flex-shrink: 0 !important;
-  margin-top: auto !important;
+footer.booking-action-bar,
+footer.booking-actions-bar {
+  flex: 0 0 auto !important;
+  margin-top: 0 !important;
   position: relative !important;
-  padding: 16px 24px !important;
+  padding: 1rem !important;
   width: 100% !important;
+  border-top-width: 1px !important;
 }
 
-/* 5. Mobile optimization: prevent excessive white space and layout stretching */
 @media (max-width: 640px) {
+  .booking-page-container,
   .booking-modal,
   .booking-wrapper,
   .step-container,
   .booking-container {
-    height: fit-content !important;
+    min-height: auto !important;
+    height: auto !important;
+    max-height: 100% !important;
     padding: 0 !important;
+  }
+
+  .booking-step-wrapper,
+  .booking-step-content {
+    gap: 1.5rem !important;
+    min-height: auto !important;
   }
 }
 

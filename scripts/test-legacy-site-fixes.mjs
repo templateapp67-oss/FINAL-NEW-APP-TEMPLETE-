@@ -529,9 +529,8 @@ await tick(20);
 /* ------------------------------------------------------------------ */
 /* 6. Server host routing (subdomain → /<slug> rewrite)                */
 /* ------------------------------------------------------------------ */
-const BASE = 'final-new-app-templete.vercel.app';
-
-const { extractSubdomainSlug } = await import('../src/lib/salonRouting.ts');
+const { extractSubdomainSlug, getBrandBaseHost } = await import('../src/lib/salonRouting.ts');
+const BASE = getBrandBaseHost();
 await test('resolveHostSlug extracts the salon slug from the subdomain', async () => {
   assert.equal(resolveHostSlug(`royal-hair-studio.${BASE}`), 'royal-hair-studio');
   assert.equal(resolveHostSlug(`${BASE}`), '');

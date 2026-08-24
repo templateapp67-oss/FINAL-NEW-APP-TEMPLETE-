@@ -19,7 +19,6 @@ import StepAIContentReview from './screens/StepAIContentReview';
 import StepFullWebsitePreview from './screens/StepFullWebsitePreview';
 import StepPublishSetup from './screens/StepPublishSetup';
 import StepPublishSuccess from './screens/StepPublishSuccess';
-import BookingConfirmation from './components/BookingConfirmation';
 import StaffManagementModule from './components/StaffManagementModule';
 import OwnerDashboard from './components/OwnerDashboard';
 import TopBar from './components/TopBar';
@@ -37,8 +36,10 @@ import { safeSetItem, safeGetItem } from './lib/safeStorage';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
-const TOTAL_STEPS = 16;
-const MAX_STEP_INDEX = 15; // 0-based: 0..15 => 1..16
+// Owner journey: Login → Complete Business Setup → Select Template → Preview → Publish.
+// Business setup spans the guided detail/catalog/team/media/location/contact/content screens.
+const TOTAL_STEPS = 14;
+const MAX_STEP_INDEX = 13; // 0-based: 0..13 => 1..14
 
 // Dashboard tab mapping for screens 18-25
 type DashboardTab = 'overview' | 'website' | 'bookings' | 'payments' | 'share' | 'settings' | 'referral' | 'branding';
@@ -92,10 +93,10 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        if (parsed.activeModule === 'staff-management') return parsed.activeModule;
         if (
-          parsed.activeModule === 'staff-management' ||
-          parsed.activeModule === 'dashboard' ||
-          parsed.activeModule === 'owner-dashboard'
+          (parsed.activeModule === 'dashboard' || parsed.activeModule === 'owner-dashboard') &&
+          parsed.data?.publishState === 'published'
         ) return parsed.activeModule;
       }
       const dashboardTab = safeGetItem(DASHBOARD_TAB_KEY);
@@ -137,7 +138,21 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
 
   const isInitialMount = useRef(true);
   const backendHydratedFor = useRef<string | null>(null);
+  const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
   const provisionedFor = useRef<string | null>(null);
+  const templateSwitchSequence = useRef(0);
+  const templateSwitchQueue = useRef<Promise<void>>(Promise.resolve());
+  const persistedTemplate = useRef<SalonData['templateId']>(data.templateId);
+
+  // A configured production workspace is an owner-only flow. A cached wizard
+  // step must never let a signed-out browser bypass Login. Local unconfigured
+  // development remains usable for visual work, but publishing still fails
+  // closed because it requires Supabase.
+  useEffect(() => {
+    if (!isSupabaseConfigured || authLoading || user) return;
+    setActiveModule('wizard');
+    setStep(0);
+  }, [authLoading, user]);
 
   // PHASE 1 — ensure the authenticated owner has a salon. A brand-new owner has
   // an auth.users + profiles row but no organization / owner membership / salon
@@ -185,15 +200,29 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     let active = true;
     void loadOwnerWebsiteDraft()
       .then((draft) => {
-        if (!active || !draft) return;
-        setData((current) => ({
-          ...current,
-          ...draft.config,
-          salonId: draft.salonId,
-          websiteSlug: draft.slug || current.websiteSlug,
-          templateId: (draft.config.templateId || current.templateId) as SalonData['templateId'],
-          publishState: draft.isPublished ? 'published' : 'draft',
-        }));
+        if (!active) return;
+        setBackendHydratedUser(user.id);
+        if (!draft) return;
+        setData((current) => {
+          // template_key is the presentation authority changed by
+          // set_owner_salon_template. Config may legitimately predate a
+          // post-publish template switch, so it is only the fallback.
+          const hydratedTemplate = (
+            draft.templateKey || draft.config.templateId || current.templateId
+          ) as SalonData['templateId'];
+          persistedTemplate.current = hydratedTemplate;
+          return {
+            ...current,
+            ...draft.config,
+            salonId: draft.salonId,
+            websiteSlug: draft.slug || current.websiteSlug,
+            publishedUrl: draft.isPublished && draft.slug
+              ? publicWebsiteUrl(draft.slug)
+              : undefined,
+            templateId: hydratedTemplate,
+            publishState: draft.isPublished ? 'published' : 'draft',
+          };
+        });
       })
       .catch((error) => console.error('Backend website draft hydration failed:', error));
     return () => { active = false; };
@@ -277,13 +306,33 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // rows (keyed by salon_id + theme_id) are untouched, so switching A→B→A is
   // fully reversible with no data loss.
   const handleThemeChange = (nextTheme: ThemeId) => {
+    const requestId = ++templateSwitchSequence.current;
     setData(prev => ({ ...prev, templateId: nextTheme }));
     if (!isSupabaseConfigured || !user) return;
-    setOwnerTemplate(nextTheme).catch((error) => {
-      console.error('Failed to persist template switch:', error);
-      showToast(
-        error instanceof Error ? error.message : 'Could not save the template change.',
-      );
+    // Serialize writes so rapid changes cannot reach Supabase out of order.
+    // Every accepted transition is presentation-only and the final queued RPC
+    // is necessarily the owner's latest selection.
+    templateSwitchQueue.current = templateSwitchQueue.current.then(async () => {
+      try {
+        const saved = await setOwnerTemplate(nextTheme);
+        // Track every serialized success, including an older request whose UI
+        // settlement was superseded. This is the exact database template to
+        // restore if a later queued request fails.
+        persistedTemplate.current = saved.templateId;
+        if (templateSwitchSequence.current !== requestId) return;
+        setData(current => ({ ...current, templateId: saved.templateId }));
+      } catch (error) {
+        if (templateSwitchSequence.current !== requestId) return;
+        // Do not leave an optimistic template visible as though it were live
+        // when Supabase rejected the presentation-only update.
+        setData(current => current.templateId === nextTheme
+          ? { ...current, templateId: persistedTemplate.current }
+          : current);
+        console.error('Failed to persist template switch:', error);
+        showToast(
+          error instanceof Error ? error.message : 'Could not save the template change.',
+        );
+      }
     });
   };
 
@@ -369,9 +418,14 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   };
 
   const navigateToScreen = (screenId: number) => {
-    if (screenId >= 1 && screenId <= 16) {
+    if (screenId >= 1 && screenId <= 14) {
+      const targetStep = screenId - 1;
+      if (data.publishState !== 'published' && targetStep > step + 1) {
+        showToast('Complete the current setup step before continuing.');
+        return;
+      }
       setActiveModule('wizard');
-      setStep(screenId - 1);
+      setStep(targetStep);
       setShowResumeBanner(false);
       showToast(`Navigated to Screen ${String(screenId).padStart(2, '0')}`);
     } else if (screenId === 17) {
@@ -398,37 +452,80 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     setShowResumeBanner(false);
   };
 
+  const hasAuthoritativePublishState = data.publishState === 'published' && !!data.publishedUrl && (
+    !isSupabaseConfigured || (!!user && backendHydratedUser === user.id)
+  );
+
+  useEffect(() => {
+    if (
+      (activeModule === 'dashboard' || activeModule === 'owner-dashboard') &&
+      !hasAuthoritativePublishState
+    ) {
+      setActiveModule('wizard');
+    }
+  }, [activeModule, hasAuthoritativePublishState]);
+
+  const changeActiveModule = (nextModule: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard') => {
+    if (
+      (nextModule === 'dashboard' || nextModule === 'owner-dashboard') &&
+      !hasAuthoritativePublishState
+    ) {
+      setActiveModule('wizard');
+      setStep(Math.min(step, 12));
+      showToast('Publish your website successfully before opening the dashboard.');
+      return;
+    }
+    setActiveModule(nextModule);
+  };
+
   // Compute current screen for TopBar
   const currentScreen = getCurrentScreen();
 
+  // Fail closed before rendering any owner module. This also blocks the
+  // universal navigator and stale localStorage from bypassing the Login stage.
+  if (isSupabaseConfigured && (authLoading || !user)) {
+    return (
+      <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
+        <TopBar
+          step={0}
+          activeModule="wizard"
+          setActiveModule={changeActiveModule}
+          saveStatus={saveStatus}
+          currentScreen={1}
+          onNavigate={() => setStep(0)}
+        />
+        <div className="flex-1 overflow-auto">
+          <HeroSplit onNext={() => setStep(1)} />
+        </div>
+      </div>
+    );
+  }
+
   // Special handling: Landing preview for dashboard needs to be rendered via Landing component's dashboard mode
   // If activeModule is dashboard, we render Landing with forced tab
-  if (activeModule === 'dashboard') {
+  if (activeModule === 'dashboard' && hasAuthoritativePublishState) {
     return (
       <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
         <TopBar
           step={step}
           activeModule={activeModule}
-          setActiveModule={setActiveModule}
+          setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
         />
         <main className="flex-1 flex overflow-hidden min-h-0 w-full">
-          {/* Force Landing into dashboard mode by ensuring published and passing forcedActiveTab */}
+          {/* A dashboard is shown only from the real hydrated publish state.
+              Never manufacture a published flag or URL for this surface. */}
           <Landing
-            data={{
-              ...data,
-              publishState: 'published',
-              publishedUrl: data.publishedUrl || publicWebsiteUrl(suggestedWebsiteSlug(data)),
-            }}
+            data={data}
             setData={setData}
             onNext={nextStep}
             goToStep={goToStep}
             onOpenStaffManagement={() => setActiveModule('staff-management')}
             forcedActiveTab={dashboardTab as any}
             onTabChange={(tab: any) => setDashboardTab(tab)}
-            onThemeChange={handleThemeSwitchPreview}
+            onThemeChange={handleThemeChange}
           />
         </main>
         <AnimatePresence>
@@ -451,13 +548,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // PHASE 17.1 — SALON OWNER DASHBOARD (screen 26). Rendered inside the same
   // app chrome as every other module; it resolves its own salon from the
   // authenticated session and never receives a salon id from here.
-  if (activeModule === 'owner-dashboard') {
+  if (activeModule === 'owner-dashboard' && hasAuthoritativePublishState) {
     return (
       <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
         <TopBar
           step={step}
           activeModule={activeModule}
-          setActiveModule={setActiveModule}
+          setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
@@ -488,7 +585,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         <TopBar
           step={step}
           activeModule={activeModule}
-          setActiveModule={setActiveModule}
+          setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
@@ -518,49 +615,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     );
   }
 
-  // Wizard module rendering
+  // Owner flow entry: Login must precede every configured business setup.
   if (step === 0) return (
     <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
       <TopBar
         step={step}
         activeModule={activeModule}
-        setActiveModule={setActiveModule}
-        saveStatus={saveStatus}
-        currentScreen={currentScreen}
-        onNavigate={navigateToScreen}
-      />
-      <div className="flex-1 overflow-auto">
-        <Landing 
-          data={data}
-          setData={setData}
-          onNext={nextStep} 
-          goToStep={goToStep}
-          onOpenStaffManagement={() => setActiveModule('staff-management')}
-          onThemeChange={handleThemeChange}
-        />
-      </div>
-      <AnimatePresence>
-        {toastMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="absolute bottom-8 right-8 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3"
-          >
-            <CheckCircle2 className="w-5 h-5 text-green-400" />
-            <span className="text-sm font-medium">{toastMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-
-  if (step === 1) return (
-    <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
-      <TopBar
-        step={step}
-        activeModule={activeModule}
-        setActiveModule={setActiveModule}
+        setActiveModule={changeActiveModule}
         saveStatus={saveStatus}
         currentScreen={currentScreen}
         onNavigate={navigateToScreen}
@@ -568,10 +629,6 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       <div className="flex-1 overflow-auto">
         <HeroSplit onNext={nextStep} />
       </div>
-      <div className="p-4 bg-white border-t border-gray-200 flex justify-between items-center">
-        <button onClick={prevStep} className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-semibold">Back</button>
-        <button onClick={nextStep} className="px-6 py-2 bg-[#ac0053] text-white rounded-xl text-xs font-semibold">Continue to Template Selection</button>
-      </div>
       <AnimatePresence>
         {toastMessage && (
           <motion.div
@@ -588,13 +645,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     </div>
   );
 
-  // For wizard steps 2..15, TopBar is always visible now (universal)
+  // Remaining screens follow Complete Setup → Template → Preview → Publish.
   return (
     <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
       <TopBar 
         step={step} 
         activeModule={activeModule} 
-        setActiveModule={setActiveModule} 
+        setActiveModule={changeActiveModule}
         saveStatus={saveStatus}
         currentScreen={currentScreen}
         onNavigate={navigateToScreen}
@@ -627,92 +684,51 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       
       <main className="flex-1 flex overflow-hidden">
         <>
-          {step === 2 && <StepTemplate data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
-          {step === 3 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 4 && <StepServices data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 5 && (
-            <StepTeam 
-              data={data} 
-              setData={setData} 
-              onNext={nextStep} 
-              onPrev={prevStep} 
-              onSave={handleSave} 
+          {/* Complete Business Setup */}
+          {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 2 && <StepServices data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 3 && (
+            <StepTeam
+              data={data}
+              setData={setData}
+              onNext={nextStep}
+              onPrev={prevStep}
+              onSave={handleSave}
               onOpenStaffManagement={() => setActiveModule('staff-management')}
             />
           )}
+          {step === 4 && (
+            <StepPhotos data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />
+          )}
+          {step === 5 && (
+            <StepSocials data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />
+          )}
           {step === 6 && (
-            <StepPhotos
-              data={data}
-              setData={setData}
-              onNext={nextStep}
-              onPrev={prevStep}
-              onSave={handleSave}
-            />
+            <StepLocation data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />
           )}
           {step === 7 && (
-            <StepSocials
-              data={data}
-              setData={setData}
-              onNext={nextStep}
-              onPrev={prevStep}
-              onSave={handleSave}
-            />
+            <StepContactBooking data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />
           )}
-          {step === 8 && (
-            <StepLocation
-              data={data}
-              setData={setData}
-              onNext={nextStep}
-              onPrev={prevStep}
-              onSave={handleSave}
-            />
-          )}
-          {step === 9 && (
-            <StepContactBooking
-              data={data}
-              setData={setData}
-              onNext={nextStep}
-              onPrev={prevStep}
-              onSave={handleSave}
-            />
-          )}
-          {/* Step 11 of 15 (index 10) - Template Appearance */}
-          {step === 10 && <StepPublish data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          
-          {/* FIXED STEPS 12-15 - Previously not rendering */}
-          {step === 11 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 12 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeSwitchPreview} />}
-          {step === 13 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 14 && <StepPublishSuccess data={data} setData={setData} onNext={() => {
-            setData(prev => ({ ...prev, publishState: 'published' }));
-            setActiveModule('dashboard');
-            setDashboardTab('overview');
-            handleSave();
-            showToast('Website published');
-          }} onSave={handleSave} />}
-          {step === 15 && (
-            <BookingConfirmation 
-              bookingId="NX-10482"
-              service="Hair Spa"
-              date="10 Aug 2026"
-              time="05:00 PM"
-              staff="Priya Sharma"
-              customer="Neha Verma"
-              price={1200}
-              advancePaid={300}
-            />
-          )}
+          {step === 8 && <StepPublish data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 9 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
 
-          {/* Fallback safety - should never hit if switch logic is correct, but prevent blank screen */}
-          {step > 15 && (
-            <div className="flex-1 flex items-center justify-center p-12">
-              <div className="text-center space-y-4">
-                <h2 className="text-2xl font-bold">Step out of range — redirecting to resume point</h2>
-                <p className="text-sm text-gray-500">Current step {step} is beyond {MAX_STEP_INDEX}</p>
-                <button onClick={() => goToStep(11)} className="px-6 py-2 bg-[#ac0053] text-white rounded-lg text-sm">Go to Step 12 AI Review</button>
-              </div>
-            </div>
-          )}
+          {/* Select Template → Preview → persisted Publish */}
+          {step === 10 && <StepTemplate data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
+          {step === 11 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeSwitchPreview} />}
+          {step === 12 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 13 && data.publishState === 'published' && data.publishedUrl ? (
+            <StepPublishSuccess data={data} setData={setData} onNext={() => {
+              // This screen is reachable only after publishOwnerSalonWebsite()
+              // returned an is_published=true Supabase row.
+              setActiveModule('dashboard');
+              setDashboardTab('overview');
+              handleSave(data);
+            }} onSave={handleSave} />
+          ) : step === 13 ? (
+            // Direct navigation/resumed local state can never manufacture a
+            // success screen. Return to the real Supabase publish action.
+            <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={() => setStep(11)} onSave={handleSave} />
+          ) : null}
         </>
       </main>
 

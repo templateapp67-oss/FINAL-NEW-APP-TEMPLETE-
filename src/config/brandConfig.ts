@@ -147,7 +147,7 @@ export const DEFAULT_BRAND_CONFIG: BrandConfig = {
     hidePlatformBranding: false,
     supportEmail: 'support@nexora.site',
     supportPhone: '+91 98765 43210',
-    websiteUrl: 'https://final-new-app-templete.vercel.app',
+    websiteUrl: 'https://nexora.site',
     cloudServerLabel: 'Nexora Cloud Server Active',
     referralPrefix: 'NX',
     bookingIdPrefix: 'NX',

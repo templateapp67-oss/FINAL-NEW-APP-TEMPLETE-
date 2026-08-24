@@ -35,6 +35,10 @@ export function normalizeRouteSlug(pathname: string): string {
   const segment = (pathname || '')
     .replace(/^\/+|\/+$/g, '')
     .split('/')[0] || '';
+  // Business-name generation falls back to `salon`; route parsing must not.
+  // An empty/invalid path remains the application root rather than silently
+  // becoming the public `/salon` address.
+  if (!segment || !/[a-z0-9]/i.test(segment)) return '';
   return slugifySalonName(segment);
 }
 
@@ -66,7 +70,7 @@ export function buildBrandFallbackSalonData(slug: string): SalonData {
 
   return {
     ...base,
-    templateId: base.templateId ?? 'barber_mens_grooming',
+    templateId: 'hair',
     salonName: brand.name,
     tagline: brand.tagline,
     about: brand.about,

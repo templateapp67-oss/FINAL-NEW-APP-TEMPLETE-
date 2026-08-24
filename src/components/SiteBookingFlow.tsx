@@ -804,7 +804,7 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
       </div>
 
       {/* ---- body ---- */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar booking-step-content">
+      <main className="overflow-y-auto overflow-x-hidden custom-scrollbar booking-step-wrapper booking-step-content">
         <div
           data-testid="booking-body"
           className="max-w-5xl mx-auto w-full px-4 md:px-6 py-5 md:py-6 grid grid-cols-1 lg:grid-cols-12 gap-5"
@@ -1676,9 +1676,9 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
         </div>
       </main>
 
-      {/* ---- sticky action bar (mobile-first) ---- */}
+      {/* ---- compact action bar (mobile-first) ---- */}
       <footer
-        className="shrink-0 border-t flex flex-col booking-action-bar navigation-footer"
+        className="shrink-0 flex flex-col"
         style={{ backgroundColor: s.card, borderColor: s.line }}
       >
         {step === 'service' && selection.count > 0 && (
@@ -1752,7 +1752,7 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
           </div>
         )}
 
-        <div className="px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+        <div className="border-t border-gray-200 p-4 flex items-center justify-between gap-6 booking-action-bar booking-actions-bar navigation-footer">
           <button
             type="button"
             data-testid="booking-back"

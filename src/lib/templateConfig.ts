@@ -30,6 +30,7 @@ export const OWNER_TEMPLATES: ReadonlyArray<{
   category: string;
   tagline: string;
   accent: string;
+  image: string;
 }> = [
   {
     id: 'barber_mens_grooming',
@@ -37,6 +38,7 @@ export const OWNER_TEMPLATES: ReadonlyArray<{
     category: 'Barber Shop',
     tagline: 'Bold dark aesthetics, precision fades, beard sculpting and hot towel shaves.',
     accent: BARBER_THEME.gold,
+    image: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?q=80&w=600&auto=format&fit=crop',
   },
   {
     id: 'hair_studio_color_bar',
@@ -44,6 +46,7 @@ export const OWNER_TEMPLATES: ReadonlyArray<{
     category: 'Premium Studio',
     tagline: 'Editorial warm minimalism, master balayage and vibrant color bar.',
     accent: HAIR_STUDIO_THEME.rose,
+    image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=600&auto=format&fit=crop',
   },
   {
     id: 'beauty_skin_spa',
@@ -51,6 +54,7 @@ export const OWNER_TEMPLATES: ReadonlyArray<{
     category: 'Spa & Wellness',
     tagline: 'Serene botanical sanctuary, holistic facials and rejuvenating rituals.',
     accent: BEAUTY_SPA_THEME.emerald,
+    image: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?q=80&w=600&auto=format&fit=crop',
   },
   {
     id: 'family_full_service',
@@ -58,6 +62,7 @@ export const OWNER_TEMPLATES: ReadonlyArray<{
     category: 'Family Care',
     tagline: 'Welcoming community destination for multi-generational care and styling.',
     accent: FAMILY_FULL_SERVICE_THEME.blue,
+    image: 'https://images.unsplash.com/photo-1582095133179-bfd08e2fc6b3?q=80&w=600&auto=format&fit=crop',
   },
   {
     id: 'nail_lash_studio',
@@ -65,6 +70,7 @@ export const OWNER_TEMPLATES: ReadonlyArray<{
     category: 'Nail & Boutique',
     tagline: 'Chic modern boutique specializing in custom nail art and lash extensions.',
     accent: NAIL_LASH_STUDIO_THEME.pink,
+    image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=600&auto=format&fit=crop',
   },
 ];
 

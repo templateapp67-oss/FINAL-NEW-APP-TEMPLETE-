@@ -3,7 +3,8 @@ import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import ThemeSelector from '../components/ThemeSelector';
 import TemplateConfigPanel from '../components/TemplateConfigPanel';
-import { normalizeThemeId } from '../lib/themeServices';
+import { normalizeThemeId, type ThemeId } from '../lib/themeServices';
+import { switchSalonTemplatePresentation } from '../lib/templateConfig';
 import { CheckCircle2, ArrowRight, ArrowLeft, Eye, Layout, Monitor, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 import { safeSetItem, safeGetItem } from '../lib/safeStorage';
@@ -24,7 +25,11 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [isSwitching, setIsSwitching] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+  const [previewId, setPreviewId] = useState<ThemeId | null>(null);
   const currentTemplate = normalizeThemeId(data.templateId);
+  const previewData = previewId && previewId !== currentTemplate
+    ? switchSalonTemplatePresentation(data, previewId)
+    : data;
 
   const selectTemplate = (id: ThemeChoice) => {
     if (id === currentTemplate) return;
@@ -108,7 +113,12 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
             data={data}
             setData={setData}
             onSave={onSave}
-            onThemeChange={(id) => selectTemplate(id as any)}
+            onThemeChange={(id) => {
+              setPreviewId(null);
+              selectTemplate(id as ThemeChoice);
+            }}
+            onPreview={(id) => setPreviewId(id)}
+            previewId={previewId}
             layout="grid"
           />
           <TemplateConfigPanel data={data} setData={setData} onSave={onSave} />
@@ -157,7 +167,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
             transition={{ duration: 0.3, ease: 'easeOut' }}
             className="w-full h-full flex justify-center"
           >
-            <TemplateRenderer data={data} mode={mode} />
+            <TemplateRenderer data={previewData} mode={mode} />
           </motion.div>
         </div>
       </div>

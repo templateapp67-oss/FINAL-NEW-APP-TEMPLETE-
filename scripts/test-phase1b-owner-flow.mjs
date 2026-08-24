@@ -74,9 +74,19 @@ const FIVE = [
 
 {
   const details = read('src/screens/StepDetails.tsx');
-  if (details.includes('owner-onboarding-templates') && details.includes('listOwnerTemplates')) {
+  if (details.includes('owner-onboarding-templates') && details.includes('ThemeSelector')) {
     pass('Owner onboarding includes 5-template picker');
   } else fail('Onboarding picker', 'missing from StepDetails');
+}
+
+{
+  const gallery = read('src/components/ThemeSelector.tsx');
+  if (gallery.includes('listOwnerTemplates') && gallery.includes('template-preview-') && gallery.includes('template-apply-')) {
+    pass('Owners can preview and apply each of the five templates');
+  } else fail('Preview/apply', 'ThemeSelector missing preview/apply');
+  if (gallery.includes('owner-active-template-label')) {
+    pass('Active template is shown to the owner');
+  } else fail('Active badge', 'missing');
 }
 
 {
@@ -87,10 +97,10 @@ const FIVE = [
 
 {
   const dash = read('src/components/TemplateSelectionDashboard.tsx');
-  for (const id of FIVE) {
-    if (!dash.includes(id)) fail('Dashboard templates', id);
-  }
-  if (FIVE.every((id) => dash.includes(id))) pass('Dashboard lists all 5 templates');
+  const gallery = read('src/components/ThemeSelector.tsx');
+  if (dash.includes('ThemeSelector') && gallery.includes('listOwnerTemplates') && FIVE.every((id) => read('src/lib/templateConfig.ts').includes(`id: '${id}'`))) {
+    pass('Dashboard lists all 5 templates');
+  } else fail('Dashboard templates', 'gallery not wired to five templates');
 }
 
 {

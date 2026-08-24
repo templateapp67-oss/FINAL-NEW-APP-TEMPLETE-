@@ -4,7 +4,7 @@ import { SalonData } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import { motion } from 'motion/react';
 import { useBrandConfig } from '../config/brandConfig';
-import { listOwnerTemplates, normalizeThemeId } from '../lib/templateConfig';
+import ThemeSelector from '../components/ThemeSelector';
 import {
   OWNER_ROLES,
   OWNER_PHOTO_ACCEPT,

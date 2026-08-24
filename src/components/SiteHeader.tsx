@@ -25,6 +25,10 @@ import {
   setSiteLocale,
 } from '../lib/siteNavigation';
 import type { SiteAppearance, SiteHeaderThemeId, SiteNavItem } from '../lib/siteNavigation';
+import { useAuth, signOut } from '../lib/useAuth';
+import { useAuthModal } from './AuthModalProvider';
+import { openSiteBooking } from '../lib/siteBooking';
+import { LogIn, LogOut, User as UserIcon, CalendarCheck2 } from 'lucide-react';
 import {
   ArrowRight,
   Globe,
@@ -564,6 +568,8 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
   const [appearance, toggleAppearance] = useSiteAppearance(undefined, design.defaultAppearance);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<string>('home');
+  const { user } = useAuth();
+  const { openAuth } = useAuthModal();
 
   const items = useMemo(() => buildSiteNavItems(themeId, data), [themeId, data]);
   const labels = (key: SiteNavItem['key']) => SITE_NAV_LABELS[key][locale];
@@ -682,6 +688,49 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
                 {labels(item.key)}
               </button>
             ))}
+            {user ? (
+              <>
+                <button
+                  type="button"
+                  data-testid="site-header-my-bookings"
+                  className={design.linkClass}
+                  style={design.linkStyle(appearance, false)}
+                  onClick={() => openSiteBooking()}
+                >
+                  {locale === 'hi' ? 'मेरी बुकिंग' : 'My Bookings'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="site-header-logout"
+                  className={design.linkClass}
+                  style={design.linkStyle(appearance, false)}
+                  onClick={() => void signOut()}
+                >
+                  {locale === 'hi' ? 'लॉग आउट' : 'Logout'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-testid="site-header-login"
+                  className={design.linkClass}
+                  style={design.linkStyle(appearance, false)}
+                  onClick={() => openAuth('login')}
+                >
+                  {locale === 'hi' ? 'लॉग इन' : 'Login'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="site-header-signup"
+                  className={design.linkClass}
+                  style={design.linkStyle(appearance, false)}
+                  onClick={() => openAuth('signup')}
+                >
+                  {locale === 'hi' ? 'साइन अप' : 'Sign Up'}
+                </button>
+              </>
+            )}
             {languageControl('site-header')}
             {darkControl('site-header')}
             <button
@@ -745,7 +794,62 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
                 {design.drawerRowSuffix?.(appearance)}
               </button>
             ))}
-          </nav>
+            {user ? (
+                <>
+                  <button
+                    type="button"
+                    data-testid="site-drawer-my-bookings"
+                    className={design.drawerRowClass}
+                    style={design.drawerRowStyle(appearance, false)}
+                    onClick={() => { setMenuOpen(false); openSiteBooking(); }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <CalendarCheck2 className="w-3.5 h-3.5" />
+                      {locale === 'hi' ? 'मेरी बुकिंग' : 'My Bookings'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="site-drawer-logout"
+                    className={design.drawerRowClass}
+                    style={design.drawerRowStyle(appearance, false)}
+                    onClick={() => { setMenuOpen(false); void signOut(); }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <LogOut className="w-3.5 h-3.5" />
+                      {locale === 'hi' ? 'लॉग आउट' : 'Logout'}
+                    </span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    data-testid="site-drawer-login"
+                    className={design.drawerRowClass}
+                    style={design.drawerRowStyle(appearance, false)}
+                    onClick={() => { setMenuOpen(false); openAuth('login'); }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <LogIn className="w-3.5 h-3.5" />
+                      {locale === 'hi' ? 'लॉग इन' : 'Login'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="site-drawer-signup"
+                    className={design.drawerRowClass}
+                    style={design.drawerRowStyle(appearance, false)}
+                    onClick={() => { setMenuOpen(false); openAuth('signup'); }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <UserIcon className="w-3.5 h-3.5" />
+                      {locale === 'hi' ? 'साइन अप' : 'Sign Up'}
+                    </span>
+                  </button>
+                </>
+              )}
+            </nav>
           <div className="px-5 pt-3 pb-2 flex items-center justify-between gap-3">
             <span className={design.drawerMetaClass} style={design.drawerMetaStyle(appearance)}>
               {SITE_HEADER_LABELS.language[locale]}

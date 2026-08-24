@@ -140,6 +140,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const backendHydratedFor = useRef<string | null>(null);
   const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
   const provisionedFor = useRef<string | null>(null);
+  const templateSwitchSequence = useRef(0);
+  const templateSwitchQueue = useRef<Promise<void>>(Promise.resolve());
+  const persistedTemplate = useRef<SalonData['templateId']>(data.templateId);
 
   // A configured production workspace is an owner-only flow. A cached wizard
   // step must never let a signed-out browser bypass Login. Local unconfigured
@@ -200,17 +203,26 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         if (!active) return;
         setBackendHydratedUser(user.id);
         if (!draft) return;
-        setData((current) => ({
-          ...current,
-          ...draft.config,
-          salonId: draft.salonId,
-          websiteSlug: draft.slug || current.websiteSlug,
-          publishedUrl: draft.isPublished && draft.slug
-            ? publicWebsiteUrl(draft.slug)
-            : undefined,
-          templateId: (draft.config.templateId || current.templateId) as SalonData['templateId'],
-          publishState: draft.isPublished ? 'published' : 'draft',
-        }));
+        setData((current) => {
+          // template_key is the presentation authority changed by
+          // set_owner_salon_template. Config may legitimately predate a
+          // post-publish template switch, so it is only the fallback.
+          const hydratedTemplate = (
+            draft.templateKey || draft.config.templateId || current.templateId
+          ) as SalonData['templateId'];
+          persistedTemplate.current = hydratedTemplate;
+          return {
+            ...current,
+            ...draft.config,
+            salonId: draft.salonId,
+            websiteSlug: draft.slug || current.websiteSlug,
+            publishedUrl: draft.isPublished && draft.slug
+              ? publicWebsiteUrl(draft.slug)
+              : undefined,
+            templateId: hydratedTemplate,
+            publishState: draft.isPublished ? 'published' : 'draft',
+          };
+        });
       })
       .catch((error) => console.error('Backend website draft hydration failed:', error));
     return () => { active = false; };
@@ -294,13 +306,33 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // rows (keyed by salon_id + theme_id) are untouched, so switching A→B→A is
   // fully reversible with no data loss.
   const handleThemeChange = (nextTheme: ThemeId) => {
+    const requestId = ++templateSwitchSequence.current;
     setData(prev => ({ ...prev, templateId: nextTheme }));
     if (!isSupabaseConfigured || !user) return;
-    setOwnerTemplate(nextTheme).catch((error) => {
-      console.error('Failed to persist template switch:', error);
-      showToast(
-        error instanceof Error ? error.message : 'Could not save the template change.',
-      );
+    // Serialize writes so rapid changes cannot reach Supabase out of order.
+    // Every accepted transition is presentation-only and the final queued RPC
+    // is necessarily the owner's latest selection.
+    templateSwitchQueue.current = templateSwitchQueue.current.then(async () => {
+      try {
+        const saved = await setOwnerTemplate(nextTheme);
+        // Track every serialized success, including an older request whose UI
+        // settlement was superseded. This is the exact database template to
+        // restore if a later queued request fails.
+        persistedTemplate.current = saved.templateId;
+        if (templateSwitchSequence.current !== requestId) return;
+        setData(current => ({ ...current, templateId: saved.templateId }));
+      } catch (error) {
+        if (templateSwitchSequence.current !== requestId) return;
+        // Do not leave an optimistic template visible as though it were live
+        // when Supabase rejected the presentation-only update.
+        setData(current => current.templateId === nextTheme
+          ? { ...current, templateId: persistedTemplate.current }
+          : current);
+        console.error('Failed to persist template switch:', error);
+        showToast(
+          error instanceof Error ? error.message : 'Could not save the template change.',
+        );
+      }
     });
   };
 

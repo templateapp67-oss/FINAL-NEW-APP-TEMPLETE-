@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
-const [main, publicView, m44, hostRouting, templateRenderer, bookingFlow, fullBooking, ...themes] = await Promise.all([
+const [main, app, publicView, m44, templateMigration, ownerProvisioning, hostRouting, templateRenderer, bookingFlow, fullBooking, ...themes] = await Promise.all([
   read('src/main.tsx'),
+  read('src/App.tsx'),
   read('src/components/PublicSalonView.tsx'),
   read('supabase/migrations/20260824000101_m44_business_publishing.sql'),
+  read('supabase/migrations/20260823000401_phase1_whitelabel_provisioning.sql'),
+  read('src/lib/ownerProvisioning.ts'),
   read('server/hostRouting.ts'),
   read('src/components/TemplateRenderer.tsx'),
   read('src/lib/siteBookingFlow.ts'),
@@ -64,5 +67,12 @@ assert.match(m44, /jsonb_strip_nulls\(jsonb_build_object/);
 assert.match(m44, /grant execute on function public\.get_public_salon_website\(text\) to anon/);
 assert.doesNotMatch(m44, /grant select on table public\.salon_public_websites to anon/);
 ok('anonymous resolution uses the field-limited public RPC, not private owner data');
+
+assert.match(ownerProvisioning, /client\.rpc\(SET_OWNER_TEMPLATE_FN/);
+assert.match(templateMigration, /update public\.salons[\s\S]*set theme_id = v_theme_id[\s\S]*update public\.salon_public_websites[\s\S]*set template_key = v_template/);
+assert.doesNotMatch(templateMigration.match(/create or replace function public\.set_owner_salon_template[\s\S]*?\$\$;/)?.[0] || '', /delete from|truncate/i);
+assert.match(app, /draft\.templateKey \|\| draft\.config\.templateId/);
+assert.match(app, /templateSwitchQueue\.current = templateSwitchQueue\.current\.then/);
+ok('post-publish template changes are serialized, persisted and presentation-only');
 
 console.log(`\nPublic website resolution: ${passed}/${passed} checks PASS`);

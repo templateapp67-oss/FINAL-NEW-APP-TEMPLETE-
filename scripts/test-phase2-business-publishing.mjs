@@ -297,22 +297,55 @@ ok('publish persists and the public projection excludes private owner/staff fiel
 
 const themeOne = (await db.query(`select id from public.themes where theme_id='barber_mens_grooming'`)).rows[0].id;
 await db.query(`insert into public.services (salon_id,theme_id,name) values ($1,$2,'Signature Service')`, [salonA.out_salon_id, themeOne]);
-const transitions = [
-  'hair_studio_color_bar','beauty_skin_spa','family_full_service',
-  'nail_lash_studio','barber_mens_grooming',
+await db.query(`insert into public.products (salon_id,name) values ($1,'Retail Product')`, [salonA.out_salon_id]);
+await db.query(`insert into public.bookings (salon_id,customer_name) values ($1,'Existing Customer')`, [salonA.out_salon_id]);
+await db.query(`insert into public.business_locations (salon_id,address_label,approval_status)
+  values ($1,'Stable Business Address','approved')`, [salonA.out_salon_id]);
+
+const templates = [
+  'barber_mens_grooming','hair_studio_color_bar','beauty_skin_spa',
+  'family_full_service','nail_lash_studio',
 ];
-for (const template of transitions) {
-  await asRole('authenticated', ids.ownerA, async () => {
-    await db.query(`select * from public.set_owner_salon_template($1)`, [template]);
-  });
-  const current = await asRole('anon', '', async () => (
-    await db.query(`select slug,template_key from public.get_public_salon_website('nexora-salon')`)
-  ).rows);
-  assert.equal(current[0].slug, 'nexora-salon');
-  assert.equal(current[0].template_key, template);
-  assert.equal((await db.query(`select count(*)::int n from public.services where salon_id=$1`, [salonA.out_salon_id])).rows[0].n, 1);
+const websiteBeforeTransitions = (await db.query(`select slug,config,is_published,published_at
+  from public.salon_public_websites where salon_id=$1`, [salonA.out_salon_id])).rows[0];
+const salonBeforeTransitions = (await db.query(`select name,organization_id,slug
+  from public.salons where id=$1`, [salonA.out_salon_id])).rows[0];
+let transitionCount = 0;
+for (const source of templates) {
+  for (const target of templates) {
+    await asRole('authenticated', ids.ownerA, async () => {
+      await db.query(`select * from public.set_owner_salon_template($1)`, [source]);
+      await db.query(`select * from public.set_owner_salon_template($1)`, [target]);
+    });
+    const current = await asRole('anon', '', async () => (
+      await db.query(`select slug,template_key,business_name,public_config,published_at
+        from public.get_public_salon_website('nexora-salon')`)
+    ).rows);
+    assert.equal(current.length, 1, `${source} -> ${target} must stay public`);
+    assert.equal(current[0].slug, 'nexora-salon');
+    assert.equal(current[0].template_key, target);
+    assert.equal(current[0].business_name, 'Nexora Salon');
+    assert.equal(current[0].published_at.getTime(), websiteBeforeTransitions.published_at.getTime());
+
+    const website = (await db.query(`select slug,config,is_published,published_at
+      from public.salon_public_websites where salon_id=$1`, [salonA.out_salon_id])).rows[0];
+    assert.equal(website.slug, websiteBeforeTransitions.slug);
+    assert.deepEqual(website.config, websiteBeforeTransitions.config);
+    assert.equal(website.is_published, true);
+    assert.equal(website.published_at.getTime(), websiteBeforeTransitions.published_at.getTime());
+
+    const salon = (await db.query(`select name,organization_id,slug
+      from public.salons where id=$1`, [salonA.out_salon_id])).rows[0];
+    assert.deepEqual(salon, salonBeforeTransitions);
+    assert.equal((await db.query(`select count(*)::int n from public.services where salon_id=$1 and name='Signature Service'`, [salonA.out_salon_id])).rows[0].n, 1);
+    assert.equal((await db.query(`select count(*)::int n from public.products where salon_id=$1 and name='Retail Product'`, [salonA.out_salon_id])).rows[0].n, 1);
+    assert.equal((await db.query(`select count(*)::int n from public.bookings where salon_id=$1 and customer_name='Existing Customer'`, [salonA.out_salon_id])).rows[0].n, 1);
+    assert.equal((await db.query(`select count(*)::int n from public.business_locations where salon_id=$1 and address_label='Stable Business Address'`, [salonA.out_salon_id])).rows[0].n, 1);
+    transitionCount += 1;
+  }
 }
-ok('all five template transitions keep the same URL and business data');
+assert.equal(transitionCount, 25);
+ok('all 25 template transitions keep the same public URL and business data');
 
 await asRole('authenticated', ids.ownerA, async () => {
   const republished = (await db.query(`select * from public.publish_owner_salon_website(

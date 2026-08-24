@@ -39,6 +39,14 @@ const sql = read('supabase/migrations/20260823000401_phase1_whitelabel_provision
 }
 
 {
+  const arch = read('src/lib/templateArchitecture.ts');
+  const cycle = ['barber_mens_grooming', 'beauty_skin_spa', 'nail_lash_studio', 'hair_studio_color_bar'];
+  if (arch.includes('switchPreservedCoreBusiness') && cycle.every((id) => read('src/lib/themeServices.ts').includes(id))) {
+    pass('Template 1→3→5→2 cycle uses the five official ids and a core-preservation check');
+  } else fail('switch cycle', 'missing official ids or core check');
+}
+
+{
   const app = read('src/App.tsx');
   if (app.includes('setOwnerTemplate') && app.includes('switchSalonTemplatePresentation')) {
     pass('App applies template on the existing salon via the presentation RPC');

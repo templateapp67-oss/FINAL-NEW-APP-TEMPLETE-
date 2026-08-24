@@ -18,8 +18,7 @@ import {
   matchesBrandFallbackSlug,
   extractSubdomainSlug,
 } from './lib/salonRouting.ts';
-import { PUBLIC_SALON_CATALOG_VIEW } from './lib/nearbySalons.ts';
-import { slugifySalonName } from './lib/publicWebsiteUrl.ts';
+
 import './index.css';
 
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
@@ -140,52 +139,24 @@ function RootRouter() {
       //    No hardcoded salon. Offline/local draft is a last-resort fallback.
       if (isSupabaseConfigured && supabase) {
         try {
-          // (a) Exact published-website slug match — the canonical case.
+          // Resolve through the field-limited published projection. Anonymous
+          // users never receive the owner-private draft/config row.
           const { data: website, error: websiteError } = await supabase
-            .from('salon_public_websites')
-            .select('slug')
-            .eq('slug', normalizedPath)
-            .eq('is_published', true)
-            .maybeSingle();
+            .rpc('get_public_salon_website', { p_slug: normalizedPath });
 
-          if (!websiteError && website) {
+          if (!websiteError && Array.isArray(website) && website.length > 0) {
             setRoute('public_salon');
             setLoading(false);
             return;
-          }
-
-          // (b) Fallback search by salon name / slug in the anonymous-safe
-          //     public catalog. The exact-website-slug match above already
-          //     covers the canonical case; this resolves cosmetic slug drift
-          //     and case/format differences (e.g. a URL of `/royal-hair-studio`
-          //     against a stored salon name that slugifies to the same value).
-          const { data: catalog, error: catalogError } = await supabase
-            .from(PUBLIC_SALON_CATALOG_VIEW)
-            .select('slug,name')
-            .limit(500);
-
-          if (!catalogError && catalog) {
-            const hit = (catalog as Array<{ slug?: string | null; name?: string | null }>)
-              .some((row) =>
-                (row.slug && slugifySalonName(row.slug) === normalizedPath) ||
-                (row.name && slugifySalonName(row.name) === normalizedPath),
-              );
-            if (hit) {
-              setRoute('public_salon');
-              setLoading(false);
-              return;
-            }
           }
         } catch (err) {
           console.error('Failed to query salon slug from Supabase:', err);
         }
       }
 
-      // 4. Brand configuration fallback: when Supabase is unconfigured OR the
-      //    requested slug has no backend record, serve the configured default
-      //    business (e.g. 'royal-hair-studio') so the demo salon always loads
-      //    instead of "Salon Not Found".
-      if (matchesBrandFallbackSlug(normalizedPath)) {
+      // 4. Offline demo fallback only. In configured deployments a missing or
+      //    unpublished database record must remain unavailable.
+      if (!isSupabaseConfigured && matchesBrandFallbackSlug(normalizedPath)) {
         setRoute('public_salon');
         setLoading(false);
         return;

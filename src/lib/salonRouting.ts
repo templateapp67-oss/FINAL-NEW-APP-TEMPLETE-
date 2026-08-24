@@ -66,7 +66,7 @@ export function buildBrandFallbackSalonData(slug: string): SalonData {
 
   return {
     ...base,
-    templateId: base.templateId ?? 'barber_mens_grooming',
+    templateId: 'hair',
     salonName: brand.name,
     tagline: brand.tagline,
     about: brand.about,

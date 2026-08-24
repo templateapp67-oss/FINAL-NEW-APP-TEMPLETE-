@@ -171,10 +171,9 @@ export async function publishOwnerSalonWebsite(data: SalonData): Promise<{
   isPublished: boolean;
   publishedAt: string | null;
 }> {
-  const slug = data.websiteSlug?.trim().toLowerCase();
-  if (!isValidWebsiteSlug(slug)) {
-    throw new Error('Choose a valid website address before publishing.');
-  }
+  // The database allocates the authoritative unique slug from salonName.
+  // p_slug remains populated only for backwards-compatible RPC shape.
+  const slug = slugifySalonName(data.salonName) || 'business';
   const salonId = typeof data.salonId === 'string' && data.salonId.trim()
     ? data.salonId.trim()
     : null;

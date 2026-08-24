@@ -1034,7 +1034,7 @@ export default function SiteBookingPaymentFlow(props: Props) {
       </div>
 
       {/* ---- body ---- */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar booking-step-content">
+      <main className="overflow-y-auto overflow-x-hidden custom-scrollbar booking-step-wrapper booking-step-content">
         <div
           data-testid="payment-body"
           className="max-w-4xl mx-auto w-full px-4 md:px-6 py-5 md:py-6 flex flex-col gap-5"
@@ -1671,9 +1671,9 @@ export default function SiteBookingPaymentFlow(props: Props) {
         </div>
       </main>
 
-      {/* ---- sticky action bar ---- */}
+      {/* ---- compact action bar ---- */}
       <footer
-        className="shrink-0 border-t px-4 md:px-6 py-3 flex items-center justify-between gap-3 booking-action-bar navigation-footer"
+        className="shrink-0 border-t border-gray-200 p-4 flex items-center justify-between gap-6 booking-action-bar booking-actions-bar navigation-footer"
         style={{ backgroundColor: s.card, borderColor: s.line }}
       >
         {step === 'option' && (

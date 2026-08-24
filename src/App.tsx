@@ -428,7 +428,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             onOpenStaffManagement={() => setActiveModule('staff-management')}
             forcedActiveTab={dashboardTab as any}
             onTabChange={(tab: any) => setDashboardTab(tab)}
-            onThemeChange={handleThemeSwitchPreview}
+            onThemeChange={handleThemeChange}
           />
         </main>
         <AnimatePresence>

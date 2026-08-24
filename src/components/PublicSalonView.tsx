@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { initialData, type GalleryImage, type SalonData, type Service, type WebsiteCopy } from '../types';
+import { initialData, type GalleryImage, type SalonData, type Service } from '../types';
 import TemplateRenderer from './TemplateRenderer';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabaseClient';
 import { listPublicSalonMedia } from '../lib/salonMediaService';
-import { PUBLIC_SALON_CATALOG_VIEW } from '../lib/nearbySalons';
-import { SALON_LOCATION_TABLE } from '../lib/salonLocationService';
+
 import { updateSalonFavicon, resetSalonFavicon } from '../lib/favicon';
 import {
   buildBrandFallbackSalonData,
@@ -69,44 +68,22 @@ const themeKeys = new Set([
 
 async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> {
   const client = requireSupabase();
-  const { data: website, error: websiteError } = await client
-    .from('salon_public_websites')
-    .select('salon_id,slug,template_key,config')
-    .eq('slug', slug)
-    .eq('is_published', true)
-    .maybeSingle();
+  const { data: projectionRows, error: websiteError } = await client
+    .rpc('get_public_salon_website', { p_slug: slug });
   if (websiteError) throw websiteError;
-  if (!website) return null;
+  const website = Array.isArray(projectionRows) ? projectionRows[0] : projectionRows;
+  if (!website?.salon_id || !website.slug || !website.business_name) return null;
 
-  const { data: salon, error: salonError } = await client
-    .from(PUBLIC_SALON_CATALOG_VIEW)
-    .select('id,name,slug,address,city')
-    .eq('id', website.salon_id)
-    .maybeSingle();
-  if (salonError) throw salonError;
-  if (!salon) return null;
-
-  const [{ data: rows, error: serviceError }, { data: themes, error: themeError }, locationResult] = await Promise.all([
-    client.from('services')
-      .select('id,theme_id,category_id,name,description,price_paise,duration_minutes,is_featured,display_order')
-      .eq('salon_id', salon.id)
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .order('display_order'),
-    client.from('themes').select('id,theme_id').eq('is_active', true),
-    client.from(SALON_LOCATION_TABLE)
-      .select('address_label')
-      .eq('salon_id', salon.id)
-      .eq('approval_status', 'approved')
-      .maybeSingle(),
-  ]);
+  const { data: rows, error: serviceError } = await client.from('services')
+    .select('id,theme_id,category_id,name,description,price_paise,duration_minutes,is_featured,display_order')
+    .eq('salon_id', website.salon_id)
+    .eq('is_active', true)
+    .is('deleted_at', null)
+    .order('display_order');
   if (serviceError) throw serviceError;
-  if (themeError) throw themeError;
 
-  const config = website.config && typeof website.config === 'object' && !Array.isArray(website.config)
-    ? website.config as Partial<SalonData>
-    : {};
-  const keyById = new Map((themes || []).map((theme) => [theme.id, theme.theme_id]));
+  // Services are business data, not template data. Keep every active service
+  // available when an owner moves Template 1 -> 4 (or any other transition).
   const services: Service[] = (rows || []).map((service) => ({
     id: service.id,
     name: service.name,
@@ -116,32 +93,32 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     duration: service.duration_minutes,
     featured: service.is_featured,
     themeId: service.theme_id,
-    themeKey: service.theme_id ? keyById.get(service.theme_id) : undefined,
     categoryId: service.category_id,
     status: 'active',
   }));
-  const selectedTheme = [config.templateId, website.template_key, ...services.map((service) => service.themeKey)]
-    .find((key): key is string => typeof key === 'string' && themeKeys.has(key));
-  const scopedServices = selectedTheme
-    ? services.filter((service) => service.themeKey === selectedTheme)
-    : services.filter((service) => !service.themeKey);
+
+  const config = website.public_config && typeof website.public_config === 'object' && !Array.isArray(website.public_config)
+    ? website.public_config as Partial<SalonData>
+    : {};
+  const selectedTheme = typeof website.template_key === 'string' && themeKeys.has(website.template_key)
+    ? website.template_key as SalonData['templateId']
+    : 'barber_mens_grooming';
 
   let media: Awaited<ReturnType<typeof listPublicSalonMedia>> = [];
   try {
-    media = await listPublicSalonMedia(salon.id, ['logo', 'hero', 'gallery', 'owner']);
+    media = await listPublicSalonMedia(website.salon_id, ['logo', 'hero', 'gallery']);
   } catch (error) {
     console.error('Public salon media could not be loaded:', error);
   }
   const logo = media.find((item) => item.mediaType === 'logo' && item.signedUrl);
   const hero = media.find((item) => item.mediaType === 'hero' && item.signedUrl);
-  const owner = media.find((item) => item.mediaType === 'owner' && item.signedUrl);
   const gallery: GalleryImage[] = media
     .filter((item) => item.mediaType === 'gallery' && item.signedUrl)
     .map((item) => ({
       id: item.id,
       storagePath: item.storagePath || undefined,
       url: item.signedUrl!,
-      alt: item.title || item.description || `${salon.name} gallery image`,
+      alt: item.title || item.description || `${website.business_name} gallery image`,
       title: item.title || undefined,
       description: item.description || undefined,
       displayOrder: item.displayOrder,
@@ -149,42 +126,28 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
       moderation: 'approved',
     }));
 
-  const location = locationResult.data?.address_label || salon.address || salon.city || '';
-  // White-label content pass-through: the owner's CMS config is the content
-  // authority for copy overrides and AI-reviewed content. Spread conditionally
-  // so absent config keys never clobber the built-in defaults below.
-  const whiteLabel: Partial<SalonData> = {};
-  if (config.websiteCopy && typeof config.websiteCopy === 'object' && !Array.isArray(config.websiteCopy)) {
-    whiteLabel.websiteCopy = config.websiteCopy as WebsiteCopy;
-  }
-  if (config.reviewedContent && typeof config.reviewedContent === 'object' && !Array.isArray(config.reviewedContent)) {
-    whiteLabel.reviewedContent = config.reviewedContent;
-  }
+  const location = typeof website.address === 'string' ? website.address : '';
   return {
     ...emptyPublicData(slug),
-    ...whiteLabel,
-    salonId: salon.id,
-    templateId: (selectedTheme as SalonData['templateId']) || 'barber_mens_grooming',
-    salonName: salon.name,
-    tagline: typeof config.tagline === 'string' ? config.tagline : '',
-    about: typeof config.about === 'string' ? config.about : '',
-    ownerName: typeof config.ownerName === 'string' ? config.ownerName : '',
-    ownerRole: typeof config.ownerRole === 'string' ? config.ownerRole : '',
-    ownerPhotoUrl: owner?.signedUrl || '',
+    ...config,
+    salonId: website.salon_id,
+    websiteSlug: website.slug,
+    templateId: selectedTheme,
+    salonName: website.business_name,
+    // Owner identity/contact is deliberately not part of the public RPC.
+    ownerName: '',
+    ownerRole: '',
+    ownerPhotoUrl: '',
+    email: '',
     phone: typeof config.phone === 'string' ? config.phone : '',
-    email: typeof config.email === 'string' ? config.email : '',
     whatsappPhone: typeof config.whatsappPhone === 'string' ? config.whatsappPhone : '',
-    contactOptions: config.contactOptions || { callNow: false, whatsapp: false, bookNow: true },
-    bookingRules: config.bookingRules,
-    websiteAppearance: config.websiteAppearance,
-    brandColor: typeof config.brandColor === 'string' ? config.brandColor : undefined,
-    salonNameFont: typeof config.salonNameFont === 'string' ? config.salonNameFont : undefined,
-    salonNameColor: typeof config.salonNameColor === 'string' ? config.salonNameColor : undefined,
     logoUrl: logo?.signedUrl || '',
     heroImageUrl: hero?.signedUrl || '',
     gallery,
-    services: scopedServices,
-    address: location ? { ...initialData.address!, fullAddress: location, city: salon.city || '' } : undefined,
+    services,
+    address: location || website.city
+      ? { ...initialData.address!, fullAddress: location, city: website.city || '' }
+      : undefined,
   };
 }
 

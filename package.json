@@ -132,7 +132,8 @@
     "test:m41": "tsx scripts/test-m41-website-booking.mjs",
     "test:m41:migration": "tsx scripts/test-m41-migration.mjs",
     "test:m41:all": "npm run test:m41 && npm run test:m41:migration",
-    "test:legacy-site": "tsx scripts/test-legacy-site-fixes.mjs"
+    "test:legacy-site": "tsx scripts/test-legacy-site-fixes.mjs",
+    "test:phase2-publishing": "tsx scripts/test-phase2-business-publishing.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

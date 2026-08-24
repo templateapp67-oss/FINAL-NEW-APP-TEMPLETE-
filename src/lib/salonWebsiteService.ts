@@ -254,6 +254,7 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
 }
 
 export const PUBLISH_OWNER_WEBSITE_FN = 'publish_owner_salon_website';
+export const UNPUBLISH_OWNER_WEBSITE_FN = 'unpublish_owner_salon_website';
 
 function firstRpcRow<T>(data: T | T[] | null): T | null {
   if (data == null) return null;
@@ -352,5 +353,41 @@ export async function publishOwnerSalonWebsite(data: SalonData): Promise<{
     slug: saved.slug,
     isPublished: saved.is_published === true,
     publishedAt: saved.published_at ?? null,
+  };
+}
+
+/**
+ * Unpublish the authenticated owner's salon website through the existing
+ * `unpublish_owner_salon_website` RPC (migration M39). Visibility flips in
+ * the database; `published_at` (the permanent URL allocation) is preserved,
+ * so republishing later keeps the same public address. Salon id is resolved
+ * in the database — never trusted from the client.
+ */
+export async function unpublishOwnerSalonWebsite(data: SalonData): Promise<{
+  salonId: string;
+  slug: string;
+  isPublished: boolean;
+}> {
+  const salonId = typeof data.salonId === 'string' && data.salonId.trim()
+    ? data.salonId.trim()
+    : null;
+  const { data: rows, error } = await requireSupabase().rpc(UNPUBLISH_OWNER_WEBSITE_FN, {
+    p_salon_id: salonId,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to unpublish your website.');
+  }
+  const saved = firstRpcRow(rows as {
+    salon_id?: string;
+    slug?: string;
+    is_published?: boolean;
+  } | null);
+  if (!saved?.salon_id || !saved.slug) {
+    throw new Error('Unable to unpublish your website.');
+  }
+  return {
+    salonId: saved.salon_id,
+    slug: saved.slug,
+    isPublished: saved.is_published === true,
   };
 }

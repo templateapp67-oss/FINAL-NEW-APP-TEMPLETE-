@@ -198,7 +198,8 @@ globalThis.fetch = bridgeFetch;
 process.env.VITE_SUPABASE_URL = 'http://pglite.local';
 process.env.VITE_SUPABASE_ANON_KEY = 'test-anon-key';
 
-const { publishOwnerSalonWebsite } = await import('../src/lib/salonWebsiteService.ts');
+const { publishOwnerSalonWebsite, unpublishOwnerSalonWebsite } =
+  await import('../src/lib/salonWebsiteService.ts');
 const { emptyOwnerSalonData } = await import('../src/lib/ownerPreview.ts');
 
 const completeDraft = () => ({
@@ -363,6 +364,56 @@ const renamedRow = (await db.query(
 assert.equal(renamedRow.slug, 'sin-city-salon');
 assert.equal(renamedRow.name, 'Sin City Studio');
 ok('republish updates content but preserves the allocated public URL');
+
+// 5. Unpublish flips the persisted state while keeping the reservation.
+const publishedAtBefore = (await db.query(
+  `select published_at from public.salon_public_websites where salon_id = $1`,
+  [ids.salonA],
+)).rows[0].published_at;
+const unpublished = await unpublishOwnerSalonWebsite(completeDraft());
+assert.equal(unpublished.isPublished, false, 'unpublish RPC must confirm is_published = false');
+assert.equal(unpublished.slug, 'sin-city-salon');
+const unpublishedRow = (await db.query(
+  `select is_published, published_at, slug from public.salon_public_websites where salon_id = $1`,
+  [ids.salonA],
+)).rows[0];
+assert.equal(unpublishedRow.is_published, false);
+assert.equal(unpublishedRow.slug, 'sin-city-salon');
+assert.equal(
+  new Date(unpublishedRow.published_at).toISOString(),
+  new Date(publishedAtBefore).toISOString(),
+  'unpublish must preserve the first published_at/URL allocation',
+);
+ok('unpublish is persisted (is_published = false, URL allocation kept)');
+
+// The public site disappears immediately — database is the authority.
+session.uid = '';
+session.role = 'anon';
+const { data: goneRows, error: goneError } = await requireSupabase().rpc(
+  'get_public_salon_website', { p_slug: 'sin-city-salon' },
+);
+assert.ifError(goneError);
+assert.equal(Array.isArray(goneRows) ? goneRows.length : 0, 0);
+ok('an unpublished site resolves to zero rows (public 404), no cached fallback');
+
+// 6. Republishing after unpublish brings the same URL back live.
+session.uid = ids.ownerA;
+session.role = 'authenticated';
+const liveAgain = await publishOwnerSalonWebsite(completeDraft());
+assert.equal(liveAgain.isPublished, true);
+assert.equal(liveAgain.slug, 'sin-city-salon');
+const liveAgainRow = (await db.query(
+  `select is_published from public.salon_public_websites where salon_id = $1`,
+  [ids.salonA],
+)).rows[0];
+assert.equal(liveAgainRow.is_published, true);
+session.uid = '';
+session.role = 'anon';
+const { data: backRows } = await requireSupabase().rpc(
+  'get_public_salon_website', { p_slug: 'sin-city-salon' },
+);
+assert.equal(Array.isArray(backRows) ? backRows.length : 0, 1);
+ok('republish after unpublish restores the same live URL');
 
 globalThis.fetch = originalFetch;
 await db.close();

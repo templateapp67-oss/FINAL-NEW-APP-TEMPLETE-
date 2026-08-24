@@ -113,6 +113,33 @@ assert.match(service, /isPublished: saved\.is_published === true/);
 assert.match(service, /Fail closed before the existing Phase 1-A RPC/);
 ok('publishing is persisted through the authenticated Supabase RPC');
 
+// 4. PUBLISH STATE — canonical architecture, DB-authoritative publish AND
+//    unpublish, and no localStorage decision.
+assert.match(service, /UNPUBLISH_OWNER_WEBSITE_FN = 'unpublish_owner_salon_website'/);
+assert.match(service, /\.rpc\(UNPUBLISH_OWNER_WEBSITE_FN/);
+assert.match(service, /isPublished: saved\.is_published === true/);
+assert.match(service, /`unpublish_owner_salon_website` RPC \(migration M39\)/);
+assert.match(service, /`published_at` \(the permanent URL allocation\) is preserved/);
+ok('unpublish uses the canonical RPC and mirrors the database response');
+
+assert.match(publish, /unpublishOwnerSalonWebsite\(data\)/);
+assert.match(publish, /publishState: saved\.isPublished \? 'published' : 'draft'/);
+assert.match(publish, /publishedUrl: saved\.isPublished \? prev\.publishedUrl : ''/);
+assert.match(publish, /isLive = data\.publishState === 'published' && Boolean\(data\.publishedUrl\)/);
+assert.match(publish, /data-testid="publication-state-badge"/);
+assert.match(publish, /Draft — not public/);
+assert.match(publish, /Unpublish website/);
+ok('publish screen shows live/draft from DB state and wires real unpublishing');
+
+assert.doesNotMatch(
+  app,
+  /publishState: data\.publishState|publishState: dataToSave\.publishState|parsed\.data\?\.publishState/,
+);
+assert.match(app, /Publication is decided ONLY by the database/);
+assert.match(app, /publishState: draft\?\.isPublished \? 'published' : 'draft'/);
+assert.match(app, /localStorage never decides it/);
+ok('localStorage never decides publication state — only the database row does');
+
 assert.match(readiness, />= STEP_CONTENT_REVIEW/);
 assert.match(readiness, /Complete these items before publishing:/);
 assert.match(session, /STEP_PUBLISH/);

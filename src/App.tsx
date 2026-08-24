@@ -116,19 +116,15 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [activeModule, setActiveModule] = useState<'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard'>(() => {
     // A deep-link to /dashboard opens the real Owner Dashboard by default.
     if (initialModule === 'owner-dashboard') return 'owner-dashboard';
+    // Publication is decided ONLY by the database (hydrated from
+    // salon_public_websites.is_published). localStorage never decides it.
     if (isSupabaseConfigured) return 'wizard';
     try {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.activeModule === 'staff-management') return parsed.activeModule;
-        if (
-          (parsed.activeModule === 'dashboard' || parsed.activeModule === 'owner-dashboard') &&
-          parsed.data?.publishState === 'published'
-        ) return parsed.activeModule;
       }
-      const dashboardTab = safeGetItem(DASHBOARD_TAB_KEY);
-      if (dashboardTab && data.publishState === 'published') return 'dashboard';
     } catch {}
     return 'wizard';
   });
@@ -315,7 +311,6 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             selectedTemplate: data.templateId,
             websiteAppearance: data.websiteAppearance,
             reviewedContent: data.reviewedContent,
-            publishState: data.publishState,
             currentStep: step + 1
           })
         );
@@ -471,7 +466,6 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           selectedTemplate: dataToSave.templateId,
           websiteAppearance: dataToSave.websiteAppearance,
           reviewedContent: dataToSave.reviewedContent,
-          publishState: dataToSave.publishState,
           currentStep: step + 1
         })
       );

@@ -27,7 +27,7 @@ Migrations: M39 (publish/unpublish) → white-label provision → **M44–M46** 
 
 **Login → Business Setup → Choose Template → Customize → Preview → Publish** (`src/lib/ownerFlow.ts` is the canonical step map: Login 1, Business Setup 2–8, Choose Template 9, Customize 10–11, Preview 12, Publish 13–14).
 
-The Publish action is real: `StepPublishSetup` → `publishOwnerSalonWebsite` → `publish_owner_salon_website` RPC (readiness gate) → only a database-confirmed `is_published = true` row renders the success screen. The success URL comes from the **RPC-returned slug only**, never from a client-generated draft URL.
+The Publish action is real: `StepPublishSetup` → `publishOwnerSalonWebsite` → `publish_owner_salon_website` RPC (readiness gate) → only a database-confirmed `is_published = true` row renders the success screen. The success URL comes from the **RPC-returned slug only**, never from a client-generated draft URL. The same screen shows the live/draft state from the database and exposes **Unpublish** through the canonical `unpublish_owner_salon_website` RPC (M39): visibility flips in Supabase, `published_at` (the URL allocation) is preserved, and local state is updated only from the RPC response. Publication is never decided from localStorage — `salon_public_websites.is_published` is the authority on load, publish, unpublish and public resolution.
 
 Drafts are never public. Duplicate names get `name-2`. First `published_at` permanently allocates the URL.
 

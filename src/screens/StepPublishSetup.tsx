@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor
 import { useBrandConfig } from '../config/brandConfig';
 import {
   publishOwnerSalonWebsite,
+  unpublishOwnerSalonWebsite,
   verifyOwnerPublishReadiness,
 } from '../lib/salonWebsiteService';
 import { publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
@@ -29,11 +30,17 @@ function generatedSlug(data: SalonData): string {
   return slugifySalonName(data.salonName) || 'salon';
 }
 
+function displayUrl(value: string): string {
+  return value.replace(/^https?:\/\//, '');
+}
+
 export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave }: Props) {
   const { platform } = useBrandConfig();
   const [slug, setSlug] = useState<string>(() => generatedSlug(data));
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [publishing, setPublishing] = useState(false);
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [confirmingUnpublish, setConfirmingUnpublish] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [serverReady, setServerReady] = useState<PublishReadiness | null>(null);
   const [checkingReadiness, setCheckingReadiness] = useState(false);
@@ -121,6 +128,36 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
     }
   };
 
+  // Only a database-confirmed publication can be displayed as live, and only
+  // then can the owner take the site offline through the same RPC. Local
+  // cache never participates: publishState/publishedUrl are set exclusively
+  // from the publish/unpublish RPC response or from the hydrated DB draft.
+  const isLive = data.publishState === 'published' && Boolean(data.publishedUrl);
+
+  const handleUnpublish = async () => {
+    setUnpublishing(true);
+    setPublishError(null);
+    try {
+      const saved = await unpublishOwnerSalonWebsite(data);
+      // Flip local state only from the database response.
+      setData(prev => ({
+        ...prev,
+        salonId: saved.salonId,
+        websiteSlug: saved.slug,
+        publishState: saved.isPublished ? 'published' : 'draft',
+        publishedUrl: saved.isPublished ? prev.publishedUrl : '',
+      }));
+      if (onSave) onSave();
+      setConfirmingUnpublish(false);
+    } catch (error) {
+      setPublishError(
+        error instanceof Error ? error.message : 'Unable to unpublish your website.',
+      );
+    } finally {
+      setUnpublishing(false);
+    }
+  };
+
   const previewData: SalonData = {
     ...data,
     salonName: data.reviewedContent?.heroHeadline || data.salonName,
@@ -181,6 +218,77 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
               </p>
             </div>
           )}
+
+          {/* Publication state — the database is the only authority. */}
+          <div
+            className={`rounded-2xl border p-5 flex flex-col gap-3 ${isLive ? 'border-emerald-200 bg-emerald-50/60' : 'border-gray-200 bg-white'}`}
+            data-testid="publication-state"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                Publication state
+              </h2>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                  isLive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}
+                data-testid="publication-state-badge"
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                {isLive ? 'Live' : 'Draft — not public'}
+              </span>
+            </div>
+            {isLive ? (
+              <>
+                <p className="text-xs text-gray-600">
+                  Your website is live at{' '}
+                  <span className="font-mono font-semibold text-gray-900 break-all">
+                    {displayUrl(data.publishedUrl)}
+                  </span>
+                  . Unpublishing removes it from the public website immediately; your saved
+                  business information and address stay reserved.
+                </p>
+                {confirmingUnpublish ? (
+                  <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
+                    <p className="text-xs font-semibold text-red-800">
+                      Take your website offline? Visitors will see it as unavailable.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleUnpublish}
+                        disabled={unpublishing}
+                        className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {unpublishing ? 'Unpublishing…' : 'Yes, unpublish'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingUnpublish(false)}
+                        disabled={unpublishing}
+                        className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Keep live
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingUnpublish(true)}
+                    className="w-full rounded-lg border border-red-200 bg-white px-3 py-2.5 text-xs font-bold text-red-700 hover:bg-red-50"
+                  >
+                    Unpublish website
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-gray-600">
+                Your website is not visible to the public yet. Publish it to go live at the
+                address above.
+              </p>
+            )}
+          </div>
 
           {/* Website Address Section */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs flex flex-col gap-4">

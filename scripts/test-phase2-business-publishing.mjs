@@ -209,14 +209,30 @@ await db.exec(`
   );
 `);
 await execMigration(await read('20260824000101_m44_business_publishing.sql'));
-ok('Phase 2 migration applies over the existing publishing architecture');
+await execMigration(await read('20260824000201_m45_business_slug_hardening.sql'));
+ok('Phase 2 migrations apply over the existing publishing architecture');
 assert.equal(slugifySalonName('  Nexora Salon!!!  '), 'nexora-salon');
+assert.equal(slugifySalonName('Foo___---@@ Bar'), 'foo-bar');
+assert.equal(slugifySalonName('!!!'), 'salon');
+assert.equal(slugifySalonName('admin'), 'admin-salon');
 assert.equal(publicWebsiteUrl('nexora-salon'), 'https://nexora-salon.nexora.site');
-ok('business-name URL uses the existing Nexora white-label subdomain');
+ok('business-name normalization mirrors the white-label subdomain rules');
 
 const verify = (await db.query('select check_name, ok from public.verify_phase2_business_publishing()')).rows;
 assert.ok(verify.every((r) => r.ok === true), JSON.stringify(verify));
-ok('Phase 2 database security verification is green');
+const verify45 = (await db.query('select check_name, ok from public.verify_m45_business_slug_hardening()')).rows;
+assert.ok(verify45.every((r) => r.ok === true), JSON.stringify(verify45));
+ok('Phase 2 database security and slug-hardening verification is green');
+
+await db.query(`with o as (
+  insert into public.organizations (name) values ('Legacy Slug Owner') returning id
+) insert into public.salons (organization_id,name,slug)
+  select id,'Legacy Only','legacy-only' from o`);
+const crossTableCandidate = (await db.query(
+  `select private.nexora_allocate_business_slug('Legacy Only', null) as slug`,
+)).rows[0].slug;
+assert.equal(crossTableCandidate, 'legacy-only-2');
+ok('collision lookup includes legacy salons and public website rows');
 
 const ids = {
   ownerA: '00000000-0000-4000-8000-0000000000a1',
@@ -305,6 +321,16 @@ await asRole('authenticated', ids.ownerA, async () => {
   assert.equal(republished.slug, 'nexora-salon');
 });
 ok('refresh/republish preserves the allocated public URL');
+
+await asRole('authenticated', ids.ownerA, async () => {
+  await db.query(`select * from public.unpublish_owner_salon_website()`);
+  const republished = (await db.query(`select * from public.publish_owner_salon_website(
+    'ignored-again','beauty_skin_spa','{"salonName":"Completely Different Name"}'::jsonb
+  )`)).rows[0];
+  assert.equal(republished.slug, 'nexora-salon');
+  assert.equal(republished.is_published, true);
+});
+ok('unpublish and republish preserve the first public URL permanently');
 
 console.log(`\nPhase 2 business publishing: ${passed}/${passed} checks PASS`);
 await db.close();

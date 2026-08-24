@@ -6,6 +6,13 @@
 
 begin;
 
+-- Some canonical installations predate the legacy salons.slug column. Keep it
+-- as the synchronized business-address mirror so collision checks cover both
+-- existing slug namespaces without introducing another domain table.
+alter table public.salons add column if not exists slug text;
+create index if not exists salons_slug_lookup_idx
+  on public.salons (lower(btrim(slug))) where slug is not null;
+
 -- Business-name -> safe ASCII slug. Allocation is database-authoritative so
 -- duplicate names and concurrent owner setup cannot produce duplicate URLs.
 create or replace function private.nexora_business_slug(p_name text)
@@ -23,13 +30,13 @@ begin
   v_slug := left(v_slug, 50);
   v_slug := btrim(v_slug, '-');
 
-  if v_slug = '' then v_slug := 'business'; end if;
-  if char_length(v_slug) < 3 then v_slug := left(v_slug || '-business', 50); end if;
+  if v_slug = '' then v_slug := 'salon'; end if;
+  if char_length(v_slug) < 3 then v_slug := left(v_slug || '-salon', 50); end if;
   if v_slug in (
     'dashboard','builder','nearby','auth','login','signup','register',
     'reset-password','api','admin','www','app','static','assets'
   ) then
-    v_slug := left(v_slug || '-business', 50);
+    v_slug := left(v_slug || '-salon', 50);
   end if;
   return v_slug;
 end;
@@ -63,6 +70,10 @@ begin
       select 1 from public.salon_public_websites w
       where lower(btrim(w.slug)) = v_candidate
         and (p_for_salon is null or w.salon_id <> p_for_salon)
+    ) and not exists (
+      select 1 from public.salons s
+      where lower(btrim(s.slug)) = v_candidate
+        and (p_for_salon is null or s.id <> p_for_salon)
     );
     v_suffix := v_suffix + 1;
   end loop;
@@ -208,7 +219,9 @@ begin
   end if;
 
   select * into v_existing from public.salon_public_websites w where w.salon_id = v_salon;
-  if found and v_existing.is_published then
+  -- published_at is the permanent-allocation marker. Unpublishing only changes
+  -- visibility, so republishing after a rename cannot change a public URL.
+  if found and v_existing.published_at is not null then
     v_slug := v_existing.slug;
   else
     v_slug := private.nexora_allocate_business_slug(v_name, v_salon);
@@ -216,6 +229,7 @@ begin
 
   update public.salons set
     name = v_name,
+    slug = v_slug,
     theme_id = (select t.id from public.themes t where t.theme_id = v_template and t.is_active = true),
     updated_at = now()
   where id = v_salon;

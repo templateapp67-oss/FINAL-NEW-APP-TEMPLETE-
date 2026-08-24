@@ -16,7 +16,7 @@ interface Props {
 
 function generatedSlug(data: SalonData): string {
   if (data.publishState === 'published' && data.websiteSlug) return data.websiteSlug;
-  return slugifySalonName(data.salonName) || 'business';
+  return slugifySalonName(data.salonName) || 'salon';
 }
 
 export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave }: Props) {

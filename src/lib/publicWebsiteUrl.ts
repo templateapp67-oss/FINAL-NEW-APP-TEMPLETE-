@@ -1,16 +1,34 @@
 import { getBrandConfig } from '../config/brandConfig';
 
-/** Kebab slug from a business name. Empty when the name has no latin letters/digits. */
+/** Slugs owned by platform routes/hosts and unavailable to businesses. */
+export const RESERVED_WEBSITE_SLUGS = new Set([
+  'dashboard', 'builder', 'nearby', 'auth', 'login', 'signup', 'register',
+  'reset-password', 'api', 'admin', 'www', 'app', 'static', 'assets',
+]);
+
+/**
+ * Kebab slug suggestion from a business name.
+ *
+ * Supabase remains authoritative for collision allocation. This browser helper
+ * mirrors its normalization only so Preview never advertises an invalid or
+ * reserved address before the publish RPC returns the final persisted slug.
+ */
 export function slugifySalonName(name: string | undefined | null): string {
-  return (name || '')
+  let slug = (name || '')
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 50)
     .replace(/-+$/g, '');
+
+  if (!slug) slug = 'salon';
+  if (slug.length < 3) slug = `${slug}-salon`.slice(0, 50).replace(/-+$/g, '');
+  if (RESERVED_WEBSITE_SLUGS.has(slug)) {
+    slug = `${slug}-salon`.slice(0, 50).replace(/-+$/g, '');
+  }
+  return slug;
 }
 
 export function isValidWebsiteSlug(slug: string | undefined | null): boolean {
@@ -23,7 +41,7 @@ export function suggestedWebsiteSlug(input: {
   salonName?: string | null;
 }): string {
   const existing = (input.websiteSlug || '').trim().toLowerCase();
-  if (isValidWebsiteSlug(existing)) return existing;
+  if (isValidWebsiteSlug(existing) && !RESERVED_WEBSITE_SLUGS.has(existing)) return existing;
   return slugifySalonName(input.salonName);
 }
 

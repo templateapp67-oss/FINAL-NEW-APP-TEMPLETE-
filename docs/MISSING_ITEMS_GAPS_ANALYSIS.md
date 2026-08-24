@@ -21,14 +21,14 @@ It is **not yet demonstrably production-ready end to end**. The highest-risk iss
 ### Release recommendation
 
 **NO-GO for accepting real customer payments or operating bookings from the owner dashboard.**  
-**Conditional GO for a controlled, no-payment pilot** only after M41–M44 are applied and verified in the target Supabase project, the public host/DNS path is smoke-tested, and operators understand that browser-local dashboard/review/analytics features are not cross-device production systems.
+**Conditional GO for a controlled, no-payment pilot** only after M41–M45 are applied and verified in the target Supabase project, the public host/DNS path is smoke-tested, and operators understand that browser-local dashboard/review/analytics features are not cross-device production systems.
 
 ## Priority blockers
 
 | Priority | Status | Gap | Exact blocker / business impact | Evidence |
 |---|---|---|---|---|
 | P0 | **FAIL** | Owner operations are not connected to the authoritative production booking/payment records | **Exact blocker:** `OwnerTodayAppointments`, upcoming, customers, calendar, notifications, management, and revenue ultimately read `PaymentRecord` values from the browser-local `nexora_site_payment_records` store through `readSalonBookings()`. `OWNER_PAYMENT_DATA_MODE` is explicitly `mock`. Bookings/payments created by the server-side Supabase/Razorpay APIs are therefore not the dashboard's authoritative source. Owners can miss real appointments and cannot trust revenue totals. | `src/lib/siteBookingPayment.ts`, `src/lib/bookingManagement.ts`, `src/lib/ownerTodayAppointments.ts`, `src/lib/ownerRevenueSummary.ts`, `src/components/OwnerRevenueSummary.tsx`, `server/bookingRoutes.ts`, `server/paymentRoutes.ts` |
-| P0 | **FAIL** | No complete, automated database release path for the latest schema | **Exact blocker:** the checked-in live migration helper applies only M28–M40 and verifies only M38/M40. It does not select M41, M42, M43, the Phase 1 white-label provisioning migration, or M44. No CI workflow runs `supabase db push` or the newer verification functions. A release can deploy frontend code that depends on database functions/policies not present in production. | `scripts/apply-live-migration.mjs`, `package.json`, `supabase/migrations/20260823000101_m41_website_guest_bookings.sql` through `20260824000101_m44_business_publishing.sql`, missing `.github/workflows/` |
+| P0 | **FAIL** | Database release is not automated in CI | **Exact blocker:** the checked-in live migration helper can select M28–M45 and verify M45, but no CI workflow invokes it or `supabase db push`. A release can still deploy frontend code without applying the required database functions and policies. | `scripts/apply-live-migration.mjs`, `package.json`, `supabase/migrations/20260823000101_m41_website_guest_bookings.sql` through `20260824000201_m45_business_slug_hardening.sql`, missing `.github/workflows/` |
 | P0 | **EXTERNAL** | Live M44 publishing/RLS state is unknown | Repository tests cannot prove M44 is applied to the configured Supabase project, that its verifier passes there, or that deployed anon/authenticated grants match the migration. Publishing may work locally while failing live. | `supabase/migrations/20260824000101_m44_business_publishing.sql`, `.env.example`, `supabase/config.toml` |
 | P0 | **EXTERNAL** | Razorpay production readiness is unknown | Repository code verifies signatures, uses raw webhook bytes, and stores webhook ingress, but there is no evidence of live keys, webhook URL registration, webhook secret parity, test/live mode selection, successful provider callbacks, settlement reconciliation, or operational alerting. | `server/paymentRoutes.ts`, `server/razorpay.ts`, `.env.example`, M29/M31 payment migrations |
 | P0 | **EXTERNAL** | Public wildcard host is not proven | Wildcard DNS, TLS certificate coverage, Vercel domain attachment, host routing, environment variables, and a real published slug were not testable from the checkout. If any is absent, customer sites are unreachable even when publishing succeeds. | `src/lib/salonRouting.ts`, `src/main.tsx`, `vite.config.ts`, `vercel.json`, `.env.example` |
@@ -109,7 +109,7 @@ It is **not yet demonstrably production-ready end to end**. The highest-risk iss
 
 | Status | Gap | Exact blocker where FAIL |
 |---|---|---|
-| **FAIL** | Latest migration deployment is not automated. **Exact blocker:** `db:apply:live:all` ends at M40 and no CI invokes the Supabase CLI for M41–M44. The frontend can depend on absent RPCs, grants, and policies. |
+| **FAIL** | Latest migration deployment is not automated. **Exact blocker:** `db:apply:live:all` now includes M28–M45, but no CI invokes it or the Supabase CLI. The frontend can still be released against an older live schema. |
 | **FAIL** | Generated database types are not checked in. **Exact blocker:** `package.json` writes `src/types/database.generated.ts`, but that file is absent; `src/types/database.ts` is manually maintained. Schema drift therefore cannot be caught comprehensively at compile time. |
 | **PARTIAL** | Parallel/reconciliation migrations and post-M40 additions increase drift risk. There is no checked-in production migration ledger report proving the target's exact applied order/checksums. |
 | **EXTERNAL** | M43/M44 verification functions have not been run against the live target in this audit. Repository/PGlite tests do not prove live grants or policy state. |
@@ -148,7 +148,7 @@ It is **not yet demonstrably production-ready end to end**. The highest-risk iss
 | Wildcard/custom host deployment | **EXTERNAL** | DNS, TLS, domain ownership, and Vercel mapping are not code-only facts. |
 | API deployment routing | **PARTIAL** | Express has Vercel handlers, but the broad SPA rewrite and duplicate catch-all/index functions need a deployed smoke test for every endpoint and slug host/path combination. |
 | Environment validation | **PARTIAL** | `.env.example` documents required values, but no startup schema validates all production environment combinations or fails deployment before serving degraded flows. |
-| Rollback | **FAIL** | **Exact blocker:** no documented/automated application-plus-database rollback strategy exists for a failed M41–M44 release. Forward-only SQL may be appropriate, but there is no restore/roll-forward runbook or release checkpoint. |
+| Rollback | **FAIL** | **Exact blocker:** no documented/automated application-plus-database rollback strategy exists for a failed M41–M45 release. Forward-only SQL may be appropriate, but there is no restore/roll-forward runbook or release checkpoint. |
 | Preview/production smoke evidence | **FAIL** | **Exact blocker:** no CI/CD job launches the deployed build and verifies auth callback, owner publish, public slug, API health/dependencies, guest/auth booking, and Razorpay test webhook. A green local build cannot establish production viability. |
 
 ## 7. Payments and booking architecture
@@ -274,7 +274,7 @@ Most recent relevant local results:
 
 Do not mark production ready until all of the following are evidenced:
 
-- [ ] M41–M44 are applied in order and live verification passes.
+- [ ] M41–M45 are applied in order and live verification passes.
 - [ ] Anon users can read only the intended M44 public projection.
 - [ ] Owner/customer/private/payment-secret rows cannot be read anonymously.
 - [ ] Owner dashboard uses authoritative server bookings/payments, not local mock records.

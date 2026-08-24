@@ -173,7 +173,7 @@ export async function publishOwnerSalonWebsite(data: SalonData): Promise<{
 }> {
   // The database allocates the authoritative unique slug from salonName.
   // p_slug remains populated only for backwards-compatible RPC shape.
-  const slug = slugifySalonName(data.salonName) || 'business';
+  const slug = slugifySalonName(data.salonName) || 'salon';
   const salonId = typeof data.salonId === 'string' && data.salonId.trim()
     ? data.salonId.trim()
     : null;

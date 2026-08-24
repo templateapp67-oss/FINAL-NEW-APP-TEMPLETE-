@@ -31,6 +31,8 @@ import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
 import { displayService } from '../lib/displayService';
 import { galleryThemeMedia } from '../lib/siteGallery';
 import { FAMILY_SURFACES, surfacesOf } from '../lib/themeSurfaces';
+import { shouldShowOwnerPhoto } from '../lib/templateConfig';
+import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
 import type { FamilySurface } from '../lib/themeSurfaces';
 import { dayLabel, siteText } from '../lib/siteI18n';
 import { structureText } from '../lib/siteStructureI18n';
@@ -281,6 +283,7 @@ function ContactButton({ href, icon: Icon, children, primary = false, t }: { hre
 export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props) {
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
+  setOwnerAppearanceDefault(data.websiteAppearance);
   const appearance = useThemeAppearance('family_full_service');
   const t = surfacesOf(FAMILY_SURFACES, appearance);
   const { navy, blue, sky, skyDeep, teal, tealDeep, tealSoft, sun, sunSoft, coral, ink, muted, line, white } = t;
@@ -466,9 +469,11 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
         <section {...sectionProps('owner', ownerState)} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: white }}>
           {ownerState === 'ready' ? (
             <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
+              {shouldShowOwnerPhoto(data) && (
               <div className="w-24 h-24 rounded-full overflow-hidden shrink-0 border-4" style={{ borderColor: tealSoft }}>
                 <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
               </div>
+              )}
               <div className="min-w-0">
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.18em]" style={{ color: tealDeep }}>{data.ownerRole || S.ownerEmptyTitle}</p>
                 <h3 className="text-2xl font-extrabold mt-1 break-words" style={{ color: t.heading }}>{data.ownerName}</h3>

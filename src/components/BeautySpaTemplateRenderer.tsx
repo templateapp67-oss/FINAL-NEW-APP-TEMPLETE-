@@ -27,6 +27,8 @@ import SiteServiceDirectory from './SiteServiceDirectory';
 import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
 import { displayService } from '../lib/displayService';
 import { BEAUTY_SPA_SURFACES, surfacesOf } from '../lib/themeSurfaces';
+import { shouldShowOwnerPhoto } from '../lib/templateConfig';
+import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
 import { dayLabel, siteText } from '../lib/siteI18n';
 import { structureText } from '../lib/siteStructureI18n';
 import {
@@ -68,6 +70,7 @@ interface Props {
 export default function BeautySpaTemplateRenderer({ data, mode }: Props) {
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
+  setOwnerAppearanceDefault(data.websiteAppearance);
   const appearance = useThemeAppearance('beauty_skin_spa');
   const t = surfacesOf(BEAUTY_SPA_SURFACES, appearance);
   const { emerald, emeraldDeep, emeraldMid, emeraldSoft, beigeSoft, cream, blush, sage, text, muted, line, card, bandBg, bandText, bandMuted } = t;
@@ -271,9 +274,11 @@ export default function BeautySpaTemplateRenderer({ data, mode }: Props) {
         <div {...sectionProps('owner', ownerState)} className="site-section px-5 md:px-8 py-14 border-y" style={{ backgroundColor: beigeSoft, borderColor: line }}>
           {ownerState === 'ready' ? (
             <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
+              {shouldShowOwnerPhoto(data) && (
               <div className="w-28 h-28 rounded-full overflow-hidden shrink-0 border-4" style={{ borderColor: emeraldSoft }}>
                 <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
               </div>
+              )}
               <div className="min-w-0">
                 <span className="text-[10px] uppercase tracking-[0.4em] font-semibold" style={{ color: emerald }}>{data.ownerRole || S.ownerFallbackRole}</span>
                 <h3 className="text-2xl font-serif mt-1 break-words" style={{ color: text }}>{data.ownerName}</h3>

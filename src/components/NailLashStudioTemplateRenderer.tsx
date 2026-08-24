@@ -30,6 +30,8 @@ import SiteGallery from './SiteGallery';
 import SiteServiceDirectory from './SiteServiceDirectory';
 import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
 import { NAIL_LASH_SURFACES, surfacesOf } from '../lib/themeSurfaces';
+import { shouldShowOwnerPhoto } from '../lib/templateConfig';
+import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
 import type { NailLashSurface } from '../lib/themeSurfaces';
 import { dayLabel, siteText } from '../lib/siteI18n';
 import { structureText } from '../lib/siteStructureI18n';
@@ -205,6 +207,7 @@ function ContactAction({ href, icon: Icon, children, primary = false, book = fal
 export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
+  setOwnerAppearanceDefault(data.websiteAppearance);
   const appearance = useThemeAppearance('nail_lash_studio');
   const t = surfacesOf(NAIL_LASH_SURFACES, appearance);
   const { ink, pink, pinkDeep, pinkGlow, pinkSoft, sand, sandDeep, nude, cream, muted, line, white } = t;

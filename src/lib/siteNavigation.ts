@@ -196,6 +196,13 @@ export function isSiteAppearance(value: unknown): value is SiteAppearance {
  * Reads the site's appearance override: explicit visitor choice (stored) wins
  * over the owner's saved `websiteAppearance`, then over the theme default.
  */
+/** Last owner-saved appearance from template config (not a visitor toggle). */
+let ownerAppearanceDefault: WebsiteAppearance | undefined;
+
+export function setOwnerAppearanceDefault(value?: WebsiteAppearance): void {
+  ownerAppearanceDefault = value === 'dark' || value === 'light' ? value : undefined;
+}
+
 export function readSiteAppearance(
   ownerDefault: WebsiteAppearance | undefined,
   themeDefault: SiteAppearance,
@@ -209,6 +216,7 @@ export function readSiteAppearance(
     }
   }
   if (ownerDefault === 'dark' || ownerDefault === 'light') return ownerDefault;
+  if (ownerAppearanceDefault === 'dark' || ownerAppearanceDefault === 'light') return ownerAppearanceDefault;
   return themeDefault;
 }
 

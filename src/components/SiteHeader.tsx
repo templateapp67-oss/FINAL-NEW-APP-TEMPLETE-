@@ -565,7 +565,7 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
   // The five themed templates own their surface design (the barber theme is
   // dark by design), so the header resolves from the theme default — never
   // the legacy `websiteAppearance` field those renderers intentionally ignore.
-  const [appearance, toggleAppearance] = useSiteAppearance(undefined, design.defaultAppearance);
+  const [appearance, toggleAppearance] = useSiteAppearance(data.websiteAppearance, design.defaultAppearance);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<string>('home');
   const { user } = useAuth();

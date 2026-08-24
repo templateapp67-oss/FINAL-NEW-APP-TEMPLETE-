@@ -27,6 +27,8 @@ import SiteServiceDirectory from './SiteServiceDirectory';
 import { setActiveTheme, markPerformance } from '../lib/sitePerformance';
 import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
 import { BARBER_SURFACES, surfacesOf } from '../lib/themeSurfaces';
+import { shouldShowOwnerPhoto } from '../lib/templateConfig';
+import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
 import { dayLabel, siteText } from '../lib/siteI18n';
 import { structureText } from '../lib/siteStructureI18n';
 import {
@@ -67,6 +69,7 @@ interface Props {
 export default function BarberTemplateRenderer({ data, mode }: Props) {
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
+  setOwnerAppearanceDefault(data.websiteAppearance);
   const appearance = useThemeAppearance('barber_mens_grooming');
   const t = surfacesOf(BARBER_SURFACES, appearance);
   const { gold, goldBright, goldSoft, charcoal, charcoalSoft, muted, line, text, textStrong, card, well, chipLine, accentText } = t;

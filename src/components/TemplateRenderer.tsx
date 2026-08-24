@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { SalonData, getPublicStaffData, type SocialVideo } from '../types';
 import { getSalonNameStyle } from '../lib/brandIdentity';
+import { heroObjectPosition, shouldShowOwnerPhoto } from '../lib/templateConfig';
+import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
 import { getReadableTextColor, withHexAlpha } from '../lib/websiteCustomization';
 import { normalizeThemeId } from '../lib/themeServices';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
@@ -37,6 +39,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
   // current owner templates. Mapping `hair` to the default canonical theme
   // here made existing published legacy sites silently render the wrong UI.
   const templateId = data.templateId === 'hair' ? 'hair' : normalizeThemeId(data.templateId);
+  setOwnerAppearanceDefault(data.websiteAppearance);
 
   /* ------------------------------------------------------------------ */
   /* M41 — dynamic booking wiring (legacy public templates).             */
@@ -234,6 +237,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
               className={`absolute inset-0 w-full h-full object-cover opacity-45 ${
                 data.heroPosition === 'Top' ? 'object-top' : data.heroPosition === 'Bottom' ? 'object-bottom' : 'object-center'
               }`}
+              style={{ objectPosition: heroObjectPosition(data) }}
             />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent"></div>
@@ -352,6 +356,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
         {data.ownerName && (
           <div id="section-owner" className={`px-6 py-10 border-y ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-100'}`}>
             <div className="max-w-xl mx-auto flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
+              {shouldShowOwnerPhoto(data) && (
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-md shrink-0">
                 <OwnerAvatar
                   photoUrl={data.ownerPhotoUrl}
@@ -360,6 +365,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
                   alt="Founder"
                 />
               </div>
+              )}
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider" style={accentStyle}>{data.ownerRole || copy.ownerRoleFallback}</span>
                 <h3 className={`text-xl font-bold mt-0.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{data.ownerName}</h3>

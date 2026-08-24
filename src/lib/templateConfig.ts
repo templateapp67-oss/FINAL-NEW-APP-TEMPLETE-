@@ -96,7 +96,7 @@ export interface TemplateConfig {
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   appearance: 'light',
   accentColor: BARBER_THEME.gold,
-  salonNameFont: 'display',
+  salonNameFont: 'elegant-serif',
   salonNameColor: '#1a1c1c',
   heroPosition: 'Center',
   showOwnerPhoto: true,
@@ -130,6 +130,18 @@ export function normalizeTemplateConfig(
 }
 
 /** Merge config into salon presentation fields without touching business arrays. */
+/** Owner photo is presentation-only; hide when the saved overlay says so. */
+export function shouldShowOwnerPhoto(data: Pick<SalonData, 'templateConfig' | 'templateId'>): boolean {
+  return normalizeTemplateConfig(data.templateConfig, data.templateId).showOwnerPhoto;
+}
+
+export function heroObjectPosition(data: Pick<SalonData, 'heroPosition' | 'templateConfig'>): string {
+  const pos = data.heroPosition || data.templateConfig?.heroPosition || 'Center';
+  if (pos === 'Top') return 'center top';
+  if (pos === 'Bottom') return 'center bottom';
+  return 'center center';
+}
+
 export function applyTemplateConfigToSalon(
   data: SalonData,
   config: Partial<TemplateConfig>,

@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { SalonData } from '../types';
 import { applyTemplateConfigToSalon, normalizeTemplateConfig } from '../lib/templateConfig';
+import { SALON_NAME_COLORS, SALON_NAME_FONTS } from '../lib/brandIdentity';
 
 interface Props {
   data: SalonData;
@@ -9,7 +10,17 @@ interface Props {
 }
 
 export default function TemplateConfigPanel({ data, setData, onSave }: Props) {
-  const config = normalizeTemplateConfig(data.templateConfig, data.templateId);
+  const config = normalizeTemplateConfig(
+    {
+      ...data.templateConfig,
+      appearance: data.websiteAppearance || data.templateConfig?.appearance,
+      accentColor: data.brandColor || data.templateConfig?.accentColor,
+      salonNameFont: data.salonNameFont || data.templateConfig?.salonNameFont,
+      salonNameColor: data.salonNameColor || data.templateConfig?.salonNameColor,
+      heroPosition: data.heroPosition || data.templateConfig?.heroPosition,
+    },
+    data.templateId,
+  );
 
   const update = (patch: Partial<typeof config>) => {
     const next = applyTemplateConfigToSalon(data, { ...config, ...patch });
@@ -23,7 +34,7 @@ export default function TemplateConfigPanel({ data, setData, onSave }: Props) {
         <p className="text-[10px] font-bold uppercase tracking-wider text-[#ac0053]">Template look</p>
         <h3 className="text-sm font-extrabold text-gray-900">Presentation only</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Colors and layout. Services, bookings, and staff stay unchanged.
+          These fields already drive the live site. Services, bookings, and staff stay unchanged.
         </p>
       </div>
 
@@ -57,6 +68,45 @@ export default function TemplateConfigPanel({ data, setData, onSave }: Props) {
           />
         </div>
       </label>
+
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-semibold text-gray-700">Salon name font</legend>
+        <div className="grid grid-cols-1 gap-1.5">
+          {SALON_NAME_FONTS.map((font) => (
+            <button
+              key={font.id}
+              type="button"
+              onClick={() => update({ salonNameFont: font.id })}
+              className={`rounded-lg border px-3 py-2 text-left text-sm ${
+                config.salonNameFont === font.id ? 'border-[#ac0053] bg-[#ffd9e1]/30' : 'border-gray-200 bg-gray-50'
+              }`}
+              style={{ fontFamily: font.fontFamily, fontWeight: font.fontWeight }}
+            >
+              {font.label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-semibold text-gray-700">Salon name color</legend>
+        <div className="flex flex-wrap gap-2">
+          {SALON_NAME_COLORS.map((color) => (
+            <button
+              key={color.value}
+              type="button"
+              aria-label={color.label}
+              onClick={() => update({ salonNameColor: color.value })}
+              className={`h-8 w-8 rounded-full border-2 ${
+                config.salonNameColor.toLowerCase() === color.value.toLowerCase()
+                  ? 'border-gray-900'
+                  : 'border-white shadow-sm'
+              }`}
+              style={{ backgroundColor: color.value }}
+            />
+          ))}
+        </div>
+      </fieldset>
 
       <label className="block text-xs font-semibold text-gray-700">
         Hero crop

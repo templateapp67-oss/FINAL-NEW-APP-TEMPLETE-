@@ -32,6 +32,11 @@ import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
 import { persistOwnerBusinessSetup, loadOwnerSalonRow, mergeSalonRowIntoDraft } from './lib/ownerBusinessSetup';
+import {
+  clearOwnerBrowserWorkspaceCache,
+  OWNER_DASHBOARD_TAB_CACHE_KEY,
+  OWNER_ONBOARDING_CACHE_KEY,
+} from './lib/ownerWorkspacePersistence';
 import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
 import {
   applyTemplateConfigToSalon,
@@ -43,8 +48,8 @@ import { safeSetItem, safeGetItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
 
-const STORAGE_KEY = 'nexora_onboarding_state';
-const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
+const STORAGE_KEY = OWNER_ONBOARDING_CACHE_KEY;
+const DASHBOARD_TAB_KEY = OWNER_DASHBOARD_TAB_CACHE_KEY;
 // Owner journey: Login → Complete Business Setup → Select Template → Preview → Publish.
 // Business setup spans the guided detail/catalog/team/media/location/contact/content screens.
 const TOTAL_STEPS = 14;
@@ -66,6 +71,9 @@ interface AppProps {
 export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<number>(() => {
+    // Configured deployments resume only from salon_public_websites.config.
+    // localStorage is not tenant-scoped and is never the refresh authority.
+    if (isSupabaseConfigured) return 0;
     try {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
@@ -102,6 +110,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [activeModule, setActiveModule] = useState<'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard'>(() => {
     // A deep-link to /dashboard opens the real Owner Dashboard by default.
     if (initialModule === 'owner-dashboard') return 'owner-dashboard';
+    if (isSupabaseConfigured) return 'wizard';
     try {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
@@ -128,18 +137,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
-  const [showResumeBanner, setShowResumeBanner] = useState<boolean>(() => {
-    try {
-      const saved = safeGetItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return typeof parsed.step === 'number' && parsed.step > 0;
-      }
-    } catch (e) {
-      // fallback
-    }
-    return false;
-  });
+  const [showResumeBanner, setShowResumeBanner] = useState(false);
 
   useUsageTracking({
     activeModule,
@@ -151,6 +149,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
 
   const isInitialMount = useRef(true);
   const backendHydratedFor = useRef<string | null>(null);
+  const didResumeFromBackend = useRef(false);
   const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
   const [ownerHydrationError, setOwnerHydrationError] = useState('');
   const [ownerHydrationRetry, setOwnerHydrationRetry] = useState(0);
@@ -166,8 +165,14 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // closed because it requires Supabase.
   useEffect(() => {
     if (!isSupabaseConfigured || authLoading || user) return;
+    backendHydratedFor.current = null;
+    didResumeFromBackend.current = false;
+    setBackendHydratedUser(null);
+    setData(emptyOwnerSalonData());
+    clearOwnerBrowserWorkspaceCache();
     setActiveModule('wizard');
     setStep(0);
+    setShowResumeBanner(false);
   }, [authLoading, user]);
 
   // First login: skip marketing hero. Resume Business Setup from
@@ -183,9 +188,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     }
     if (!published) {
       setActiveModule('wizard');
-      const resumeAt = resumeWizardStep(data.lastCompletedStep);
-      setStep((current) => (current === 0 || current < resumeAt ? resumeAt : current));
-      if ((data.lastCompletedStep || 0) > 0) setShowResumeBanner(true);
+      if (!didResumeFromBackend.current) {
+        didResumeFromBackend.current = true;
+        setStep(resumeWizardStep(data.lastCompletedStep));
+        if ((data.lastCompletedStep || 0) > 0) setShowResumeBanner(true);
+      }
     }
   }, [authLoading, user, backendHydratedUser, data.lastCompletedStep, data.publishState, data.publishedUrl, initialModule]);
 
@@ -255,6 +262,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           : applyTemplateConfigToSalon(merged, {}));
 
       setData(hydrated);
+      if (!(hydrated.publishState === 'published' && hydrated.publishedUrl)) {
+        setStep(resumeWizardStep(hydrated.lastCompletedStep));
+      }
       setBackendHydratedUser(user.id);
     })().catch((error: unknown) => {
       if (!active) return;
@@ -316,7 +326,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // template transition cannot cancel a pending business save or start a new
   // one, and therefore cannot touch salons, organizations, hours, or location.
   useEffect(() => {
-    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id || !latestData.current.websiteSlug) return;
+    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id) return;
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
       // Serialize draft, visual, and template writes in one client queue so a
@@ -344,11 +354,27 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     return () => window.clearTimeout(timer);
   }, [protectedDataRevision, user, backendHydratedUser]);
 
+  // Flush the authoritative draft on refresh/close so a mid-step edit is not
+  // stranded in the 1.2s debounce. Session tokens stay in Supabase Auth.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const flush = () => {
+      if (!latestData.current.salonName && !latestData.current.lastCompletedStep) return;
+      void persistOwnerBusinessSetup(latestData.current);
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, []);
+
   // Appearance edits have a separate presentation-only persistence path. The
   // template id itself is excluded because set_owner_salon_template is its
   // single database write authority.
   useEffect(() => {
-    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id || !latestData.current.websiteSlug) return;
+    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id) return;
     const timer = window.setTimeout(() => {
       const save = templateSwitchQueue.current.then(() => (
         saveOwnerWebsiteVisualConfig(latestData.current)
@@ -418,6 +444,10 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     
     if (isSalonSnapshot) {
       setData(dataToSave);
+    }
+
+    if (isSupabaseConfigured && user) {
+      void persistOwnerBusinessSetup(dataToSave);
     }
     
     setSaveStatus('saving');

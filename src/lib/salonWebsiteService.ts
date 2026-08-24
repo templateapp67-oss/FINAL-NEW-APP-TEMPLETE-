@@ -3,6 +3,7 @@ import { resolveOwnerSalonId } from './ownerSalon';
 import { isValidWebsiteSlug, suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
 import { requireSupabase } from './supabaseClient';
 import { DEFAULT_THEME_ID, normalizeThemeId } from './themeServices';
+import { assertPublishReady } from './publishReadiness';
 import {
   activeTemplateConfigFromSalon,
   normalizeTemplateConfigs,
@@ -258,6 +259,9 @@ export async function publishOwnerSalonWebsite(data: SalonData): Promise<{
   isPublished: boolean;
   publishedAt: string | null;
 }> {
+  // Fail closed before the existing Phase 1-A RPC. Incomplete businesses
+  // must never be marked published, even if a caller skips the UI gate.
+  assertPublishReady(data);
   // The database allocates the authoritative unique slug from salonName.
   // p_slug remains populated only for backwards-compatible RPC shape.
   const slug = slugifySalonName(data.salonName) || 'salon';

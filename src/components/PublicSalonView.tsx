@@ -9,6 +9,7 @@ import {
   buildBrandFallbackSalonData,
   matchesBrandFallbackSlug,
 } from '../lib/salonRouting';
+import { applyPublicTemplateConfiguration } from '../lib/publicSalonPresentation';
 
 interface Props { slug: string }
 
@@ -61,11 +62,6 @@ function localDraft(slug: string): SalonData {
   return { ...initialData, websiteSlug: slug };
 }
 
-const themeKeys = new Set([
-  'barber_mens_grooming', 'hair_studio_color_bar', 'beauty_skin_spa',
-  'family_full_service', 'nail_lash_studio',
-]);
-
 async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> {
   const client = requireSupabase();
   const { data: projectionRows, error: websiteError } = await client
@@ -96,9 +92,6 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
   const config = website.public_config && typeof website.public_config === 'object' && !Array.isArray(website.public_config)
     ? website.public_config as Partial<SalonData>
     : {};
-  const selectedTheme = typeof website.template_key === 'string' && themeKeys.has(website.template_key)
-    ? website.template_key as SalonData['templateId']
-    : 'barber_mens_grooming';
 
   let media: Awaited<ReturnType<typeof listPublicSalonMedia>> = [];
   try {
@@ -123,12 +116,10 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     }));
 
   const location = typeof website.address === 'string' ? website.address : '';
-  return {
+  return applyPublicTemplateConfiguration({
     ...emptyPublicData(slug),
-    ...config,
     salonId: website.salon_id,
     websiteSlug: website.slug,
-    templateId: selectedTheme,
     salonName: website.business_name,
     // Owner identity/contact is deliberately not part of the public RPC.
     ownerName: '',
@@ -144,7 +135,7 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     address: location || website.city
       ? { ...initialData.address!, fullAddress: location, city: website.city || '' }
       : undefined,
-  };
+  }, config, website.template_key);
 }
 
 export default function PublicSalonView({ slug }: Props) {

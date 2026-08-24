@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { clearOwnerBrowserWorkspaceCache } from './ownerWorkspacePersistence';
 import {
   oauthRedirect,
   passwordResetRedirect,
@@ -243,6 +244,7 @@ export async function updatePassword(password: string): Promise<{ error: string 
 }
 
 export async function signOut(): Promise<void> {
+  clearOwnerBrowserWorkspaceCache();
   if (!supabase) return;
   try {
     await supabase.auth.signOut();

@@ -5,6 +5,10 @@ import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor
 import { useBrandConfig } from '../config/brandConfig';
 import { publishOwnerSalonWebsite } from '../lib/salonWebsiteService';
 import { publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
+import {
+  evaluatePublishReadiness,
+  PUBLISH_INCOMPLETE_ERROR,
+} from '../lib/publishReadiness';
 
 interface Props {
   data: SalonData;
@@ -36,24 +40,16 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
 
   const previewUrl = publicWebsiteHref(slug, platform.websiteUrl);
 
-  // Checklist logic
-  const checks = [
-    { label: 'Salon details added', done: !!(data.salonName && (data.tagline || data.about)) },
-    { label: 'Services added', done: !!(data.services && data.services.length > 0) },
-    { label: 'Contact details added', done: !!(data.phone || data.email) },
-    { label: 'Template selected', done: !!data.templateId },
-    { label: 'Website appearance selected', done: !!data.websiteAppearance },
-    { label: 'Website reviewed', done: !!data.reviewedContent },
-  ];
-
-  const optionalChecks = [
-    { label: 'Team (Optional — can be added later)', done: !!(data.team && data.team.length > 0) },
-    { label: 'Gallery (Optional — can be added later)', done: !!(data.gallery && data.gallery.length > 0) },
-  ];
-
-  const allRequiredDone = checks.every(c => c.done);
+  const readiness = evaluatePublishReadiness(data);
+  const checks = readiness.required;
+  const optionalChecks = readiness.optional;
+  const allRequiredDone = readiness.ready;
 
   const handlePublish = async () => {
+    if (!evaluatePublishReadiness(data).ready) {
+      setPublishError(PUBLISH_INCOMPLETE_ERROR);
+      return;
+    }
     const previousState = data.publishState;
     const previousUrl = data.publishedUrl;
     setPublishing(true);
@@ -114,11 +110,16 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
             <span className="text-[10px] font-bold text-[#ac0053] uppercase tracking-widest flex items-center gap-1">
               <Globe className="w-3.5 h-3.5" /> STEP 13 OF 14 • PUBLISH
             </span>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">
-              Ready to publish your website?
+            <h1
+              className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight"
+              data-testid="publish-readiness-status"
+            >
+              {readiness.statusLabel}
             </h1>
             <p className="text-xs md:text-sm text-gray-500 leading-relaxed">
-              Check your website address and publish when you're ready.
+              {allRequiredDone
+                ? 'Required business and template information is complete. Check your website address and publish when you are ready.'
+                : 'Finish the required business and template information below before this site can be published.'}
             </p>
           </div>
 

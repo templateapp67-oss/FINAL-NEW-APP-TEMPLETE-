@@ -10,7 +10,7 @@ import { closeSiteBooking } from '../lib/siteBooking';
 import { releaseBookingSlot, bookingSlotKey, bookingBusinessId } from '../lib/siteBookingFlow';
 import { clearBookingDraft } from '../lib/siteBookingDraft';
 import type { PaymentRecord, PaymentServiceLine } from '../lib/siteBookingPayment';
-import { findPaymentRecord, readPaymentRecordsForBusiness } from '../lib/siteBookingPayment';
+import { findPaymentRecord, readPaymentRecordsForBusiness, formatMinutesLabel } from '../lib/siteBookingPayment';
 import type { BookingNoticeInput } from '../lib/siteBookingNotices';
 import { newBookingNoticeId, normalizeNotice } from '../lib/siteBookingNotices';
 import { bookingConfirmationText } from '../lib/siteBookingConfirmationI18n';
@@ -21,6 +21,7 @@ import { createBookingAndPay } from '../lib/authoritativeBooking';
 import { useAuthModal } from './AuthModalProvider';
 import { useAuth } from '../lib/useAuth';
 import { formatCurrency } from '../lib/pricing';
+import { CheckCircle2, Copy, Download, Calendar, Clock, CreditCard, IndianRupee, Shield, Building2, User, Phone, Mail, Bookmark, Receipt } from 'lucide-react';
 
 /**
  * PHASE 10.7 — orchestrator for the full booking + payment + confirmation
@@ -231,7 +232,15 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
 }) {
   const [state, setState] = useState<'ready' | 'processing' | 'verified'>('ready');
   const [error, setError] = useState<string | null>(null);
-  const [verified, setVerified] = useState<{ bookingId: string; paymentId: string } | null>(null);
+  const [verified, setVerified] = useState<{
+    bookingId: string;
+    paymentId: string;
+    totalAmountPaise: number;
+    advanceAmountPaise: number;
+    remainingAmountPaise: number;
+    appointmentEnd: string;
+  } | null>(null);
+  const [copiedRef, setCopiedRef] = useState(false);
   const idempotencyKey = useRef<string | null>(null);
   const { user } = useAuth();
   const { openAuth } = useAuthModal();
@@ -284,7 +293,14 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
         email: summary.customer.email || user.email,
         phone: summary.customer.mobile,
       });
-      setVerified({ bookingId: result.bookingId, paymentId: result.paymentId });
+      setVerified({
+        bookingId: result.bookingId,
+        paymentId: result.paymentId,
+        totalAmountPaise: result.totalAmountPaise ?? Math.round(totalAmount * 100),
+        advanceAmountPaise: result.advanceAmountPaise ?? Math.round(advanceAmount * 100),
+        remainingAmountPaise: result.remainingAmountPaise ?? Math.round(remainingAmount * 100),
+        appointmentEnd: result.appointmentEnd,
+      });
       setState('verified');
       onShowToast({ kind: 'success', message: 'Payment verified and booking confirmed.' });
     } catch (caught) {
@@ -335,12 +351,17 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
         )}
 
         {state === 'verified' && verified ? (
-          <div className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-            <strong>Booking confirmed!</strong>
-            <p className="mt-1 break-all">Booking ID: {verified.bookingId}</p>
-            <p className="mt-1 text-xs">Your 25% advance was received and verified.</p>
-            <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-emerald-700 px-5 py-2.5 font-semibold text-white">Return to salon</button>
-          </div>
+          <BookingConfirmationView
+            data={data}
+            summary={summary}
+            verified={verified}
+            totalAmount={totalAmount}
+            advanceAmount={advanceAmount}
+            remainingAmount={remainingAmount}
+            onClose={onClose}
+            copiedRef={copiedRef}
+            setCopiedRef={setCopiedRef}
+          />
         ) : (
           <button
             type="button"
@@ -354,6 +375,178 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
         <p className="mt-3 text-center text-xs text-gray-500">Amount calculated by server. Never trusts frontend payment amounts.</p>
       </section>
     </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* PHASE 4 — Full booking confirmation after verified payment.         */
+/* ------------------------------------------------------------------ */
+
+function BookingConfirmationView({
+  data,
+  summary,
+  verified,
+  totalAmount,
+  advanceAmount,
+  remainingAmount,
+  onClose,
+  copiedRef,
+  setCopiedRef,
+}: {
+  data: SalonData;
+  summary: {
+    serviceId: string;
+    serviceLines?: PaymentServiceLine[];
+    dateKey: string;
+    startMinutes: number;
+    endMinutes: number;
+    customer: { name: string; mobile: string; email: string; notes: string };
+  };
+  verified: {
+    bookingId: string;
+    paymentId: string;
+    totalAmountPaise: number;
+    advanceAmountPaise: number;
+    remainingAmountPaise: number;
+    appointmentEnd: string;
+  };
+  totalAmount: number;
+  advanceAmount: number;
+  remainingAmount: number;
+  onClose: () => void;
+  copiedRef: boolean;
+  setCopiedRef: (v: boolean) => void;
+}) {
+  const serviceNames = useMemo(() => {
+    if (summary.serviceLines && summary.serviceLines.length > 0) {
+      return summary.serviceLines.map((l) => l.serviceName).join(', ');
+    }
+    const svc = (data.services || []).find((s) => s.id === summary.serviceId);
+    return svc?.name || 'Salon Service';
+  }, [summary, data.services]);
+
+  const timeLabel = `${formatMinutesLabel(summary.startMinutes)} – ${formatMinutesLabel(summary.endMinutes)}`;
+  const durationMinutes = Math.max(0, summary.endMinutes - summary.startMinutes);
+  const bookingRef = verified.bookingId.slice(0, 8).toUpperCase();
+  const paymentRef = verified.paymentId.slice(0, 12).toUpperCase();
+
+  const handleCopyRef = async () => {
+    try {
+      await navigator.clipboard.writeText(verified.bookingId);
+      setCopiedRef(true);
+      setTimeout(() => setCopiedRef(false), 2000);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <div className="mt-5 space-y-4" data-testid="booking-confirmation-view">
+      {/* Success Banner */}
+      <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+        <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
+        <div>
+          <h3 className="text-lg font-bold text-emerald-800">BOOKING CONFIRMED</h3>
+          <p className="text-xs text-emerald-600 mt-0.5">Payment verified server-side via Razorpay</p>
+        </div>
+      </div>
+
+      {/* Booking Reference */}
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bookmark className="w-4 h-4 text-gray-500" />
+            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Booking Reference</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyRef}
+            className="flex items-center gap-1 text-xs font-semibold text-[#ac0053] hover:underline"
+            aria-label="Copy booking reference"
+          >
+            <Copy className="w-3 h-3" />
+            {copiedRef ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="mt-2 text-xl font-black tracking-wider text-gray-900" data-testid="confirmation-booking-ref">
+          {bookingRef}
+        </p>
+      </div>
+
+      {/* Business & Service Details */}
+      <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+        <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-2">
+          <Building2 className="w-3.5 h-3.5" /> Booking Details
+        </h4>
+        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
+          <span className="text-gray-500">Business</span>
+          <span className="font-semibold text-right" data-testid="confirmation-business">{data.salonName}</span>
+          <span className="text-gray-500">Service</span>
+          <span className="font-semibold text-right" data-testid="confirmation-service">{serviceNames}</span>
+          <span className="text-gray-500">Date</span>
+          <span className="font-semibold text-right flex items-center justify-end gap-1" data-testid="confirmation-date">
+            <Calendar className="w-3.5 h-3.5 text-gray-400" /> {summary.dateKey}
+          </span>
+          <span className="text-gray-500">Time</span>
+          <span className="font-semibold text-right flex items-center justify-end gap-1" data-testid="confirmation-time">
+            <Clock className="w-3.5 h-3.5 text-gray-400" /> {timeLabel} ({durationMinutes} min)
+          </span>
+          <span className="text-gray-500">Customer</span>
+          <span className="font-semibold text-right">{summary.customer.name}</span>
+          {summary.customer.mobile && (
+            <>
+              <span className="text-gray-500">Phone</span>
+              <span className="font-semibold text-right">{summary.customer.mobile}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Payment Summary */}
+      <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+        <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-2">
+          <CreditCard className="w-3.5 h-3.5" /> Payment Summary
+        </h4>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-500 flex items-center gap-1"><IndianRupee className="w-3 h-3" /> Total Amount</span>
+            <span className="font-bold text-gray-900" data-testid="confirmation-total">{formatCurrency(totalAmount)}</span>
+          </div>
+          <div className="flex justify-between text-emerald-700 font-semibold">
+            <span>25% Advance Paid</span>
+            <span data-testid="confirmation-advance">{formatCurrency(advanceAmount)}</span>
+          </div>
+          <div className="flex justify-between text-gray-600">
+            <span>Remaining (Pay at Salon)</span>
+            <span className="font-semibold" data-testid="confirmation-remaining">{formatCurrency(remainingAmount)}</span>
+          </div>
+          <div className="border-t border-gray-100 pt-2 flex justify-between text-xs">
+            <span className="text-gray-400 flex items-center gap-1"><Receipt className="w-3 h-3" /> Payment Ref</span>
+            <span className="font-mono font-semibold text-gray-600" data-testid="confirmation-payment-ref">{paymentRef}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-400">Status</span>
+            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">CONFIRMED</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Security Badge */}
+      <div className="flex items-center gap-2 text-xs text-gray-400 px-1">
+        <Shield className="w-3.5 h-3.5" />
+        <span>Payment verified server-side. Amount calculated by backend — never trusted from browser.</span>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 transition-colors"
+          data-testid="confirmation-return-btn"
+        >
+          Return to salon
+        </button>
+      </div>
+    </div>
   );
 }
 

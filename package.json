@@ -146,6 +146,7 @@
     "test:owner-publish-flow": "tsx scripts/test-owner-setup-publish-flow.mjs",
     "test:publish-readiness": "tsx scripts/test-publish-readiness.mjs",
     "test:owner-session-persistence": "tsx scripts/test-owner-session-persistence.mjs",
+    "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",
     "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
     "test:public-security": "tsx scripts/test-public-access-security.mjs"
   },

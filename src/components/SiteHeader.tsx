@@ -28,6 +28,8 @@ import type { SiteAppearance, SiteHeaderThemeId, SiteNavItem } from '../lib/site
 import { useAuth, signOut } from '../lib/useAuth';
 import { useAuthModal } from './AuthModalProvider';
 import { openSiteBooking } from '../lib/siteBooking';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import { LogIn, LogOut, User as UserIcon, CalendarCheck2 } from 'lucide-react';
 import {
   ArrowRight,
@@ -560,8 +562,12 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
 /* --------------------------------------------------------------------- */
 
 export default function SiteHeader({ themeId, data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   const design = DESIGNS[themeId];
   const locale = useSiteLocale();
+  const brandData = ownerPreview && !(data.salonName || '').trim()
+    ? { ...data, salonName: OWNER_PREVIEW_EMPTY.salonName }
+    : data;
   // The five themed templates own their surface design (the barber theme is
   // dark by design), so the header resolves from the theme default — never
   // the legacy `websiteAppearance` field those renderers intentionally ignore.
@@ -642,8 +648,8 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
 
   return (
     <>
-      {/* Optional utility strip (family / nail themes) — scrolls away, never sticky. */}
-      {design.utilityStrip?.(appearance)}
+      {/* Sample utility claims are design copy, not owner business facts. */}
+      {!ownerPreview && design.utilityStrip?.(appearance)}
       <header
         id="section-header"
         data-site-section="header"
@@ -663,9 +669,9 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
           data-testid="site-brand"
           className="min-w-0 text-left cursor-pointer"
           onClick={() => go({ key: 'home', targetId: 'section-hero' })}
-          aria-label={`${data.salonName || 'Salon'} — ${SITE_NAV_LABELS.home.en}`}
+          aria-label={`${brandData.salonName || OWNER_PREVIEW_EMPTY.salonName} — ${SITE_NAV_LABELS.home.en}`}
         >
-          {design.brand(data, appearance)}
+          {design.brand(brandData, appearance)}
         </button>
 
         {/* Desktop navigation */}

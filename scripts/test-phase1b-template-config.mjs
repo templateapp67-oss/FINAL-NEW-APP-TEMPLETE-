@@ -24,8 +24,9 @@ function read(p) { return readFileSync(resolve(ROOT, p), 'utf8'); }
 
 {
   const svc = read('src/lib/salonWebsiteService.ts');
-  if (svc.includes('templateConfig: data.templateConfig')) pass('draft save persists templateConfig');
-  else fail('persist', 'templateConfig not in website service');
+  if (svc.includes('templateConfig: sanitizeTemplateConfigForTemplate') && svc.includes('templateConfigs: normalizeTemplateConfigs')) {
+    pass('draft save persists sanitized active + per-template config');
+  } else fail('persist', 'sanitized template configs not in website service');
 }
 
 {

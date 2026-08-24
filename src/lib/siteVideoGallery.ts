@@ -321,6 +321,7 @@ export function videoItemsForTheme(
   themeId: SiteHeaderThemeId,
   data: Pick<SalonData, 'socialVideos' | 'disabledThemeVideoIds'>,
   locale: AppLocale = 'en',
+  ownerDataOnly = false,
 ): VideoGalleryItem[] {
   const config = videoGalleryThemeConfig(themeId);
   const ownerItems: VideoGalleryItem[] = [];
@@ -369,8 +370,15 @@ export function videoItemsForTheme(
     return current.concat(extras).slice(0, quota);
   };
 
-  const finalShorts = fillKind(VIDEO_KIND_SHORT, shorts, config.shortQuota);
-  const finalLongs = fillKind(VIDEO_KIND_LONG, longs, config.longQuota);
+  // Authenticated owner previews are a real-data boundary: never fill missing
+  // rows with the protected showcase catalog. Published sites retain the
+  // existing curated presentation behaviour.
+  const finalShorts = ownerDataOnly
+    ? shorts
+    : fillKind(VIDEO_KIND_SHORT, shorts, config.shortQuota);
+  const finalLongs = ownerDataOnly
+    ? longs
+    : fillKind(VIDEO_KIND_LONG, longs, config.longQuota);
 
   // Shorts first, then longs — stable, predictable order for the UI tabs.
   return [...finalShorts, ...finalLongs];

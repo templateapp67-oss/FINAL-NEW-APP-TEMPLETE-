@@ -15,7 +15,7 @@ import {
   updateLocalSavedServiceRow,
 } from './localSavedServices';
 import { mapContentTranslations as mapTranslations, mapServiceMedia as mapMedia } from './locale';
-import type { ServiceMedia, ServiceTranslation } from '../types';
+import type { Service, ServiceMedia, ServiceTranslation } from '../types';
 
 export type SavedServiceStatus = 'active' | 'inactive' | 'archived';
 
@@ -43,6 +43,27 @@ export interface SavedService {
   featured: boolean;
   translations: ServiceTranslation[];
   media?: ServiceMedia;
+}
+
+/** Canonical saved-service row → website builder/UI service shape. */
+export function savedServiceToSalonService(service: SavedService): Service {
+  return {
+    id: service.id,
+    businessId: service.businessId,
+    themeId: service.themeId,
+    themeKey: service.themeKey,
+    categoryId: service.categoryId,
+    predefinedServiceId: service.predefinedServiceId,
+    name: service.name,
+    category: service.category,
+    description: service.description,
+    price: service.price,
+    duration: service.duration,
+    featured: service.featured,
+    status: service.status,
+    translations: service.translations,
+    media: service.media,
+  };
 }
 
 /** Retained name for existing Phase 7.4 callers/tests. */

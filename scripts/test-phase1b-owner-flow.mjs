@@ -50,9 +50,9 @@ const FIVE = [
     else fail(`Template catalog: ${id}`, 'missing');
   }
 
-  if (tpl.includes('switchSalonTemplatePresentation') && tpl.includes('services: data.services')) {
-    pass('Switch preserves services/packages/team/gallery');
-  } else fail('Switch isolation', 'switch helper missing preservation');
+  if (tpl.includes('switchSalonTemplatePresentation') && tpl.includes('assertTemplateSwitchPreservesBusiness(data, switched)')) {
+    pass('Switch protects every non-presentation SalonData field');
+  } else fail('Switch isolation', 'switch helper missing fail-closed preservation guard');
 }
 
 {
@@ -67,14 +67,14 @@ const FIVE = [
     pass('Template switch persists via set_owner_salon_template + local presentation helper');
   } else fail('Template switch wiring', 'missing RPC or helper');
 
-  if (app.includes('nexora_signup_salon_name')) {
-    pass('Signup salon name feeds provisioning');
-  } else fail('Signup name', 'not wired into provision');
+  if (app.includes('ownerSalonNameFromMetadata(user)') && !app.includes('nexora_signup_salon_name')) {
+    pass('Provisioning name comes from current authenticated-user metadata');
+  } else fail('Signup name isolation', 'browser-local signup name must not feed provisioning');
 }
 
 {
   const details = read('src/screens/StepDetails.tsx');
-  if (details.includes('owner-onboarding-templates') && details.includes('ThemeSelector')) {
+  if (details.includes('owner-onboarding-templates') && details.includes('listOwnerTemplates')) {
     pass('Owner onboarding includes 5-template picker');
   } else fail('Onboarding picker', 'missing from StepDetails');
 }
@@ -105,21 +105,29 @@ const FIVE = [
 
 {
   const svc = read('src/lib/salonWebsiteService.ts');
-  if (svc.includes('templateConfig: data.templateConfig')) {
-    pass('Draft save persists templateConfig in existing config JSONB');
-  } else fail('Draft persist', 'templateConfig not saved');
+  if (svc.includes('templateConfig: sanitizeTemplateConfigForTemplate') && svc.includes('templateConfigs: normalizeTemplateConfigs')) {
+    pass('Draft save persists sanitized active and per-template config in existing JSONB');
+  } else fail('Draft persist', 'sanitized per-template config not saved');
 }
 
 {
   const signup = read('src/components/SignUpPage.tsx');
-  if (signup.includes('nexora_signup_salon_name')) pass('Signup stores business name for onboarding');
-  else fail('Signup persist', 'missing salon name store');
+  const auth = read('src/lib/useAuth.ts');
+  const ownerSession = read('src/lib/ownerSession.ts');
+  if (
+    !signup.includes('nexora_signup_salon_name')
+    && auth.includes('salon_name: salonName')
+    && ownerSession.includes('ownerSalonNameFromMetadata')
+    && ownerSession.includes("|| 'My Salon'")
+  ) pass('Signup business name is account-scoped in auth metadata');
+  else fail('Signup name metadata', 'expected scoped metadata with a generic modal fallback');
 }
 
 {
   const types = read('src/types.ts');
-  if (types.includes('templateConfig?: TemplateConfig')) pass('SalonData includes templateConfig');
-  else fail('Types', 'templateConfig missing');
+  if (types.includes('templateConfig?: Partial<TemplateConfig>') && types.includes('templateConfigs?: TemplateConfigs')) {
+    pass('SalonData includes active and per-template config');
+  } else fail('Types', 'active/per-template config missing');
 }
 
 {

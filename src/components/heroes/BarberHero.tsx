@@ -17,6 +17,7 @@ import type { CSSProperties } from 'react';
 import type { SalonData } from '../../types';
 import SiteImage from '../SiteImage';
 import HeroMediaFrame from './HeroMediaFrame';
+import OwnerPreviewHeroMedia from './OwnerPreviewHeroMedia';
 import SiteSalonStatus from '../SiteSalonStatus';
 import { useSiteLocale, useThemeAppearance } from '../SiteHeader';
 import { getSalonNameStyle } from '../../lib/brandIdentity';
@@ -27,6 +28,7 @@ import { heroCtaOptions, heroDescription, heroFocusBadges, heroHeadline, heroLog
 import { heroImageSizes, heroImageSrc, heroMediaPlan, useReducedMotion, withHeroPoster } from '../../lib/siteHeroMedia';
 import { openSiteBooking } from '../../lib/siteBooking';
 import SiteProtectedContactAction from '../SiteProtectedContactAction';
+import { useIsOwnerPreview } from '../SiteRenderContext';
 import { heroCtaClass, heroLinkProps } from '../../lib/siteHeroNav';
 import type { ViewportMode } from '../../lib/siteStructure';
 import { Star, MapPin, Scissors, PlayCircle, Phone, MessageCircle, Images } from 'lucide-react';
@@ -37,12 +39,13 @@ interface Props {
 }
 
 export default function BarberHero({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   const locale = useSiteLocale();
   const appearance = useThemeAppearance('barber_mens_grooming');
   const t = surfacesOf(BARBER_SURFACES, appearance);
   const H = heroText('barber_mens_grooming', locale);
   const headline = heroHeadline(data, H);
-  const focus = heroFocusBadges(data, H.focus);
+  const focus = heroFocusBadges(data, H.focus, 2, ownerPreview);
   const media = heroMedia('barber_mens_grooming', data);
   const meta = heroMeta('barber_mens_grooming', data);
   const reducedMotion = useReducedMotion();
@@ -73,17 +76,19 @@ export default function BarberHero({ data, mode }: Props) {
       className="site-section relative overflow-hidden"
       style={{ backgroundColor: t.charcoal }}
     >
-      {/* Cinematic backdrop — the barber floor shot, darkened. */}
-      <SiteImage
-        src={heroImageSrc(basePlan.posterUrl, mode)}
-        alt={H[media.primary.altKey]}
-        className="absolute inset-0 w-full h-full"
-        style={{ position: 'absolute', opacity: appearance === 'dark' ? 0.28 : 0.16 }}
-        context="hero"
-        priority
-        aspectRatio="16/9"
-        objectPosition={heroObjectPosition(data)}
-      />
+      {/* Never present theme stock as this owner's business photography. */}
+      {!ownerPreview && (
+        <SiteImage
+          src={heroImageSrc(basePlan.posterUrl, mode)}
+          alt={H[media.primary.altKey]}
+          className="absolute inset-0 w-full h-full"
+          style={{ position: 'absolute', opacity: appearance === 'dark' ? 0.28 : 0.16 }}
+          context="hero"
+          priority
+          aspectRatio="16/9"
+          objectPosition={heroObjectPosition(data)}
+        />
+      )}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ background: `linear-gradient(100deg, ${t.charcoal} 32%, transparent 130%)` }}
@@ -140,9 +145,9 @@ export default function BarberHero({ data, mode }: Props) {
               style={{ color: t.textStrong }}
             >
               {headline.main}
-              {' '}
-              <br />
-              <span style={{ color: t.gold }}>{headline.accent}</span>
+              {!ownerPreview && (
+                <><br /><span style={{ color: t.gold }}>{headline.accent}</span></>
+              )}
             </h1>
 
             <p
@@ -153,7 +158,8 @@ export default function BarberHero({ data, mode }: Props) {
               {heroDescription(data, H.description)}
             </p>
 
-            {/* PHASE 11.2 — grooming focus, set as a hard-edged stencil row */}
+            {/* Owner mode shows only focus labels proven by real services. */}
+            {focus.length > 0 && (
             <div data-testid="hero-focus" className="mt-7">
               <span className="text-[9px] font-bold uppercase tracking-[0.32em]" style={{ color: t.muted }}>
                 {H.focusLabel}
@@ -170,10 +176,13 @@ export default function BarberHero({ data, mode }: Props) {
                   </span>
                 ))}
               </div>
-              <p data-testid="hero-audience" className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: t.muted }}>
-                {H.audience}
-              </p>
+              {!ownerPreview && (
+                <p data-testid="hero-audience" className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: t.muted }}>
+                  {H.audience}
+                </p>
+              )}
             </div>
+            )}
 
             {/* Sharp slab CTAs */}
             <div className="flex flex-wrap gap-3 mt-9">
@@ -237,13 +246,25 @@ export default function BarberHero({ data, mode }: Props) {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-x-7 gap-y-2 mt-8 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: t.text }}>
-              <span className="flex items-center gap-2"><Scissors className="w-3.5 h-3.5" style={{ color: t.gold }} aria-hidden /> {H.chip1}</span>
-              <span className="flex items-center gap-2"><Scissors className="w-3.5 h-3.5" style={{ color: t.gold }} aria-hidden /> {H.chip2}</span>
-            </div>
+            {!ownerPreview && (
+              <div className="flex flex-wrap gap-x-7 gap-y-2 mt-8 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: t.text }}>
+                <span className="flex items-center gap-2"><Scissors className="w-3.5 h-3.5" style={{ color: t.gold }} aria-hidden /> {H.chip1}</span>
+                <span className="flex items-center gap-2"><Scissors className="w-3.5 h-3.5" style={{ color: t.gold }} aria-hidden /> {H.chip2}</span>
+              </div>
+            )}
           </div>
 
           {/* ---- Film-strip plate: motion cell + still cells ------ */}
+          {ownerPreview ? (
+            <OwnerPreviewHeroMedia
+              data={data}
+              mode={mode}
+              accent={t.gold}
+              background={t.charcoalSoft}
+              className={compact ? 'mt-2' : ''}
+              aspectRatio={compact ? '16/10' : '4/3'}
+            />
+          ) : (
           <div data-testid="hero-media" className={`relative ${compact ? 'mt-2' : ''}`}>
             <div className="absolute -inset-2 border pointer-events-none" style={{ borderColor: t.gold, opacity: 0.55 }} />
             <div className="relative grid gap-2">
@@ -300,6 +321,7 @@ export default function BarberHero({ data, mode }: Props) {
             )}
             <p className="mt-3 text-[10px] leading-relaxed" style={{ color: t.muted }}>{H.mediaBody}</p>
           </div>
+          )}
         </div>
 
         {/* ---- Brass rail: stat · rating · location · status ----- */}

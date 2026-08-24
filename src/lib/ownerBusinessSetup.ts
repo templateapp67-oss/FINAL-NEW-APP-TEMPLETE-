@@ -153,7 +153,9 @@ export function mergeSalonRowIntoDraft(
   return {
     ...data,
     salonId: row.salonId,
-    salonName: row.name?.trim() || data.salonName,
+    // Canonical SQL columns are authoritative even when NULL. Falling back to
+    // an older JSON draft here can resurrect a renamed/sample business fact.
+    salonName: row.name?.trim() || '',
     address: {
       ...(data.address || {
         fullAddress: '',
@@ -162,8 +164,8 @@ export function mergeSalonRowIntoDraft(
         state: '',
         pinCode: '',
       }),
-      fullAddress: row.address?.trim() || data.address?.fullAddress || '',
-      city: row.city?.trim() || data.address?.city || '',
+      fullAddress: row.address?.trim() || '',
+      city: row.city?.trim() || '',
     },
   };
 }

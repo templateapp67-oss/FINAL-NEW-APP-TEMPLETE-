@@ -167,7 +167,7 @@ export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) 
             ref={previewRef}
             className="w-full h-full flex items-center justify-center overflow-hidden relative"
           >
-            <TemplateRenderer data={previewData} mode={mode} />
+            <TemplateRenderer data={previewData} mode={mode} renderMode="owner-preview" />
           </div>
 
           {/* Toast / Help Tip overlay */}

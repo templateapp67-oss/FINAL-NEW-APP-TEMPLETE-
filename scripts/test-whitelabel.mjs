@@ -110,6 +110,7 @@ await db.exec(`
 
   create table if not exists public.profiles (
     id uuid primary key, platform_role text not null default 'customer',
+    full_name text, phone text,
     is_active boolean not null default true, updated_at timestamptz not null default now()
   );
   create table if not exists public.organizations (
@@ -133,7 +134,8 @@ await db.exec(`
     id uuid primary key default gen_random_uuid(),
     organization_id uuid not null references public.organizations(id),
     theme_id uuid references public.themes(id),
-    name text not null, is_active boolean not null default true,
+    name text not null, address text, city text,
+    is_active boolean not null default true,
     deleted_at timestamptz, created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
   );
@@ -149,15 +151,37 @@ await db.exec(`
   create table if not exists public.services (
     id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
     theme_id uuid references public.themes(id), name text not null,
+    price_paise bigint not null default 0, duration_minutes integer,
     is_active boolean not null default true, deleted_at timestamptz
+  );
+  create table if not exists public.service_price_variants (
+    id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
+    theme_id uuid references public.themes(id), service_id uuid references public.services(id),
+    name text not null, price_paise bigint not null, duration_minutes integer
   );
   create table if not exists public.products (
     id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
-    name text not null
+    name text not null, price_paise bigint not null default 0, stock_quantity integer not null default 0
+  );
+  create table if not exists public.business_locations (
+    id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
+    name text not null, address_line1 text not null, city text not null,
+    latitude numeric, longitude numeric
   );
   create table if not exists public.bookings (
     id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
-    customer_name text not null
+    customer_id uuid references public.profiles(id), customer_name text not null,
+    total_paise bigint not null default 0, status text not null default 'confirmed'
+  );
+  create table if not exists public.payment_orders (
+    id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
+    booking_id uuid references public.bookings(id), amount_paise bigint not null,
+    currency text not null default 'INR', status text not null
+  );
+  create table if not exists public.payments (
+    id uuid primary key default gen_random_uuid(), salon_id uuid references public.salons(id),
+    booking_id uuid references public.bookings(id), payment_order_id uuid references public.payment_orders(id),
+    amount_paise bigint not null, status text not null, provider_payment_id text
   );
 
   insert into public.themes (theme_id, name, slug) values
@@ -204,12 +228,19 @@ const verify = (await db.query('select check_name, ok from public.verify_phase1_
 assert.ok(verify.every((r) => r.ok === true), JSON.stringify(verify));
 ok('verify_phase1_whitelabel() is green');
 
+await execMigration(await read('20260824000501_m48_template_switch_isolation.sql'));
+ok('M48 template-switch isolation migration applies cleanly');
+
 const ids = {
   ownerA: '00000000-0000-4000-8000-0000000000a1',
   ownerB: '00000000-0000-4000-8000-0000000000b1',
+  customerA: '00000000-0000-4000-8000-0000000000c1',
 };
-await db.query(`insert into auth.users (id,email) values ($1,'a@x'),($2,'b@x')`, [ids.ownerA, ids.ownerB]);
-await db.query(`insert into public.profiles (id) values ($1),($2)`, [ids.ownerA, ids.ownerB]);
+await db.query(`insert into auth.users (id,email) values ($1,'a@x'),($2,'b@x'),($3,'customer@x')`, [ids.ownerA, ids.ownerB, ids.customerA]);
+await db.query(
+  `insert into public.profiles (id,full_name,phone) values ($1,'Ananya Owner','+919900000001'),($2,'B Owner','+919900000002'),($3,'Neha Customer','+919900000003')`,
+  [ids.ownerA, ids.ownerB, ids.customerA],
+);
 
 const setUser = (id) => db.query("select set_config('request.jwt.claim.sub',$1,false)", [id || '']);
 const asRole = async (role, uid, fn) => {
@@ -271,47 +302,177 @@ await asRole('authenticated', ids.ownerB, async () => {
 });
 ok('second owner provisions their own distinct live slug');
 
-// 4. Template switch is data-safe. Seed a service/product/booking under A's
-//    salon with the CURRENT theme, then switch templates twice.
+// 4. Critical sequence: Template 1 → 3 → 5 → 2. Capture every
+//    protected business domain once, then compare it after EVERY switch.
 const themeBefore = (await db.query(
   `select theme_id from public.salons where id=$1`, [row.out_salon_id],
 )).rows[0].theme_id;
 const beautyTheme = (await db.query(`select id from public.themes where theme_id='beauty_skin_spa'`)).rows[0].id;
 assert.equal(themeBefore, beautyTheme);
 
-await db.query(`insert into public.services (salon_id,theme_id,name) values ($1,$2,'Signature Facial')`, [row.out_salon_id, beautyTheme]);
-await db.query(`insert into public.products (salon_id,name) values ($1,'Vitamin C Serum')`, [row.out_salon_id]);
-await db.query(`insert into public.bookings (salon_id,customer_name) values ($1,'Neha')`, [row.out_salon_id]);
+await db.query(
+  `update public.salons set address='12 Lake Road', city='Mumbai' where id=$1`,
+  [row.out_salon_id],
+);
+await db.query(
+  `insert into public.business_locations (salon_id,name,address_line1,city,latitude,longitude)
+   values ($1,'Royal Hair Studio — Bandra','12 Lake Road','Mumbai',19.0600,72.8300)`,
+  [row.out_salon_id],
+);
+const serviceId = (await db.query(
+  `insert into public.services (salon_id,theme_id,name,price_paise,duration_minutes)
+   values ($1,$2,'Signature Facial',250000,60) returning id`,
+  [row.out_salon_id, beautyTheme],
+)).rows[0].id;
+await db.query(
+  `insert into public.service_price_variants (salon_id,theme_id,service_id,name,price_paise,duration_minutes)
+   values ($1,$2,$3,'Premium',350000,90)`,
+  [row.out_salon_id, beautyTheme, serviceId],
+);
+await db.query(
+  `insert into public.products (salon_id,name,price_paise,stock_quantity)
+   values ($1,'Vitamin C Serum',129900,14)`,
+  [row.out_salon_id],
+);
+const bookingId = (await db.query(
+  `insert into public.bookings (salon_id,customer_id,customer_name,total_paise,status)
+   values ($1,$2,'Neha Customer',350000,'confirmed') returning id`,
+  [row.out_salon_id, ids.customerA],
+)).rows[0].id;
+const paymentOrderId = (await db.query(
+  `insert into public.payment_orders (salon_id,booking_id,amount_paise,currency,status)
+   values ($1,$2,100000,'INR','paid') returning id`,
+  [row.out_salon_id, bookingId],
+)).rows[0].id;
+await db.query(
+  `insert into public.payments (salon_id,booking_id,payment_order_id,amount_paise,status,provider_payment_id)
+   values ($1,$2,$3,100000,'captured','pay_preserved_001')`,
+  [row.out_salon_id, bookingId, paymentOrderId],
+);
 
-let switched;
-await asRole('authenticated', ids.ownerA, async () => {
-  const res = await db.query(`select * from public.set_owner_salon_template('nail_lash_studio')`);
-  switched = res.rows[0];
+const protectedSnapshot = async () => ({
+  business: (await db.query(
+    `select o.id,o.name,o.status from public.organizations o
+     join public.salons s on s.organization_id=o.id where s.id=$1`,
+    [row.out_salon_id],
+  )).rows,
+  businessNameAndAddress: (await db.query(
+    `select id,organization_id,name,address,city,is_active,deleted_at,created_at,updated_at
+     from public.salons where id=$1`,
+    [row.out_salon_id],
+  )).rows,
+  websiteIdentityAndPublication: (await db.query(
+    `select id,salon_id,slug,is_published,published_at,created_at,updated_at
+     from public.salon_public_websites where salon_id=$1`,
+    [row.out_salon_id],
+  )).rows,
+  owner: (await db.query(
+    `select om.organization_id,om.user_id,om.role,om.is_active,p.full_name,p.phone,p.platform_role,p.is_active as profile_active
+     from public.organization_members om join public.profiles p on p.id=om.user_id
+     join public.salons s on s.organization_id=om.organization_id
+     where s.id=$1 and om.role='owner' order by om.user_id`,
+    [row.out_salon_id],
+  )).rows,
+  location: (await db.query(
+    `select id,salon_id,name,address_line1,city,latitude,longitude from public.business_locations where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
+  services: (await db.query(
+    `select id,salon_id,theme_id,name,price_paise,duration_minutes,is_active,deleted_at from public.services where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
+  pricing: (await db.query(
+    `select id,salon_id,theme_id,service_id,name,price_paise,duration_minutes from public.service_price_variants where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
+  products: (await db.query(
+    `select id,salon_id,name,price_paise,stock_quantity from public.products where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
+  customers: (await db.query(
+    `select distinct p.id,p.full_name,p.phone,p.platform_role,p.is_active
+     from public.profiles p join public.bookings b on b.customer_id=p.id
+     where b.salon_id=$1 order by p.id`,
+    [row.out_salon_id],
+  )).rows,
+  bookings: (await db.query(
+    `select id,salon_id,customer_id,customer_name,total_paise,status from public.bookings where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
+  paymentOrders: (await db.query(
+    `select id,salon_id,booking_id,amount_paise,currency,status from public.payment_orders where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
+  payments: (await db.query(
+    `select id,salon_id,booking_id,payment_order_id,amount_paise,status,provider_payment_id from public.payments where salon_id=$1 order by id`,
+    [row.out_salon_id],
+  )).rows,
 });
-assert.equal(switched.out_template_id, 'nail_lash_studio');
-const afterSwitch = (await db.query(`
-  select
-    (select count(*)::int from public.services where salon_id=$1)::int as services,
-    (select count(*)::int from public.products where salon_id=$1)::int as products,
-    (select count(*)::int from public.bookings where salon_id=$1)::int as bookings,
-    (select theme_id from public.salons where id=$1) as theme_id,
-    (select template_key from public.salon_public_websites where salon_id=$1) as template_key
-`, [row.out_salon_id])).rows[0];
-assert.equal(afterSwitch.services, 1, 'services must survive template switch');
-assert.equal(afterSwitch.products, 1, 'products must survive template switch');
-assert.equal(afterSwitch.bookings, 1, 'bookings must survive template switch');
-const nailTheme = (await db.query(`select id from public.themes where theme_id='nail_lash_studio'`)).rows[0].id;
-assert.equal(afterSwitch.theme_id, nailTheme);
-assert.equal(afterSwitch.template_key, 'nail_lash_studio');
-ok('template switch updates presentation ONLY (services/products/bookings intact)');
 
-// Switch back to original — data still present and reversible.
+const beforeSwitches = await protectedSnapshot();
+const switchSequence = [
+  'barber_mens_grooming',   // Template 1
+  'beauty_skin_spa',        // Template 3
+  'nail_lash_studio',       // Template 5
+  'hair_studio_color_bar',  // Template 2
+];
+
+for (const [index, templateId] of switchSequence.entries()) {
+  let switched;
+  await asRole('authenticated', ids.ownerA, async () => {
+    const result = await db.query(`select * from public.set_owner_salon_template($1)`, [templateId]);
+    switched = result.rows[0];
+  });
+  assert.equal(switched.out_template_id, templateId);
+
+  const presentation = (await db.query(
+    `select t.theme_id,w.template_key from public.salons s
+     join public.themes t on t.id=s.theme_id
+     join public.salon_public_websites w on w.salon_id=s.id
+     where s.id=$1`,
+    [row.out_salon_id],
+  )).rows[0];
+  assert.equal(presentation.theme_id, templateId);
+  assert.equal(presentation.template_key, templateId);
+  assert.deepEqual(
+    await protectedSnapshot(),
+    beforeSwitches,
+    `protected data changed after switch ${index + 1} (${templateId})`,
+  );
+  ok(`Template ${[1, 3, 5, 2][index]} preserves business/name/owner/address/location/services/pricing/products/customers/bookings/payments`);
+}
+
 await asRole('authenticated', ids.ownerA, async () => {
-  await db.query(`select * from public.set_owner_salon_template('beauty_skin_spa')`);
+  await db.query(
+    `select * from public.set_owner_salon_visual_config('{"brandColor":"#123456","templateConfig":{"showOwnerPhoto":false},"templateConfigs":{"barber_mens_grooming":{"heroPosition":"Top"},"hair_studio_color_bar":{"showOwnerPhoto":false}}}'::jsonb)`,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.set_owner_salon_visual_config('{"salonName":"Tampered"}'::jsonb)`),
+    /non-presentation field|22023/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.set_owner_salon_visual_config('{"templateConfig":{"salonName":"Tampered"}}'::jsonb)`),
+    /non-visual field|22023/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.set_owner_salon_visual_config('{"templateConfigs":{"unknown_template":{"appearance":"dark"}}}'::jsonb)`),
+    /unknown template|invalid config|22023/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.set_owner_salon_visual_config('{"templateConfigs":{"nail_lash_studio":{"galleryLayout":"masonry"}}}'::jsonb)`),
+    /non-visual field|22023/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.set_owner_salon_visual_config('{"templateConfigs":{"nail_lash_studio":{"heroPosition":"Top"}}}'::jsonb)`),
+    /unsupported by its template|22023/i,
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.set_owner_salon_visual_config('{"templateConfigs":{"beauty_skin_spa":{"appearance":["dark"]}}}'::jsonb)`),
+    /invalid visual value|22023/i,
+  );
 });
-const back = (await db.query(`select count(*)::int n from public.services where salon_id=$1`, [row.out_salon_id])).rows[0].n;
-assert.equal(back, 1);
-ok('switching A→B→A is fully reversible with no data loss');
+assert.deepEqual(await protectedSnapshot(), beforeSwitches);
+ok('visual-config RPC accepts only presentation keys and preserves every protected domain');
 
 // 5. RLS / public read: anon can read the PUBLISHED row (dynamic site render).
 let anonRow;
@@ -322,7 +483,7 @@ await asRole('anon', '', async () => {
   anonRow = res.rows[0];
 });
 assert.ok(anonRow, 'anon must be able to read a published website');
-assert.equal(anonRow.template_key, 'beauty_skin_spa');
+assert.equal(anonRow.template_key, 'hair_studio_color_bar');
 ok('anonymous visitors can read published salon websites (dynamic /[slug] render)');
 
 // Unauthenticated template switch is rejected. The function is granted to
@@ -341,7 +502,7 @@ await asRole('authenticated', ids.ownerB, async () => {
   await db.query(`select * from public.set_owner_salon_template('family_full_service')`);
 });
 const aThemeAfterB = (await db.query(`select template_key from public.salon_public_websites where salon_id=$1`, [row.out_salon_id])).rows[0].template_key;
-assert.equal(aThemeAfterB, 'beauty_skin_spa');
+assert.equal(aThemeAfterB, 'hair_studio_color_bar');
 ok('owner B cannot change owner A template (RLS ownership boundary)');
 
 console.log(`\nWhite-label provisioning: ${passed}/${passed} checks PASS`);

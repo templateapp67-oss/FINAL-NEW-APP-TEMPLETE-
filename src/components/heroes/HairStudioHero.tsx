@@ -14,6 +14,7 @@ import type { CSSProperties } from 'react';
 import type { SalonData } from '../../types';
 import SiteImage from '../SiteImage';
 import HeroMediaFrame from './HeroMediaFrame';
+import OwnerPreviewHeroMedia from './OwnerPreviewHeroMedia';
 import SiteSalonStatus from '../SiteSalonStatus';
 import { useSiteLocale, useThemeAppearance } from '../SiteHeader';
 import { getSalonNameStyle } from '../../lib/brandIdentity';
@@ -23,6 +24,7 @@ import { heroCtaOptions, heroDescription, heroFocusBadges, heroHeadline, heroLog
 import { heroImageSizes, heroImageSrc, heroMediaPlan, useReducedMotion } from '../../lib/siteHeroMedia';
 import { openSiteBooking } from '../../lib/siteBooking';
 import SiteProtectedContactAction from '../SiteProtectedContactAction';
+import { useIsOwnerPreview } from '../SiteRenderContext';
 import { heroCtaClass, heroLinkProps } from '../../lib/siteHeroNav';
 import type { ViewportMode } from '../../lib/siteStructure';
 import { Star, MapPin, ArrowUpRight, Play, Phone, MessageCircle, Images } from 'lucide-react';
@@ -33,13 +35,14 @@ interface Props {
 }
 
 export default function HairStudioHero({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   const locale = useSiteLocale();
   const appearance = useThemeAppearance('hair_studio_color_bar');
   const t = surfacesOf(HAIR_STUDIO_SURFACES, appearance);
   const isDark = appearance === 'dark';
   const H = heroText('hair_studio_color_bar', locale);
   const headline = heroHeadline(data, H);
-  const focus = heroFocusBadges(data, H.focus);
+  const focus = heroFocusBadges(data, H.focus, 2, ownerPreview);
   const media = heroMedia('hair_studio_color_bar', data);
   const meta = heroMeta('hair_studio_color_bar', data);
   const reducedMotion = useReducedMotion();
@@ -120,9 +123,9 @@ export default function HairStudioHero({ data, mode }: Props) {
               style={{ color: t.ink }}
             >
               {headline.main}
-              {' '}
-              <br />
-              <em className="not-italic" style={{ color: t.roseDeep }}>{headline.accent}</em>
+              {!ownerPreview && (
+                <><br /><em className="not-italic" style={{ color: t.roseDeep }}>{headline.accent}</em></>
+              )}
             </h1>
             <div className="h-px w-20 my-7" style={{ backgroundColor: t.rose }} />
             <p
@@ -133,7 +136,8 @@ export default function HairStudioHero({ data, mode }: Props) {
               {heroDescription(data, H.description)}
             </p>
 
-            {/* PHASE 11.2 — colour-bar index, typeset as a printed contents list */}
+            {/* Owner mode shows only focus labels proven by real services. */}
+            {focus.length > 0 && (
             <div data-testid="hero-focus" className="mt-7 border-t pt-4" style={{ borderColor: t.line }}>
               <span className="text-[9px] uppercase tracking-[0.36em] font-semibold" style={{ color: t.roseDeep }}>
                 {H.focusLabel}
@@ -148,10 +152,13 @@ export default function HairStudioHero({ data, mode }: Props) {
                   </span>
                 ))}
               </div>
-              <p data-testid="hero-audience" className="mt-3 text-[10px] italic" style={{ color: t.muted }}>
-                {H.audience}
-              </p>
+              {!ownerPreview && (
+                <p data-testid="hero-audience" className="mt-3 text-[10px] italic" style={{ color: t.muted }}>
+                  {H.audience}
+                </p>
+              )}
             </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-6 mt-9">
               <button
@@ -237,6 +244,15 @@ export default function HairStudioHero({ data, mode }: Props) {
           </div>
 
           {/* ---- Contact-sheet gallery wall ------------------------ */}
+          {ownerPreview ? (
+            <OwnerPreviewHeroMedia
+              data={data}
+              mode={mode}
+              accent={t.roseDeep}
+              background={t.paper}
+              aspectRatio={compact ? '3/4' : '4/3'}
+            />
+          ) : (
           <div data-testid="hero-media" className={`grid gap-3 ${mediaCols}`}>
             {/* PHASE 11.3 — editorial plate 01 carries the studio film */}
             <figure className="relative m-0">
@@ -294,9 +310,12 @@ export default function HairStudioHero({ data, mode }: Props) {
               )}
             </div>
           </div>
+          )}
         </div>
 
-        <p className="mt-8 text-[10px] leading-relaxed max-w-sm" style={{ color: t.muted }}>{H.mediaBody}</p>
+        {!ownerPreview && (
+          <p className="mt-8 text-[10px] leading-relaxed max-w-sm" style={{ color: t.muted }}>{H.mediaBody}</p>
+        )}
       </div>
     </section>
   );

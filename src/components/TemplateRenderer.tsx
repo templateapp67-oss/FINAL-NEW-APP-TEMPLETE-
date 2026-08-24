@@ -6,7 +6,7 @@ import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
 import { getReadableTextColor, withHexAlpha } from '../lib/websiteCustomization';
 import { normalizeThemeId } from '../lib/themeServices';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
-import { digitsOnly, salonMapsHref } from '../lib/siteBooking';
+import { canCall, canWhatsApp, digitsOnly, hasSalonAddress, salonMapsHref } from '../lib/siteBooking';
 import {
   type BookingContext,
   type BookingExpertOption,
@@ -28,13 +28,20 @@ import { resolveWebsiteCopy, buildWhatsAppHref } from '../lib/websiteCopy';
 import { scrollToSiteSection } from '../lib/siteNavigation';
 import { publicWebsiteHref } from '../lib/publicWebsiteUrl';
 import { Sparkles, Phone, MessageCircle, CalendarCheck, MapPin, Clock, Navigation, Instagram, Facebook, Youtube, Video, Heart, ExternalLink, CreditCard, Play } from 'lucide-react';
+import { OWNER_PREVIEW_EMPTY, ownerPreviewData } from '../lib/ownerPreview';
+import { SiteRenderModeProvider, type SiteRenderMode } from './SiteRenderContext';
 
 interface Props {
   data: SalonData;
   mode: 'desktop' | 'tablet' | 'mobile';
+  /** Public rendering keeps theme presentation fallbacks; authenticated owner
+   * previews enforce the truthful real-business data boundary. */
+  renderMode?: SiteRenderMode;
 }
 
-export default function TemplateRenderer({ data, mode }: Props) {
+export default function TemplateRenderer({ data: sourceData, mode, renderMode = 'public' }: Props) {
+  const ownerPreview = renderMode === 'owner-preview';
+  const data = ownerPreview ? ownerPreviewData(sourceData) : sourceData;
   // Preserve the deployed legacy `hair` renderer while canonicalising the five
   // current owner templates. Mapping `hair` to the default canonical theme
   // here made existing published legacy sites silently render the wrong UI.
@@ -57,13 +64,13 @@ export default function TemplateRenderer({ data, mode }: Props) {
   const publicSlug = (data.websiteSlug || '').trim().toLowerCase();
 
   useEffect(() => {
-    if (!publicSlug) return;
+    if (!publicSlug || renderMode === 'owner-preview') return;
     let active = true;
     fetchBookingContext(publicSlug)
       .then((context) => { if (active) setLiveContext(context); })
       .catch(() => { if (active) setLiveContext(null); });
     return () => { active = false; };
-  }, [publicSlug]);
+  }, [publicSlug, renderMode]);
 
   const openBooking = (prefill: BookingPrefill) => setBookingPrefill(prefill);
 
@@ -73,10 +80,12 @@ export default function TemplateRenderer({ data, mode }: Props) {
 
   // Direct actions — Call Now / WhatsApp use the salon's real number.
   const brandPhone = DEFAULT_BRAND_CONFIG.defaultSalon.phone;
-  const rawPhone = (data.phone || '').trim() || brandPhone;
-  const callDigits = digitsOnly(rawPhone) || digitsOnly(brandPhone);
+  const rawPhone = (data.phone || '').trim() || (ownerPreview ? '' : brandPhone);
+  const callDigits = digitsOnly(rawPhone) || (ownerPreview ? '' : digitsOnly(brandPhone));
   const telHref = callDigits ? `tel:${rawPhone.startsWith('+') ? '+' : ''}${callDigits}` : 'tel:';
   const whatsappHref = buildWhatsAppHref(data, copy);
+  const hasAddress = hasSalonAddress(data, ownerPreview);
+  const depositPercentage = data.bookingRules?.advanceDepositPercentage ?? 0;
 
   // Smooth-scroll navigation: navbar links point at the section IDs
   // (#home, #services, #team, #gallery, #videos, #contact). `scroll-behavior:
@@ -111,19 +120,19 @@ export default function TemplateRenderer({ data, mode }: Props) {
   // The Barber, Hair Studio and Beauty/Spa themes are fully separate renderers —
   // not colour variations of the other themes. Render each through its own component.
   if (templateId === 'barber_mens_grooming') {
-    return <BarberTemplateRenderer data={data} mode={mode} />;
+    return <SiteRenderModeProvider mode={renderMode}><BarberTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
   }
   if (templateId === 'hair_studio_color_bar') {
-    return <HairStudioTemplateRenderer data={data} mode={mode} />;
+    return <SiteRenderModeProvider mode={renderMode}><HairStudioTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
   }
   if (templateId === 'beauty_skin_spa') {
-    return <BeautySpaTemplateRenderer data={data} mode={mode} />;
+    return <SiteRenderModeProvider mode={renderMode}><BeautySpaTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
   }
   if (templateId === 'family_full_service') {
-    return <FamilyFullServiceTemplateRenderer data={data} mode={mode} />;
+    return <SiteRenderModeProvider mode={renderMode}><FamilyFullServiceTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
   }
   if (templateId === 'nail_lash_studio') {
-    return <NailLashStudioTemplateRenderer data={data} mode={mode} />;
+    return <SiteRenderModeProvider mode={renderMode}><NailLashStudioTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
   }
 
   // Template-specific styling configurations (remaining themes).
@@ -158,6 +167,7 @@ export default function TemplateRenderer({ data, mode }: Props) {
   // "Meet Our Stylists") is resolved by resolveWebsiteCopy → copy.teamTitle.
 
   return (
+    <SiteRenderModeProvider mode={renderMode}>
     <div className={`${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200'} shadow-xl border flex flex-col overflow-hidden transition-all duration-500 origin-top mx-auto h-full ${
       mode === 'desktop' ? 'w-full max-w-[950px] rounded-xl' : 'w-[375px] max-w-full max-h-[812px] rounded-[2rem] border-[8px] border-gray-900'
     }`}>
@@ -170,7 +180,9 @@ export default function TemplateRenderer({ data, mode }: Props) {
             <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
           </div>
           <div className={`mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide ${isDark ? 'bg-zinc-950 text-zinc-400 border-zinc-700' : 'bg-white text-gray-500 border-gray-200'}`}>
-            {publicWebsiteHref(data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon')}
+            {ownerPreview && !(data.websiteSlug || '').trim()
+              ? OWNER_PREVIEW_EMPTY.websiteAddress
+              : publicWebsiteHref(data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon')}
           </div>
         </div>
       ) : (
@@ -523,15 +535,17 @@ export default function TemplateRenderer({ data, mode }: Props) {
                 <p className={`text-xs leading-relaxed ${isDark ? 'text-zinc-300' : 'text-gray-600'}`}>
                   {copy.address}
                 </p>
-                <a
-                  data-testid="get-directions"
-                  href={salonMapsHref(data)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
-                >
-                  <Navigation className="w-3.5 h-3.5" /> {copy.directionsCta}
-                </a>
+                {hasAddress && (
+                  <a
+                    data-testid="get-directions"
+                    href={salonMapsHref(data, ownerPreview)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Navigation className="w-3.5 h-3.5" /> {copy.directionsCta}
+                  </a>
+                )}
               </div>
 
               <div className={`p-6 rounded-2xl border shadow-xs space-y-3 ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200/80'}`}>
@@ -539,13 +553,15 @@ export default function TemplateRenderer({ data, mode }: Props) {
                   <Clock className="w-4 h-4" style={accentStyle} /> {copy.hoursLabel}
                 </h4>
                 <div className={`space-y-2 text-xs ${isDark ? 'text-zinc-300' : 'text-gray-600'}`}>
-                  {data.openingHours ? (
+                  {data.openingHours && Object.keys(data.openingHours).length > 0 ? (
                     Object.entries(data.openingHours).map(([day, sch]) => (
                       <div key={day} className={`flex justify-between border-b pb-1.5 capitalize ${isDark ? 'border-zinc-800' : 'border-gray-100'}`}>
                         <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{day}</span>
                         {sch.open ? <span>{sch.startTime} – {sch.endTime}</span> : <span className="text-red-500 font-bold">{copy.closedLabel}</span>}
                       </div>
                     ))
+                  ) : ownerPreview ? (
+                    <p>Opening hours not added</p>
                   ) : (
                     <div className="flex justify-between"><span>{copy.defaultHoursDay}</span><span>{copy.defaultHoursTime}</span></div>
                   )}
@@ -563,22 +579,26 @@ export default function TemplateRenderer({ data, mode }: Props) {
           <h3 className={`text-2xl font-bold mb-6 ${config.headingFont}`}>{copy.contactTitle}</h3>
           
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-            <a
-              data-testid="call-now"
-              href={telHref}
-              className="py-3 bg-white border border-gray-200 hover:border-gray-400 text-gray-900 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
-            >
-              <Phone className="w-4 h-4" style={accentStyle} /> {copy.callCta}
-            </a>
-            <a
-              data-testid="whatsapp-cta"
-              href={whatsappHref}
-              target="_blank"
-              rel="noreferrer"
-              className="py-3 bg-[#25D366] text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
-            >
-              <MessageCircle className="w-4 h-4" /> {copy.whatsappCta}
-            </a>
+            {canCall(data) && (
+              <a
+                data-testid="call-now"
+                href={telHref}
+                className="py-3 bg-white border border-gray-200 hover:border-gray-400 text-gray-900 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
+              >
+                <Phone className="w-4 h-4" style={accentStyle} /> {copy.callCta}
+              </a>
+            )}
+            {canWhatsApp(data) && (
+              <a
+                data-testid="whatsapp-cta"
+                href={whatsappHref}
+                target="_blank"
+                rel="noreferrer"
+                className="py-3 bg-[#25D366] text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="w-4 h-4" /> {copy.whatsappCta}
+              </a>
+            )}
             <button
               type="button"
               data-testid="book-online-cta"
@@ -590,13 +610,15 @@ export default function TemplateRenderer({ data, mode }: Props) {
             </button>
           </div>
 
-          <div className={`p-4 rounded-xl border text-left text-xs space-y-2 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-gray-200'}`}>
-            <div className={`flex items-center justify-between font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              <span className="flex items-center gap-1.5"><CreditCard className="w-4 h-4" style={accentStyle} /> {copy.depositTitle}</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ color: brandColor, backgroundColor: withHexAlpha(brandColor, '1a') }}>{copy.depositBadge}</span>
+          {(!ownerPreview || depositPercentage > 0) && (
+            <div className={`p-4 rounded-xl border text-left text-xs space-y-2 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-gray-200'}`}>
+              <div className={`flex items-center justify-between font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                <span className="flex items-center gap-1.5"><CreditCard className="w-4 h-4" style={accentStyle} /> {copy.depositTitle}</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ color: brandColor, backgroundColor: withHexAlpha(brandColor, '1a') }}>{ownerPreview ? `${depositPercentage}% Advance` : copy.depositBadge}</span>
+              </div>
+              <p className={isDark ? 'text-zinc-400' : 'text-gray-500'}>{ownerPreview ? `A ${depositPercentage}% advance deposit is configured for online booking.` : copy.depositBody}</p>
             </div>
-            <p className={isDark ? 'text-zinc-400' : 'text-gray-500'}>{copy.depositBody}</p>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -623,5 +645,6 @@ export default function TemplateRenderer({ data, mode }: Props) {
 
       </div>
     </div>
+    </SiteRenderModeProvider>
   );
 }

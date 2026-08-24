@@ -14,6 +14,7 @@ import type { CSSProperties } from 'react';
 import type { SalonData } from '../../types';
 import SiteImage from '../SiteImage';
 import HeroMediaFrame from './HeroMediaFrame';
+import OwnerPreviewHeroMedia from './OwnerPreviewHeroMedia';
 import SiteSalonStatus from '../SiteSalonStatus';
 import { useSiteLocale, useThemeAppearance } from '../SiteHeader';
 import { getSalonNameStyle } from '../../lib/brandIdentity';
@@ -23,6 +24,7 @@ import { heroCtaOptions, heroDescription, heroFocusBadges, heroHeadline, heroLog
 import { heroImageSizes, heroImageSrc, heroMediaPlan, useReducedMotion } from '../../lib/siteHeroMedia';
 import { openSiteBooking } from '../../lib/siteBooking';
 import SiteProtectedContactAction from '../SiteProtectedContactAction';
+import { useIsOwnerPreview } from '../SiteRenderContext';
 import { heroCtaClass, heroLinkProps } from '../../lib/siteHeroNav';
 import type { ViewportMode } from '../../lib/siteStructure';
 import { Star, MapPin, ArrowRight, Smile, Users, PlayCircle, CalendarCheck, Phone, MessageCircle, Images } from 'lucide-react';
@@ -33,12 +35,13 @@ interface Props {
 }
 
 export default function FamilyHero({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   const locale = useSiteLocale();
   const appearance = useThemeAppearance('family_full_service');
   const t = surfacesOf(FAMILY_SURFACES, appearance);
   const H = heroText('family_full_service', locale);
   const headline = heroHeadline(data, H);
-  const focus = heroFocusBadges(data, H.focus);
+  const focus = heroFocusBadges(data, H.focus, 2, ownerPreview);
   const media = heroMedia('family_full_service', data);
   const meta = heroMeta('family_full_service', data);
   const reducedMotion = useReducedMotion();
@@ -105,12 +108,13 @@ export default function FamilyHero({ data, mode }: Props) {
               style={{ color: t.heading }}
             >
               {headline.main}
-              {' '}
-              <br />
-              <span style={{ color: t.teal }}>{headline.accent}</span>
+              {!ownerPreview && (
+                <><br /><span style={{ color: t.teal }}>{headline.accent}</span></>
+              )}
             </h1>
 
-            {/* PHASE 11.2 — who it is for + what we do, as instant self-select pills */}
+            {/* Owner mode shows only focus labels proven by real services. */}
+            {focus.length > 0 && (
             <div data-testid="hero-focus" className="mt-5">
               <span className="text-[9px] font-extrabold uppercase tracking-[0.2em]" style={{ color: t.blue }}>
                 {H.focusLabel}
@@ -127,10 +131,13 @@ export default function FamilyHero({ data, mode }: Props) {
                   </span>
                 ))}
               </div>
-              <p data-testid="hero-audience" className="mt-3 text-[10px] font-bold" style={{ color: t.muted }}>
-                {H.audience}
-              </p>
+              {!ownerPreview && (
+                <p data-testid="hero-audience" className="mt-3 text-[10px] font-bold" style={{ color: t.muted }}>
+                  {H.audience}
+                </p>
+              )}
             </div>
+            )}
 
             <p
               data-testid="hero-description"
@@ -145,9 +152,11 @@ export default function FamilyHero({ data, mode }: Props) {
               className={`mt-7 rounded-3xl border ${cardPad} shadow-lg`}
               style={{ backgroundColor: t.card, borderColor: t.line }}
             >
-              <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.18em]" style={{ color: t.blue }}>
-                <CalendarCheck className="w-3.5 h-3.5" style={{ color: t.teal }} aria-hidden /> {H.chip2}
-              </span>
+              {!ownerPreview && (
+                <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.18em]" style={{ color: t.blue }}>
+                  <CalendarCheck className="w-3.5 h-3.5" style={{ color: t.teal }} aria-hidden /> {H.chip2}
+                </span>
+              )}
               <div className={`grid gap-2.5 mt-3 ${compact ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 <button
                   type="button"
@@ -235,6 +244,16 @@ export default function FamilyHero({ data, mode }: Props) {
           </div>
 
           {/* ---- Friendly photo collage ---------------------------- */}
+          {ownerPreview ? (
+            <OwnerPreviewHeroMedia
+              data={data}
+              mode={mode}
+              accent={t.teal}
+              background={t.tealSoft}
+              className="rounded-[2.2rem]"
+              aspectRatio="4/3"
+            />
+          ) : (
           <div data-testid="hero-media" className={`relative ${compact ? 'min-h-[290px] mt-2' : 'min-h-[360px]'}`}>
             <div className="absolute inset-x-6 top-2 bottom-4 rounded-[2.2rem] rotate-3" style={{ backgroundColor: t.teal }} />
             {/* PHASE 11.3 — the big rotated tile carries the family media */}
@@ -307,6 +326,7 @@ export default function FamilyHero({ data, mode }: Props) {
               </a>
             )}
           </div>
+          )}
         </div>
       </div>
     </section>

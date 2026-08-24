@@ -28,11 +28,13 @@ import {
   canBookOnline,
   canCall,
   canWhatsApp,
+  hasSalonAddress,
   openSiteBooking,
   salonMapsHref,
 } from '../lib/siteBooking';
 import { useSiteLocale, useThemeAppearance } from './SiteHeader';
 import SiteProtectedContactAction from './SiteProtectedContactAction';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import {
   BARBER_SURFACES,
   BEAUTY_SPA_SURFACES,
@@ -220,6 +222,7 @@ export default function SiteMobileActionBar({
 }) {
   const locale = useSiteLocale();
   const appearance = useThemeAppearance(themeId);
+  const ownerPreview = useIsOwnerPreview();
   const T = mobileBarText(themeId, locale);
   const skin = skinOf(themeId, appearance);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -241,13 +244,10 @@ export default function SiteMobileActionBar({
   const showCall = canCall(data);
   const showWa = canWhatsApp(data);
   const showBook = canBookOnline(data);
-  // Directions: always show if address exists or fallback to scroll to location.
-  // Using existing saved location data path: salonMapsHref
-  const mapsHref = salonMapsHref(data);
-  const showDir = true; // Directions opens existing saved salon location (or anchor)
-
-  // If only fewer actions are enabled, still show 4 slots but disable/hide? Spec says Call Now | WhatsApp | Directions | Book, so show all if possible.
-  // Determine visible count for grid: keep 4 cols always for consistent UI.
+  // Public sites retain the existing product fallback. In an owner preview,
+  // however, Directions must only resolve from the owner's saved address.
+  const showDir = !ownerPreview || hasSalonAddress(data, true);
+  const mapsHref = salonMapsHref(data, ownerPreview);
 
   return (
     <div
@@ -323,7 +323,7 @@ export default function SiteMobileActionBar({
           </span>
         )}
 
-        {showDir && (
+        {showDir ? (
           <a
             href={mapsHref}
             target={mapsHref.startsWith('http') ? '_blank' : undefined}
@@ -337,6 +337,16 @@ export default function SiteMobileActionBar({
             <MapPin className={skin.iconSize} />
             <span className="leading-none text-center">{T.directions}</span>
           </a>
+        ) : (
+          <span
+            data-testid="site-mobile-bar-directions-disabled"
+            className={`${skin.buttonBase} opacity-40`}
+            style={skin.dirStyle}
+            aria-hidden
+          >
+            <MapPin className={skin.iconSize} />
+            <span className="leading-none text-center">{T.directions}</span>
+          </span>
         )}
 
         {showBook ? (

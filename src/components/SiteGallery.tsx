@@ -57,6 +57,7 @@ import {
   galleryThemeConfig,
 } from '../lib/siteGallery';
 import type { GalleryItem } from '../lib/siteGallery';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import {
   BARBER_SURFACES,
   BEAUTY_SPA_SURFACES,
@@ -613,8 +614,12 @@ export default function SiteGallery({ themeId, data, mode }: Props) {
   const X = structureCopyFrom(S);
   const style = useMemo(() => galleryStyle(themeId, appearance), [themeId, appearance]);
   const config = galleryThemeConfig(themeId);
+  const ownerPreview = useIsOwnerPreview();
 
-  const items = useMemo(() => galleryItemsForTheme(themeId, data, locale), [themeId, data, locale]);
+  const items = useMemo(
+    () => galleryItemsForTheme(themeId, data, locale, ownerPreview),
+    [themeId, data, locale, ownerPreview],
+  );
   const options = useMemo(() => galleryFilterOptions(themeId, items), [themeId, items]);
   const status = resolveSectionState('gallery', items);
 

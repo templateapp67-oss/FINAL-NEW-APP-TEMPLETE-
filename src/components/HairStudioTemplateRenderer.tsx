@@ -24,7 +24,11 @@ import SiteOffers from './SiteOffers';
 import SiteCombos from './SiteCombos';
 import SiteGallery from './SiteGallery';
 import SiteServiceDirectory from './SiteServiceDirectory';
-import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { canCall, canWhatsApp, hasSalonAddress, openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
+import { useIsOwnerPreview } from './SiteRenderContext';
+import SiteProtectedContactAction from './SiteProtectedContactAction';
+import OwnerPreviewTemplateNotice from './OwnerPreviewTemplateNotice';
 import { HAIR_STUDIO_SURFACES, surfacesOf } from '../lib/themeSurfaces';
 import { shouldShowOwnerPhoto } from '../lib/templateConfig';
 import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
@@ -81,6 +85,7 @@ const COLOR_SHOWCASE: ColorSwatch[] = [
 ];
 
 export default function HairStudioTemplateRenderer({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
   setOwnerAppearanceDefault(data.websiteAppearance);
@@ -102,8 +107,10 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
   const offersState = resolveSectionState('offers', packages);
   const teamState = resolveSectionState('team', data.team);
   const ownerState = resolveSectionState('owner', data.ownerName ? [data.ownerName] : []);
-  const aboutState = resolveSectionState('about', (data.about || S.heroFallbackAbout) ? [1] : []);
-  const locationState = resolveSectionState('location', ['ready']);
+  const aboutState = resolveSectionState('about', (data.about || (!ownerPreview && S.heroFallbackAbout)) ? [1] : []);
+  const hasAddress = hasSalonAddress(data, ownerPreview);
+  const locationState = resolveSectionState('location', hasAddress ? [data.address?.fullAddress] : []);
+  const depositPercentage = data.bookingRules?.advanceDepositPercentage ?? 0;
 
   const btnRose: CSSProperties = {
     backgroundColor: rose,
@@ -121,7 +128,9 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
             <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
           </div>
           <div className="mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide" style={{ backgroundColor: card, borderColor: line, color: muted }}>
-            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}
+            {ownerPreview && !(data.websiteSlug || '').trim()
+              ? OWNER_PREVIEW_EMPTY.websiteAddress
+              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}`}
           </div>
         </div>
       ) : (
@@ -155,33 +164,44 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
         <SiteCombos themeId="hair_studio_color_bar" data={data} mode={mode} />
 
         {/* Color Showcase — the signature hair-color gallery */}
-        <div id="section-color" className="px-8 py-16" style={{ backgroundColor: paperDeep }}>
-          <div className="max-w-3xl mx-auto">
-            <div className="text-center mb-12">
-              <span className="text-[10px] uppercase tracking-[0.4em] font-semibold flex items-center justify-center gap-2" style={{ color: roseDeep }}>
-                <Palette className="w-3.5 h-3.5" /> {S.colorEyebrow}
-              </span>
-              <h2 className="text-2xl md:text-3xl font-serif mt-3" style={{ color: ink }}>{S.colorTitle}</h2>
-              <p className="text-xs mt-3 max-w-md mx-auto" style={{ color: muted }}>
-                {S.colorSubtitle}
-              </p>
-              <div className="h-px w-16 mx-auto mt-5" style={{ backgroundColor: rose }}></div>
-            </div>
+        {ownerPreview ? (
+          <OwnerPreviewTemplateNotice
+            title="Color showcase design"
+            detail="Add portfolio media and service details to replace this template setup state with your business's real color work."
+            accent={roseDeep}
+            background={paperDeep}
+            color={ink}
+            style={{ borderColor: line }}
+          />
+        ) : (
+          <div id="section-color" className="px-8 py-16" style={{ backgroundColor: paperDeep }}>
+            <div className="max-w-3xl mx-auto">
+              <div className="text-center mb-12">
+                <span className="text-[10px] uppercase tracking-[0.4em] font-semibold flex items-center justify-center gap-2" style={{ color: roseDeep }}>
+                  <Palette className="w-3.5 h-3.5" /> {S.colorEyebrow}
+                </span>
+                <h2 className="text-2xl md:text-3xl font-serif mt-3" style={{ color: ink }}>{S.colorTitle}</h2>
+                <p className="text-xs mt-3 max-w-md mx-auto" style={{ color: muted }}>
+                  {S.colorSubtitle}
+                </p>
+                <div className="h-px w-16 mx-auto mt-5" style={{ backgroundColor: rose }}></div>
+              </div>
 
-            <div className={`grid gap-4 ${mode === 'desktop' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-              {COLOR_SHOWCASE.map((swatch) => (
-                <div key={swatch.name} className="relative aspect-[3/4] overflow-hidden group border" style={{ borderColor: line }}>
-                  <div className="absolute inset-0 transition-transform duration-700 group-hover:scale-110" style={{ background: swatch.gradient }}></div>
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(25,24,23,0.85) 0%, rgba(25,24,23,0.15) 45%, transparent 70%)' }}></div>
-                  <div className="absolute bottom-0 left-0 right-0 p-4">
-                    <p className="text-[11px] font-serif font-semibold text-white">{swatch.name}</p>
-                    <p className="text-[9px] uppercase tracking-[0.18em] mt-0.5" style={{ color: roseBright }}>{swatch.desc}</p>
+              <div className={`grid gap-4 ${mode === 'desktop' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                {COLOR_SHOWCASE.map((swatch) => (
+                  <div key={swatch.name} className="relative aspect-[3/4] overflow-hidden group border" style={{ borderColor: line }}>
+                    <div className="absolute inset-0 transition-transform duration-700 group-hover:scale-110" style={{ background: swatch.gradient }}></div>
+                    <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(25,24,23,0.85) 0%, rgba(25,24,23,0.15) 45%, transparent 70%)' }}></div>
+                    <div className="absolute bottom-0 left-0 right-0 p-4">
+                      <p className="text-[11px] font-serif font-semibold text-white">{swatch.name}</p>
+                      <p className="text-[9px] uppercase tracking-[0.18em] mt-0.5" style={{ color: roseBright }}>{swatch.desc}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Gallery — PHASE 14.1: theme-scoped portfolio (featured, filter, lightbox, before/after) */}
         <SiteGallery themeId="hair_studio_color_bar" data={data} mode={mode} />
@@ -192,7 +212,7 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
           <div className="max-w-2xl mx-auto text-center">
             <span className="text-[10px] uppercase tracking-[0.4em] font-semibold" style={{ color: roseDeep }}>{S.aboutEyebrow}</span>
             <h3 className="text-2xl md:text-3xl font-serif mt-3" style={{ color: ink }}>{S.aboutTitle}</h3>
-            <p className="text-xs md:text-sm mt-4 leading-relaxed" style={{ color: muted }}>{data.about || S.heroFallbackAbout}</p>
+            <p className="text-xs md:text-sm mt-4 leading-relaxed" style={{ color: muted }}>{data.about || (ownerPreview ? OWNER_PREVIEW_EMPTY.about : S.heroFallbackAbout)}</p>
           </div>
         </div>
 
@@ -205,9 +225,13 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
               </div>
               )}
               <div className="min-w-0">
-                <span className="text-[10px] uppercase tracking-[0.4em] font-semibold" style={{ color: roseDeep }}>{data.ownerRole || S.ownerFallbackRole}</span>
+                {(!ownerPreview || data.ownerRole) && (
+                  <span className="text-[10px] uppercase tracking-[0.4em] font-semibold" style={{ color: roseDeep }}>{data.ownerRole || S.ownerFallbackRole}</span>
+                )}
                 <h3 className="text-2xl font-serif mt-1 break-words" style={{ color: ink }}>{data.ownerName}</h3>
-                <p className="text-xs mt-2 leading-relaxed italic" style={{ color: muted }}>“{data.reviewedContent?.ownerIntro || S.ownerFallbackIntro}”</p>
+                {(!ownerPreview || data.reviewedContent?.ownerIntro) && (
+                  <p className="text-xs mt-2 leading-relaxed italic" style={{ color: muted }}>“{data.reviewedContent?.ownerIntro || S.ownerFallbackIntro}”</p>
+                )}
               </div>
             </div>
           ) : <div className="max-w-3xl mx-auto"><SectionStatePanel status={ownerState} copy={X} palette={palette} emptyTitle={S.ownerEmptyTitle} emptyBody={S.ownerEmptyBody} /></div>}
@@ -256,18 +280,24 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
                   <MapPin className="w-4 h-4" style={{ color: roseDeep }} /> {S.addressLabel}
                 </h4>
                 <p className="text-xs leading-relaxed" style={{ color: muted }}>
-                  {data.address?.fullAddress || 'Shop 14, Linking Road, Bandra West, Mumbai, Maharashtra 400050'}
+                  {hasAddress
+                    ? data.address?.fullAddress
+                    : ownerPreview
+                      ? OWNER_PREVIEW_EMPTY.address
+                      : 'Shop 14, Linking Road, Bandra West, Mumbai, Maharashtra 400050'}
                 </p>
-                <a
-                  data-testid="theme-contact-directions"
-                  href={salonMapsHref(data)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="site-touch w-full py-2.5 text-[10px] uppercase tracking-[0.25em] font-semibold transition-all hover:brightness-110 flex items-center justify-center gap-2"
-                  style={btnRose}
-                >
-                  <Navigation className="w-3.5 h-3.5" /> {S['common.getDirections']}
-                </a>
+                {hasAddress && (
+                  <a
+                    data-testid="theme-contact-directions"
+                    href={salonMapsHref(data, ownerPreview)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="site-touch w-full py-2.5 text-[10px] uppercase tracking-[0.25em] font-semibold transition-all hover:brightness-110 flex items-center justify-center gap-2"
+                    style={btnRose}
+                  >
+                    <Navigation className="w-3.5 h-3.5" /> {S['common.getDirections']}
+                  </a>
+                )}
               </div>
 
               <div className="p-6 border space-y-3" style={{ borderColor: line, backgroundColor: card }}>
@@ -276,13 +306,15 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
                 </h4>
                 <SiteSalonStatus themeId="hair_studio_color_bar" data={data} placement="contact" />
                 <div className="space-y-2 text-xs" style={{ color: muted }}>
-                  {data.openingHours ? (
+                  {data.openingHours && Object.keys(data.openingHours).length > 0 ? (
                     Object.entries(data.openingHours).map(([day, sch]) => (
                       <div key={day} className="flex justify-between border-b pb-1.5" style={{ borderColor: line }}>
                         <span className="font-semibold" style={{ color: ink }}>{dayLabel(day, locale)}</span>
                         {sch.open ? <span>{sch.startTime} – {sch.endTime}</span> : <span className="font-semibold" style={{ color: roseDeep }}>{S['common.closed']}</span>}
                       </div>
                     ))
+                  ) : ownerPreview ? (
+                    <p>{OWNER_PREVIEW_EMPTY.hours}</p>
                   ) : (
                     <div className="flex justify-between"><span>Mon - Sat</span><span>10:00 AM - 8:00 PM</span></div>
                   )}
@@ -301,26 +333,34 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
             <h3 className="text-2xl md:text-3xl font-serif mb-6" style={{ color: ink }}>{S.contactTitle}</h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-              <button className="py-3 border font-semibold text-[10px] uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-colors" style={{ borderColor: line, color: ink, backgroundColor: card }}>
-                <Phone className="w-4 h-4" style={{ color: roseDeep }} /> {S['common.callNow']}
-              </button>
-              <button className="py-3 text-white font-semibold text-[10px] uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all hover:brightness-110" style={{ backgroundColor: '#25D366' }}>
-                <MessageCircle className="w-4 h-4" /> {S['common.whatsApp']}
-              </button>
+              {canCall(data) && (
+                <SiteProtectedContactAction action="call" data={data} themeId="hair_studio_color_bar" testId="theme-contact-call" className="py-3 border font-semibold text-[10px] uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-colors" style={{ borderColor: line, color: ink, backgroundColor: card }}>
+                  <Phone className="w-4 h-4" style={{ color: roseDeep }} /> {S['common.callNow']}
+                </SiteProtectedContactAction>
+              )}
+              {canWhatsApp(data) && (
+                <SiteProtectedContactAction action="whatsapp" data={data} themeId="hair_studio_color_bar" testId="theme-contact-whatsapp" className="py-3 text-white font-semibold text-[10px] uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all hover:brightness-110" style={{ backgroundColor: '#25D366' }}>
+                  <MessageCircle className="w-4 h-4" /> {S['common.whatsApp']}
+                </SiteProtectedContactAction>
+              )}
               <button data-open-booking="true" onClick={openSiteBooking} className="py-3 font-semibold text-[10px] uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all hover:brightness-110" style={btnRose}>
                 <CalendarCheck className="w-4 h-4" /> {S['common.bookOnline']}
               </button>
             </div>
 
-            <div className="p-5 border text-left text-xs space-y-2" style={{ borderColor: line, backgroundColor: card }}>
-              <div className="flex items-center justify-between font-semibold">
-                <span className="flex items-center gap-1.5 uppercase tracking-[0.15em] text-[10px]" style={{ color: ink }}>
-                  <CreditCard className="w-4 h-4" style={{ color: roseDeep }} /> {S.depositTitle}
-                </span>
-                <span className="px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] font-semibold" style={{ backgroundColor: roseSoft, color: roseDeep }}>{S['common.advanceAdvance']}</span>
+            {(!ownerPreview || depositPercentage > 0) && (
+              <div className="p-5 border text-left text-xs space-y-2" style={{ borderColor: line, backgroundColor: card }}>
+                <div className="flex items-center justify-between font-semibold">
+                  <span className="flex items-center gap-1.5 uppercase tracking-[0.15em] text-[10px]" style={{ color: ink }}>
+                    <CreditCard className="w-4 h-4" style={{ color: roseDeep }} /> {S.depositTitle}
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] font-semibold" style={{ backgroundColor: roseSoft, color: roseDeep }}>
+                    {ownerPreview ? `${depositPercentage}% advance` : S['common.advanceAdvance']}
+                  </span>
+                </div>
+                <p style={{ color: muted }}>{ownerPreview ? `A ${depositPercentage}% advance deposit is configured for online booking.` : S.depositBody}</p>
               </div>
-              <p style={{ color: muted }}>{S.depositBody}</p>
-            </div>
+            )}
           </div>
         </div>
 

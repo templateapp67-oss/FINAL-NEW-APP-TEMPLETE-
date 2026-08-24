@@ -23,14 +23,16 @@ import {
 import {
   canCall,
   canWhatsApp,
+  hasSalonAddress,
   openSiteBooking,
   salonDisplayName,
   salonMapsHref,
 } from '../lib/siteBooking';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
 import { useSiteLocale, useThemeAppearance } from './SiteHeader';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import SiteProtectedContactAction from './SiteProtectedContactAction';
 import { displayContactNumber, resolveSiteContactAccess } from '../lib/siteContactAccess';
-import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
 import {
   Facebook,
   Instagram,
@@ -179,16 +181,19 @@ function markWrap(themeId: SiteHeaderThemeId, mark: ReactNode, accent: string): 
 }
 
 export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderThemeId; data: SalonData }) {
+  const ownerPreview = useIsOwnerPreview();
   const locale = useSiteLocale();
   const appearance = useThemeAppearance(themeId);
   const C = chromeText(themeId, locale);
   const S = siteText(themeId, locale);
   const skin = skinOf(themeId, appearance);
   const footerBg = footerBgOf(themeId, appearance);
-  const name = salonDisplayName(data, themeId);
+  const name = salonDisplayName(data, themeId, ownerPreview);
   const nameStyle: CSSProperties = { ...getSalonNameStyle(data) };
   if (!nameStyle.color) nameStyle.color = skin.text;
-  const description = (data.about || data.tagline || S.footerFallbackTagline || '').trim();
+  const description = ownerPreview
+    ? (data.about || data.tagline || OWNER_PREVIEW_EMPTY.about).trim()
+    : (data.about || data.tagline || S.footerFallbackTagline || '').trim();
   const nav = buildSiteNavItems(themeId, data);
   const footerAccess = resolveSiteContactAccess(data, themeId);
   const services = activeCatalogItems(data.services).slice(0, 5);
@@ -206,6 +211,10 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
     { key: 'facebook', href: data.socialProfiles?.facebook, Icon: Facebook, label: 'Facebook' },
     { key: 'youtube', href: data.socialProfiles?.youtube, Icon: Youtube, label: 'YouTube' },
   ];
+  const visibleSocials = ownerPreview
+    ? socials.filter(({ href }) => Boolean((href || '').trim()))
+    : socials;
+  const hasAddress = hasSalonAddress(data, ownerPreview);
 
   return (
     <footer
@@ -230,21 +239,23 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
           <p className="mt-3 leading-relaxed text-[11px] max-w-xs" data-testid="site-footer-description" style={{ color: skin.muted }}>
             {description}
           </p>
-          <div className="flex items-center gap-3 mt-4" data-testid="site-footer-social">
-            {socials.map(({ key, href, Icon, label }) => (
-              <a
-                key={key}
-                href={href || '#section-footer'}
-                aria-label={label}
-                target={href ? '_blank' : undefined}
-                rel={href ? 'noreferrer' : undefined}
-                className="hover:opacity-100 opacity-80"
-                style={{ color: skin.muted }}
-              >
-                <Icon className="w-4 h-4" />
-              </a>
-            ))}
-          </div>
+          {visibleSocials.length > 0 && (
+            <div className="flex items-center gap-3 mt-4" data-testid="site-footer-social">
+              {visibleSocials.map(({ key, href, Icon, label }) => (
+                <a
+                  key={key}
+                  href={href || '#section-footer'}
+                  aria-label={label}
+                  target={href ? '_blank' : undefined}
+                  rel={href ? 'noreferrer' : undefined}
+                  className="hover:opacity-100 opacity-80"
+                  style={{ color: skin.muted }}
+                >
+                  <Icon className="w-4 h-4" />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
 
         <div data-testid="site-footer-links">
@@ -317,18 +328,24 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
               )}
               <p className="flex items-center gap-2 break-all">
                 <Mail className="w-3.5 h-3.5 shrink-0" style={{ color: skin.accent }} />
-                {data.email || C['chrome.emailFallback']}
+                {data.email || (ownerPreview ? OWNER_PREVIEW_EMPTY.email : C['chrome.emailFallback'])}
               </p>
             </div>
           </div>
           <div data-testid="site-footer-address">
             <p className={skin.headingClass} style={{ color: skin.accent }}>{C['chrome.address']}</p>
             <p className="mt-2 leading-relaxed" style={{ color: skin.text }}>
-              {data.address?.fullAddress || DEFAULT_BRAND_CONFIG.defaultSalon.address.fullAddress}
+              {hasAddress
+                ? data.address?.fullAddress
+                : ownerPreview
+                  ? OWNER_PREVIEW_EMPTY.address
+                  : 'Address unavailable'}
             </p>
-            <a href={salonMapsHref(data)} target="_blank" rel="noreferrer" className="inline-block mt-1 hover:underline" style={{ color: skin.accent }}>
-              {S['common.getDirections']}
-            </a>
+            {hasAddress && (
+              <a href={salonMapsHref(data, ownerPreview)} target="_blank" rel="noreferrer" className="inline-block mt-1 hover:underline" style={{ color: skin.accent }}>
+                {S['common.getDirections']}
+              </a>
+            )}
           </div>
           <div data-testid="site-footer-hours">
             <p className={skin.headingClass} style={{ color: skin.accent }}>{C['chrome.hours']}</p>
@@ -339,7 +356,7 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
                   <span>{sch.open ? `${sch.startTime} – ${sch.endTime}` : S['common.closed']}</span>
                 </div>
               )) : (
-                <p>{C['chrome.fallbackHours']}</p>
+                <p>{ownerPreview ? OWNER_PREVIEW_EMPTY.hours : C['chrome.fallbackHours']}</p>
               )}
             </div>
           </div>

@@ -65,6 +65,22 @@ const m40MigrationFiles = migrationFiles.filter((name) => name.includes('_m40_')
 assert.deepEqual(m40MigrationFiles, [
   '20260822000301_m40_service_catalog_commerce_rpc.sql',
 ], 'expected the M40 service-catalog/commerce RPC set (Design B; not part of the M01–M27 history)');
+const m48MigrationFiles = migrationFiles.filter((name) => name.includes('_m48_') || name.includes('_template_switch_isolation'));
+assert.deepEqual(m48MigrationFiles, [
+  '20260824000501_m48_template_switch_isolation.sql',
+], 'expected the additive M48 template-switch isolation migration after M47');
+const m48Source = await readFile(join(migrationsDir, m48MigrationFiles[0]), 'utf8');
+const m48SwitchBody = m48Source.slice(
+  m48Source.indexOf('create or replace function public.set_owner_salon_template'),
+  m48Source.indexOf('create or replace function public.set_owner_salon_visual_config'),
+);
+for (const protectedTable of ['organizations', 'organization_members', 'profiles', 'business_locations', 'services', 'service_price_variants', 'products', 'bookings', 'payment_orders', 'payments']) {
+  assert.doesNotMatch(
+    m48SwitchBody,
+    new RegExp(`(?:insert\\s+into|update|delete\\s+from)\\s+public\\.${protectedTable}\\b`, 'i'),
+    `M48 template switch must not write protected table ${protectedTable}`,
+  );
+}
 // Live-applied Design-B helper migrations (SQL-editor / shared project). They
 // are not part of the immutable M01–M27 replay history, just like M38/M39.
 const liveHelperMigrationFiles = migrationFiles.filter(

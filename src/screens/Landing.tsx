@@ -9,6 +9,7 @@ import TemplateConfigPanel from '../components/TemplateConfigPanel';
 import ThemeSwitcher from '../components/ThemeSwitcher';
 import OwnerAvatar from '../components/OwnerAvatar';
 import { ThemeId } from '../lib/themeServices';
+import { applyTemplateConfigToSalon, templateSupportsConfig } from '../lib/templateConfig';
 import { SALON_NAME_FONTS, SALON_NAME_COLORS } from '../lib/brandIdentity';
 import { BRAND_COLORS, TAGLINE_CATEGORIES, TAGLINE_SUBCATEGORIES } from '../lib/websiteCustomization';
 import { useBrandConfig } from '../config/brandConfig';
@@ -77,6 +78,7 @@ import {
 import { weeklyTopVideos, formatLikeCount, videoLikeBusinessId } from '../lib/videoLikes';
 import { openOriginalVideoDestination } from '../lib/originalVideoDestination';
 import { normalizeThemeId } from '../lib/themeServices';
+import { switchSalonTemplatePresentation } from '../lib/templateConfig';
 import type { SiteHeaderThemeId } from '../lib/siteNavigation';
 import BookingManagementPanel from '../components/BookingManagementPanel';
 import { resolveBookingActor } from '../lib/bookingManagement';
@@ -96,7 +98,7 @@ interface Props {
   onOpenStaffManagement: () => void;
   forcedActiveTab?: 'overview' | 'website' | 'services' | 'bookings' | 'staff' | 'payments' | 'share' | 'settings' | 'referral' | 'branding';
   onTabChange?: (tab: 'overview' | 'website' | 'services' | 'bookings' | 'staff' | 'payments' | 'share' | 'settings' | 'referral' | 'branding') => void;
-  onThemeChange?: (id: ThemeId) => void;
+  onThemeChange?: (id: ThemeId) => Promise<void> | void;
 }
 
 interface Appointment {
@@ -1769,7 +1771,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                                   <button
                                     key={font.id}
                                     type="button"
-                                    onClick={() => setData(prev => ({ ...prev, salonNameFont: font.id }))}
+                                    onClick={() => setData(prev => applyTemplateConfigToSalon(prev, { salonNameFont: font.id }))}
                                     className={`text-left px-3 py-2 rounded-xl border transition-all cursor-pointer ${
                                       isSelected ? 'border-[#ac0053] bg-[#ffd9e1]/20 shadow-xs' : 'border-gray-200 bg-white hover:border-[#ac0053]/40'
                                     }`}
@@ -1794,7 +1796,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                                     type="button"
                                     title={color.label}
                                     aria-label={`Select ${color.label} salon name color`}
-                                    onClick={() => setData(prev => ({ ...prev, salonNameColor: color.value }))}
+                                    onClick={() => setData(prev => applyTemplateConfigToSalon(prev, { salonNameColor: color.value }))}
                                     className={`h-9 w-9 rounded-full border-2 transition-transform hover:scale-110 cursor-pointer ${isSelected ? 'ring-2 ring-offset-2 ring-[#ffb1c4] border-white' : 'border-transparent'}`}
                                     style={{ backgroundColor: color.value }}
                                   />
@@ -1816,7 +1818,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                                     type="button"
                                     title={color.name}
                                     aria-label={`Select ${color.name} brand color`}
-                                    onClick={() => setData(prev => ({ ...prev, brandColor: color.value }))}
+                                    onClick={() => setData(prev => applyTemplateConfigToSalon(prev, { accentColor: color.value }))}
                                     className={`h-9 w-9 rounded-full border-2 transition-transform hover:scale-110 cursor-pointer ${isSelected ? 'ring-2 ring-offset-2 ring-[#ffb1c4] border-white' : 'border-transparent'}`}
                                     style={{ backgroundColor: color.value }}
                                   />
@@ -2183,18 +2185,22 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
 
                         {/* Position and Appearance */}
                         <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Cover Image Alignment</label>
-                            <select
-                              value={data.heroPosition || 'Center'}
-                              onChange={(e) => setData(prev => ({ ...prev, heroPosition: e.target.value as any }))}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold bg-white outline-none focus:border-[#ac0053]"
-                            >
-                              <option value="Top">Top aligned</option>
-                              <option value="Center">Center aligned</option>
-                              <option value="Bottom">Bottom aligned</option>
-                            </select>
-                          </div>
+                          {templateSupportsConfig(data.templateId, 'heroPosition') && (
+                            <div>
+                              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Cover Image Alignment</label>
+                              <select
+                                value={data.heroPosition || 'Center'}
+                                onChange={(e) => setData(prev => applyTemplateConfigToSalon(prev, {
+                                  heroPosition: e.target.value as 'Top' | 'Center' | 'Bottom',
+                                }))}
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold bg-white outline-none focus:border-[#ac0053]"
+                              >
+                                <option value="Top">Top aligned</option>
+                                <option value="Center">Center aligned</option>
+                                <option value="Bottom">Bottom aligned</option>
+                              </select>
+                            </div>
+                          )}
 
                           <div>
                             <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Brand Logo URL</label>
@@ -2266,7 +2272,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                         <ThemeSwitcher 
                           variant="minimal"
                           currentTheme={normalizeThemeId(data.templateId)} 
-                          onThemeChange={(id) => onThemeChange ? onThemeChange(id) : setData(prev => ({ ...prev, templateId: id }))} 
+                          onThemeChange={(id) => onThemeChange ? onThemeChange(id) : setData(prev => switchSalonTemplatePresentation(prev, id))}
                         />
 
                         <div className="flex bg-gray-100 p-0.5 rounded-xl border border-gray-200 text-[11px] font-bold">
@@ -2295,7 +2301,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                     {/* Actual iframe/rendering sandbox box */}
                     <div className="bg-gray-100 rounded-3xl p-3 border border-gray-200/80 shadow-lg relative overflow-hidden flex justify-center items-center" style={{ minHeight: '620px' }}>
                       <div className="w-full h-[600px] rounded-2xl overflow-hidden relative border border-gray-200/60 shadow-inner">
-                        <TemplateRenderer data={data} mode={mode} />
+                        <TemplateRenderer data={data} mode={mode} renderMode="owner-preview" />
                       </div>
                     </div>
 
@@ -4347,7 +4353,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
               </div>
 
               <div className="flex-1 overflow-hidden relative bg-gray-50 flex items-center justify-center">
-                <TemplateRenderer data={data} mode={mode} />
+                <TemplateRenderer data={data} mode={mode} renderMode="owner-preview" />
               </div>
             </motion.div>
           </motion.div>

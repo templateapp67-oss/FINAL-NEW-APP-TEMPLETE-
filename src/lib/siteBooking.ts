@@ -8,6 +8,7 @@
  * No database or service/theme-data changes.
  */
 import type { SalonData, Service } from '../types';
+import { OWNER_PREVIEW_EMPTY } from './ownerPreview';
 
 export const SITE_BOOKING_EVENT = 'nexora:open-booking';
 export const SITE_BOOKING_CLOSE_EVENT = 'nexora:close-booking';
@@ -69,9 +70,17 @@ export function salonWhatsAppHref(data: SalonData): string {
   return phone ? `https://wa.me/${phone}` : 'https://wa.me/';
 }
 
-export function salonMapsHref(data: SalonData): string {
+export function hasSalonAddress(data: SalonData, ownerDataOnly = false): boolean {
   const q = (data.address?.fullAddress || '').trim();
-  return q ? `https://maps.google.com/?q=${encodeURIComponent(q)}` : '#section-location';
+  return Boolean(q && (!ownerDataOnly || q !== OWNER_PREVIEW_EMPTY.address));
+}
+
+export function salonMapsHref(data: SalonData, ownerDataOnly = false): string {
+  const q = (data.address?.fullAddress || '').trim();
+  if (hasSalonAddress(data, ownerDataOnly)) {
+    return `https://maps.google.com/?q=${encodeURIComponent(q)}`;
+  }
+  return ownerDataOnly ? '' : '#section-location';
 }
 
 export function openSiteBooking(): void {
@@ -119,6 +128,13 @@ export const THEME_FALLBACK_NAME: Record<string, string> = {
   nail_lash_studio: 'The Glow Edit',
 };
 
-export function salonDisplayName(data: SalonData, themeId: string): string {
-  return data.salonName || THEME_FALLBACK_NAME[themeId] || 'Salon';
+export function salonDisplayName(
+  data: SalonData,
+  themeId: string,
+  ownerDataOnly = false,
+): string {
+  const savedName = (data.salonName || '').trim();
+  if (savedName) return savedName;
+  if (ownerDataOnly) return OWNER_PREVIEW_EMPTY.salonName;
+  return THEME_FALLBACK_NAME[themeId] || 'Salon';
 }

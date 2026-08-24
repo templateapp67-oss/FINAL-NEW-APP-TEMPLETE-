@@ -69,9 +69,19 @@ export async function enterOwnerWorkspace(): Promise<void> {
   window.location.assign(target);
 }
 
+export function ownerSalonNameFromMetadata(
+  user: { user_metadata?: Record<string, unknown> | null } | null | undefined,
+): string | undefined {
+  const value = user?.user_metadata?.salon_name;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().slice(0, 120);
+  return normalized || undefined;
+}
+
 export async function requireAuthenticatedUser(): Promise<{
   userId: string;
   email: string | null;
+  salonName?: string;
 } | { error: string }> {
   if (!isSupabaseConfigured) {
     return { error: 'Authentication is not configured.' };
@@ -81,7 +91,11 @@ export async function requireAuthenticatedUser(): Promise<{
     if (error || !data.user?.id) {
       return { error: 'Please log in to continue.' };
     }
-    return { userId: data.user.id, email: data.user.email ?? null };
+    return {
+      userId: data.user.id,
+      email: data.user.email ?? null,
+      salonName: ownerSalonNameFromMetadata(data.user),
+    };
   } catch {
     return { error: 'Please log in to continue.' };
   }
@@ -99,9 +113,14 @@ export async function completeOwnerAuthSession(input?: {
   const auth = await requireAuthenticatedUser();
   if ('error' in auth) return auth;
 
-  const salonName = input?.salonName?.trim() || undefined;
+  // A supplied value is from the current signup form; otherwise use only the
+  // current authenticated user's metadata. “My Salon” is deliberately
+  // generic and avoids leaking a previous owner's browser-local value.
+  const salonName = input?.salonName?.trim().slice(0, 120)
+    || auth.salonName
+    || 'My Salon';
   const slug = input?.slug?.trim()
-    || (salonName ? suggestedWebsiteSlug({ salonName }) : undefined);
+    || suggestedWebsiteSlug({ salonName });
 
   const provisioned = await resolveOrProvisionOwnerSalon({
     salonName,

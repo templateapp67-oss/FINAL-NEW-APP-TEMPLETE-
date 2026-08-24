@@ -47,6 +47,14 @@ globalThis.HTMLElement.prototype.scrollIntoView = dom.window.HTMLElement.prototy
 
 const React = (await import('react')).default;
 const { render, cleanup, act, fireEvent } = await import('@testing-library/react');
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
+const withAuth = (element) => React.createElement(AuthModalProvider, null, element);
+const renderWithAuth = (element) => {
+  const utils = render(withAuth(element));
+  const rerender = utils.rerender;
+  utils.rerender = (nextElement) => rerender(withAuth(nextElement));
+  return utils;
+};
 
 const Barber = (await import('../src/components/BarberTemplateRenderer.tsx')).default;
 const HairStudio = (await import('../src/components/HairStudioTemplateRenderer.tsx')).default;
@@ -123,7 +131,7 @@ for (const config of CASES) {
     section(`${config.label} — ${mode}`);
     cleanup();
     window.localStorage.clear();
-    const utils = render(React.createElement(config.Component, { data: richData(config.id), mode }));
+    const utils = renderWithAuth(React.createElement(config.Component, { data: richData(config.id), mode }));
 
     await test('keeps the Phase 10.1 header', () => {
       assert.ok(utils.getByTestId('site-header'));
@@ -244,7 +252,7 @@ for (const config of CASES) {
     cleanup();
     window.localStorage.clear();
     const data = richData(config.id, { contactOptions: { callNow: false, whatsapp: false, bookNow: true }, phone: '', whatsappPhone: '' });
-    const utils = render(React.createElement(config.Component, { data, mode: 'mobile' }));
+    const utils = renderWithAuth(React.createElement(config.Component, { data, mode: 'mobile' }));
     await test('hides Call / WhatsApp when contact data or options are off', () => {
       // Phase 10.4 used site-dock-call/whatsapp, Phase 10.9 uses disabled states
       const hasCall = utils.container.querySelector('[data-testid="site-dock-call"]');
@@ -276,7 +284,7 @@ section('Cross-theme visual distinctness');
   const fabSig = [];
   for (const config of CASES) {
     cleanup();
-    const utils = render(React.createElement(config.Component, { data: richData(config.id), mode: 'desktop' }));
+    const utils = renderWithAuth(React.createElement(config.Component, { data: richData(config.id), mode: 'desktop' }));
     footerSig.push(`${utils.getByTestId('site-footer').className}|${utils.getByTestId('site-footer').getAttribute('style') || ''}`);
     ctaSig.push(`${utils.getByTestId('final-cta-section').className}|${utils.getByTestId('final-cta-section').getAttribute('style') || ''}`);
     fabSig.push(`${utils.getByTestId('site-floating-actions').innerHTML.slice(0, 280)}`);

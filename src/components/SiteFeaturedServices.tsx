@@ -38,8 +38,10 @@ import {
   featuredStartingPrice,
   featuredServiceToService,
   localizeFeaturedService,
+  ownerFeaturedServices,
 } from '../lib/siteFeaturedServices';
 import type { FeaturedService } from '../lib/siteFeaturedServices';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import { openSiteBookingForService } from '../lib/siteBooking';
 import { formatCurrency } from '../lib/pricing';
 import { featuredCardText, startingPriceLabel } from '../lib/siteFeaturedI18n';
@@ -307,7 +309,13 @@ function buildLook(themeId: SiteHeaderThemeId, appearance: 'light' | 'dark'): Fe
 export default function SiteFeaturedServices({ themeId, data, mode }: Props) {
   const locale = useSiteLocale();
   const appearance = useThemeAppearance(themeId);
-  const { status: runtimeStatus, services, retry } = useFeaturedServices(themeId);
+  const ownerPreview = useIsOwnerPreview();
+  const { status: runtimeStatus, services: catalogServices, retry } = useFeaturedServices(themeId, !ownerPreview);
+  const ownerServices = useMemo(
+    () => ownerFeaturedServices(themeId, data.services || []),
+    [themeId, data.services],
+  );
+  const services = ownerPreview ? ownerServices : catalogServices;
   const S = { ...siteText(themeId, locale), ...structureText(themeId, locale) };
   const X = structureCopyFrom(S);
   const copy = featuredCardText(locale);
@@ -315,7 +323,8 @@ export default function SiteFeaturedServices({ themeId, data, mode }: Props) {
 
   // The test seam (loading/error/empty) overrides the natural async state.
   const forced = injectedSectionStatus('featured');
-  const status = forced ?? runtimeStatus;
+  const ownerStatus = ownerServices.length > 0 ? 'ready' : 'empty';
+  const status = forced ?? (ownerPreview ? ownerStatus : runtimeStatus);
 
   const offers = useMemo(() => data.offers ?? [], [data.offers]);
   const gridClass = `grid gap-3 mt-7 ${siteGrid(mode, look.grid)}`;

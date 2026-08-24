@@ -21,11 +21,8 @@ function sendError(response: Response, status: number, message: string) {
 }
 
 export function registerBookingRoutes(app: Express): void {
+  /** Create a real authenticated customer booking in Supabase. */
   app.post('/api/bookings', async (request: Request, response: Response) => {
-    // M41 — guest website booking: the public salon sites POST a
-    // { salonSlug, serviceId, date, time, customerName, customerPhone, ... }
-    // payload without an auth session. Delegate to the guest pipeline; the
-    // authenticated (idempotency-key) flow below is untouched.
     if (isGuestWebsiteBooking(request.body)) {
       return handleGuestWebsiteBooking(request, response);
     }
@@ -69,15 +66,198 @@ export function registerBookingRoutes(app: Express): void {
         sendError(response, 500, 'Booking persistence returned no booking.');
         return;
       }
+
+      const totalPaise = Number(booking.total_amount_paise || (Number(booking.amount_paise) * 4));
+      const advancePaise = Number(booking.advance_amount_paise || booking.amount_paise);
+      const remainingPaise = Number(booking.remaining_amount_paise ?? (totalPaise - advancePaise));
+
       response.status(201).json({
         bookingId: booking.booking_id,
-        amount: Number(booking.amount_paise),
-        currency: booking.currency,
+        amount: advancePaise, // 25% advance amount to charge via Razorpay
+        totalAmountPaise: totalPaise,
+        advanceAmountPaise: advancePaise,
+        remainingAmountPaise: remainingPaise,
+        totalAmount: Math.round(totalPaise / 100),
+        advanceAmount: Math.round(advancePaise / 100),
+        remainingAmount: Math.round(remainingPaise / 100),
+        currency: booking.currency || 'INR',
         appointmentEnd: booking.appointment_end,
       });
     } catch (error) {
       const status = error instanceof Error && /bearer|session|authenticat/i.test(error.message) ? 401 : 500;
       sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to create the booking.');
+    }
+  });
+
+  /** Get Customer My Bookings. Strictly customer-scoped via Supabase Auth. */
+  app.get('/api/customer/bookings', async (request: Request, response: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(request);
+      const { data, error } = await getSupabaseAdmin().rpc('get_customer_bookings', {
+        p_user_id: user.id,
+      });
+      if (error) throw error;
+
+      const rows = Array.isArray(data) ? data : [];
+      const bookings = rows.map((row: any) => {
+        const totalPaise = Number(row.total_amount_paise || 0);
+        const advancePaise = Number(row.advance_amount_paise || 0);
+        const remainingPaise = Number(row.remaining_amount_paise ?? Math.max(0, totalPaise - advancePaise));
+
+        const startDate = row.appointment_start ? new Date(row.appointment_start) : new Date();
+        const endDate = row.appointment_end ? new Date(row.appointment_end) : new Date(startDate.getTime() + 30 * 60000);
+
+        return {
+          id: row.booking_id,
+          bookingId: row.booking_id,
+          salonId: row.salon_id,
+          businessName: row.business_name || 'Salon',
+          businessSlug: row.business_slug || '',
+          serviceNames: Array.isArray(row.service_names) ? row.service_names : [],
+          appointmentStart: row.appointment_start,
+          appointmentEnd: row.appointment_end,
+          dateKey: startDate.toISOString().slice(0, 10),
+          totalAmount: Math.round(totalPaise / 100),
+          advanceAmount: Math.round(advancePaise / 100),
+          remainingAmount: Math.round(remainingPaise / 100),
+          totalAmountPaise: totalPaise,
+          advanceAmountPaise: advancePaise,
+          remainingAmountPaise: remainingPaise,
+          status: row.status || 'pending',
+          paymentStatus: row.payment_status || 'pending',
+          currency: row.currency || 'INR',
+          createdAt: row.created_at,
+        };
+      });
+
+      response.json({ bookings });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
+      sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to load your bookings.');
+    }
+  });
+
+  /** Customer Cancel Booking. Can only cancel their own pending/confirmed booking. */
+  app.post('/api/customer/bookings/:id/cancel', async (request: Request, response: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(request);
+      const bookingId = request.params.id;
+      if (!bookingId) {
+        return sendError(response, 400, 'Booking ID is required.');
+      }
+
+      const { data: booking, error: findError } = await getSupabaseAdmin()
+        .from('bookings')
+        .select('id,customer_id,status,payment_status')
+        .eq('id', bookingId)
+        .maybeSingle();
+
+      if (findError || !booking) {
+        return sendError(response, 404, 'Booking not found.');
+      }
+
+      if (booking.customer_id !== user.id) {
+        return sendError(response, 403, 'You can only cancel your own bookings.');
+      }
+
+      if (booking.status !== 'pending' && booking.status !== 'confirmed') {
+        return sendError(response, 400, 'This booking cannot be cancelled.');
+      }
+
+      const { error: cancelError } = await getSupabaseAdmin().rpc('cancel_customer_booking', {
+        p_booking_id: bookingId,
+      });
+
+      if (cancelError) throw cancelError;
+      response.json({ success: true, bookingId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const status = /bearer|session|authenticat/i.test(message) ? 401 : /403|denied|only cancel/i.test(message) ? 403 : 500;
+      sendError(response, status, message || 'Unable to cancel the booking.');
+    }
+  });
+
+  /** Owner Bookings List. Shows bookings belonging ONLY to the owner's salon. */
+  app.get('/api/owner/bookings', async (request: Request, response: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(request);
+      const salonId = request.query.salonId ? String(request.query.salonId) : null;
+
+      const { data, error } = await getSupabaseAdmin().rpc('get_owner_salon_bookings', {
+        p_salon_id: salonId,
+      });
+      if (error) throw error;
+
+      const rows = Array.isArray(data) ? data : [];
+      const bookings = rows.map((row: any) => {
+        const totalPaise = Number(row.total_amount_paise || 0);
+        const advancePaise = Number(row.advance_amount_paise || 0);
+        const remainingPaise = Number(row.remaining_amount_paise ?? Math.max(0, totalPaise - advancePaise));
+
+        const startDate = row.appointment_start ? new Date(row.appointment_start) : new Date();
+
+        return {
+          id: row.booking_id,
+          bookingId: row.booking_id,
+          salonId: row.salon_id,
+          businessName: row.business_name || 'My Salon',
+          customerId: row.customer_id,
+          customerName: row.customer_name || 'Customer',
+          customerEmail: row.customer_email || '',
+          customerPhone: row.customer_phone || '',
+          serviceNames: Array.isArray(row.service_names) ? row.service_names : [],
+          appointmentStart: row.appointment_start,
+          appointmentEnd: row.appointment_end,
+          dateKey: startDate.toISOString().slice(0, 10),
+          totalAmount: Math.round(totalPaise / 100),
+          advanceAmount: Math.round(advancePaise / 100),
+          remainingAmount: Math.round(remainingPaise / 100),
+          totalAmountPaise: totalPaise,
+          advanceAmountPaise: advancePaise,
+          remainingAmountPaise: remainingPaise,
+          status: row.status || 'pending',
+          paymentStatus: row.payment_status || 'pending',
+          currency: row.currency || 'INR',
+          createdAt: row.created_at,
+        };
+      });
+
+      response.json({ bookings, ownerId: user.id });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
+      sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to load owner bookings.');
+    }
+  });
+
+  /** Owner Update Booking Status. */
+  app.post('/api/owner/bookings/:id/status', async (request: Request, response: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(request);
+      const bookingId = request.params.id;
+      const nextStatus = String(request.body?.status || '').trim().toLowerCase();
+
+      if (!bookingId || !nextStatus) {
+        return sendError(response, 400, 'Booking ID and status are required.');
+      }
+
+      const { data, error } = await getSupabaseAdmin().rpc('update_owner_booking_status', {
+        p_booking_id: bookingId,
+        p_next_status: nextStatus,
+      });
+
+      if (error) {
+        if (error.code === '42501') return sendError(response, 403, 'Permission denied for this salon booking.');
+        if (error.code === 'P0002') return sendError(response, 404, 'Booking not found.');
+        return sendError(response, 400, error.message || 'Unable to update booking status.');
+      }
+
+      response.json({ success: true, bookingId, status: nextStatus });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
+      sendError(response, status, message || 'Unable to update booking status.');
     }
   });
 }

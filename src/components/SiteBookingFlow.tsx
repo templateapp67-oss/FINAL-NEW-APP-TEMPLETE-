@@ -1652,11 +1652,15 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                       style={{ color: s.textStrong, borderColor: s.chipLine }}
                     >
                       <span>{selectionCountLabel} · {totalDuration} {minuteLabel}</span>
-                      <span>{selection.count > 0 ? formatCurrency(totalPrice) : '—'}</span>
+                      <span data-testid="summary-total-amount">{selection.count > 0 ? formatCurrency(totalPrice) : '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-bold" style={{ color: s.accent }}>
+                      <span>25% Advance (Payable Now)</span>
+                      <span data-testid="summary-advance-amount">{selection.count > 0 ? formatCurrency(Math.round(totalPrice * 0.25)) : '—'}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs font-bold" style={{ color: s.muted }}>
-                      <span>{T['summary.payAtSalon']}</span>
-                      <span>{selection.count > 0 ? formatCurrency(totalPrice) : '—'}</span>
+                      <span>Remaining (Pay at Salon)</span>
+                      <span data-testid="summary-remaining-amount">{selection.count > 0 ? formatCurrency(totalPrice - Math.round(totalPrice * 0.25)) : '—'}</span>
                     </div>
                     <p
                       className="text-[10px] font-semibold mt-2 p-2.5 border"

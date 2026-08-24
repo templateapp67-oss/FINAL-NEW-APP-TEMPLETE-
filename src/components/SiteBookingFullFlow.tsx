@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SalonData } from '../types';
 import SiteBookingFlow from './SiteBookingFlow';
 import SiteBookingPaymentFlow from './SiteBookingPaymentFlow';
@@ -19,6 +19,8 @@ import { bookingSurfaces } from '../lib/siteBookingTheme';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { createBookingAndPay } from '../lib/authoritativeBooking';
 import { useAuthModal } from './AuthModalProvider';
+import { useAuth } from '../lib/useAuth';
+import { formatCurrency } from '../lib/pricing';
 
 /**
  * PHASE 10.7 — orchestrator for the full booking + payment + confirmation
@@ -231,12 +233,30 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
   const [error, setError] = useState<string | null>(null);
   const [verified, setVerified] = useState<{ bookingId: string; paymentId: string } | null>(null);
   const idempotencyKey = useRef<string | null>(null);
+  const { user } = useAuth();
   const { openAuth } = useAuthModal();
+
+  // Calculate total and 25% advance for display
+  const totalAmount = useMemo(() => {
+    if (summary.serviceLines && summary.serviceLines.length > 0) {
+      return summary.serviceLines.reduce((acc, line) => acc + line.price, 0);
+    }
+    const s = (data.services || []).find((svc) => svc.id === summary.serviceId);
+    return s ? s.price : 0;
+  }, [summary, data.services]);
+
+  const advanceAmount = Math.round(totalAmount * 0.25);
+  const remainingAmount = totalAmount - advanceAmount;
 
   const pay = async () => {
     if (state === 'processing') return;
     if (!data.salonId) {
       setError('This salon is not connected to a persisted booking profile.');
+      return;
+    }
+    if (!user) {
+      setError('Please log in or create an account to secure your booking.');
+      openAuth('login');
       return;
     }
     const [year, month, day] = summary.dateKey.split('-').map(Number);
@@ -252,7 +272,7 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
 
     setState('processing');
     setError(null);
-    onShowToast({ kind: 'info', message: 'Creating a secure, server-priced booking…' });
+    onShowToast({ kind: 'info', message: 'Creating a secure, server-priced booking (25% advance)…' });
     try {
       const result = await createBookingAndPay({
         salonId: data.salonId,
@@ -261,7 +281,7 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
         idempotencyKey: idempotencyKey.current,
       }, {
         name: summary.customer.name,
-        email: summary.customer.email,
+        email: summary.customer.email || user.email,
         phone: summary.customer.mobile,
       });
       setVerified({ bookingId: result.bookingId, paymentId: result.paymentId });
@@ -280,15 +300,31 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
       <section className="mx-auto mt-8 max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <button type="button" onClick={onBack} disabled={state === 'processing'} className="text-sm font-semibold text-gray-600 disabled:opacity-50">← Back</button>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Server-priced checkout</span>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">25% Advance Checkout</span>
         </div>
-        <h2 className="mt-6 text-2xl font-bold text-gray-950">Confirm and pay securely</h2>
-        <p className="mt-2 text-sm leading-6 text-gray-600">The payable amount is calculated from active database services. A booking is confirmed only after Razorpay evidence is verified by the server.</p>
-        <dl className="mt-5 space-y-3 rounded-xl bg-gray-50 p-4 text-sm">
+        <h2 className="mt-6 text-2xl font-bold text-gray-950">Confirm and pay 25% advance</h2>
+        <p className="mt-2 text-sm leading-6 text-gray-600">The 25% advance amount is calculated server-side from active database services. A booking is confirmed only after Razorpay payment verification.</p>
+        
+        <dl className="mt-5 space-y-2.5 rounded-xl bg-gray-50 p-4 text-sm">
           <div className="flex justify-between gap-4"><dt className="text-gray-500">Salon</dt><dd className="font-semibold text-right">{data.salonName}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-gray-500">Date</dt><dd className="font-semibold text-right">{summary.dateKey}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-gray-500">Services</dt><dd className="font-semibold text-right">{summary.serviceLines?.length || 1}</dd></div>
+          <div className="border-t border-gray-200 pt-2.5 flex justify-between gap-4"><dt className="text-gray-500">Total Amount</dt><dd className="font-bold text-right" data-testid="checkout-total-amount">{formatCurrency(totalAmount)}</dd></div>
+          <div className="flex justify-between gap-4 text-[#ac0053] font-bold"><dt>25% Advance (Payable Now)</dt><dd className="text-right" data-testid="checkout-advance-amount">{formatCurrency(advanceAmount)}</dd></div>
+          <div className="flex justify-between gap-4 text-gray-600"><dt>Remaining (Pay at Salon)</dt><dd className="font-semibold text-right" data-testid="checkout-remaining-amount">{formatCurrency(remainingAmount)}</dd></div>
         </dl>
+
+        {!user && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+            <p className="font-bold mb-2">Customer Account Required</p>
+            <p className="mb-3">Please log in or sign up with Supabase Auth to track and manage your booking.</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => openAuth('login')} className="px-3 py-1.5 bg-[#ac0053] text-white font-bold rounded-lg text-xs">Log in</button>
+              <button type="button" onClick={() => openAuth('signup')} className="px-3 py-1.5 bg-white border border-gray-300 font-bold rounded-lg text-xs text-gray-800">Sign up</button>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
             <p>{error}</p>
@@ -297,18 +333,25 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
             )}
           </div>
         )}
+
         {state === 'verified' && verified ? (
           <div className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-            <strong>Booking confirmed.</strong>
-            <p className="mt-1 break-all">Booking: {verified.bookingId}</p>
+            <strong>Booking confirmed!</strong>
+            <p className="mt-1 break-all">Booking ID: {verified.bookingId}</p>
+            <p className="mt-1 text-xs">Your 25% advance was received and verified.</p>
             <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-emerald-700 px-5 py-2.5 font-semibold text-white">Return to salon</button>
           </div>
         ) : (
-          <button type="button" onClick={() => void pay()} disabled={state === 'processing' || !data.salonId} className="mt-5 w-full rounded-xl bg-[#ac0053] px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
-            {state === 'processing' ? 'Opening secure checkout…' : 'Continue to Razorpay'}
+          <button
+            type="button"
+            onClick={() => void pay()}
+            disabled={state === 'processing' || !data.salonId}
+            className="mt-5 w-full rounded-xl bg-[#ac0053] px-5 py-3 text-sm font-bold text-white disabled:opacity-50 cursor-pointer"
+          >
+            {state === 'processing' ? 'Opening secure checkout…' : `Pay 25% Advance (${formatCurrency(advanceAmount)})`}
           </button>
         )}
-        <p className="mt-3 text-center text-xs text-gray-500">No browser amount or local payment flag can confirm this booking.</p>
+        <p className="mt-3 text-center text-xs text-gray-500">Amount calculated by server. Never trusts frontend payment amounts.</p>
       </section>
     </main>
   );

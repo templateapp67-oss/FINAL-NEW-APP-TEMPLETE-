@@ -30,6 +30,7 @@ interface Props {
   /** PHASE 14.1 — object-fit of the inner img ('cover' default; 'contain'
    *  for lightbox previews so no content is cropped). */
   fit?: 'cover' | 'contain';
+  objectPosition?: string;
 }
 
 export default function SiteImage({
@@ -46,6 +47,7 @@ export default function SiteImage({
   fallback,
   rounded = '',
   fit = 'cover',
+  objectPosition,
 }: Props) {
   const [loaded, setLoaded] = useState(() => isImageCached(src));
   const [error, setError] = useState(false);

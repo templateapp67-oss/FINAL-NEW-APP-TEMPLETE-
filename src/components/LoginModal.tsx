@@ -23,6 +23,8 @@ import {
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
+import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
+import { safeGetItem } from '../lib/safeStorage';
 
 /**
  * Sign in / sign up against the existing Supabase Auth (email + password,
@@ -154,7 +156,7 @@ export default function LoginModal({
   const handleGoogle = async () => {
     setBusy(true);
     setError(null);
-    const result = await signInWithGoogle('/dashboard');
+    const result = await signInWithGoogle('/builder');
     if (result.error) {
       setBusy(false);
       setError(result.error);
@@ -202,8 +204,14 @@ export default function LoginModal({
           return;
         }
         setPassword('');
+        const session = await completeOwnerAuthSession();
+        if ('error' in session) {
+          setError(session.error);
+          return;
+        }
         onSignedIn?.();
         onClose();
+        await enterOwnerWorkspace();
         return;
       }
 
@@ -232,8 +240,16 @@ export default function LoginModal({
         setMode('login');
         return;
       }
+      const session = await completeOwnerAuthSession({
+        salonName: safeGetItem('nexora_signup_salon_name') || undefined,
+      });
+      if ('error' in session) {
+        setError(session.error);
+        return;
+      }
       onSignedIn?.();
       onClose();
+      await enterOwnerWorkspace();
     } catch (err: any) {
       setBusy(false);
       setError(err?.message || 'An unexpected error occurred. Please try again.');

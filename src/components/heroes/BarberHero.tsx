@@ -20,6 +20,7 @@ import HeroMediaFrame from './HeroMediaFrame';
 import SiteSalonStatus from '../SiteSalonStatus';
 import { useSiteLocale, useThemeAppearance } from '../SiteHeader';
 import { getSalonNameStyle } from '../../lib/brandIdentity';
+import { heroObjectPosition } from '../../lib/templateConfig';
 import { BARBER_SURFACES, surfacesOf } from '../../lib/themeSurfaces';
 import { heroText } from '../../lib/siteHeroI18n';
 import { heroCtaOptions, heroDescription, heroFocusBadges, heroHeadline, heroLogoMark, heroMedia, heroMeta, heroModeValue, heroSalonName, heroStat } from '../../lib/siteHero';
@@ -81,6 +82,7 @@ export default function BarberHero({ data, mode }: Props) {
         context="hero"
         priority
         aspectRatio="16/9"
+        objectPosition={heroObjectPosition(data)}
       />
       <div
         className="absolute inset-0 pointer-events-none"

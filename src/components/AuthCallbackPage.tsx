@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, MailCheck, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
 
 function safeNext(value: string | null): string {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard';
+  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/builder';
 }
 
 type CallbackState =
@@ -50,6 +51,11 @@ export default function AuthCallbackPage() {
       }
       const { data, error: sessionError } = await supabase.auth.getSession();
       if (!sessionError && data.session) {
+        const session = await completeOwnerAuthSession();
+        if (!('error' in session)) {
+          await enterOwnerWorkspace();
+          return;
+        }
         window.location.replace(safeNext(params.get('next')));
         return;
       }
@@ -109,10 +115,10 @@ export default function AuthCallbackPage() {
               salon website.
             </p>
             <a
-              href="/dashboard"
+              href="/"
               className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
             >
-              Log in to your dashboard
+              Log in to continue setup
             </a>
           </>
         ) : (

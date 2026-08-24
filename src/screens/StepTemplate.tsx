@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import ThemeSelector from '../components/ThemeSelector';
-import { normalizeThemeId } from '../lib/themeServices';
+import TemplateConfigPanel from '../components/TemplateConfigPanel';
+import { normalizeThemeId, type ThemeId } from '../lib/themeServices';
+import { switchSalonTemplatePresentation } from '../lib/templateConfig';
 import { CheckCircle2, ArrowRight, ArrowLeft, Eye, Layout, Monitor, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 import { safeSetItem, safeGetItem } from '../lib/safeStorage';
@@ -23,7 +25,11 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [isSwitching, setIsSwitching] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+  const [previewId, setPreviewId] = useState<ThemeId | null>(null);
   const currentTemplate = normalizeThemeId(data.templateId);
+  const previewData = previewId && previewId !== currentTemplate
+    ? switchSalonTemplatePresentation(data, previewId)
+    : data;
 
   const selectTemplate = (id: ThemeChoice) => {
     if (id === currentTemplate) return;
@@ -102,14 +108,20 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         </div>
 
         {/* ThemeSelector Component */}
-        <div className="pb-24">
+        <div className="pb-24 space-y-5">
           <ThemeSelector
             data={data}
             setData={setData}
             onSave={onSave}
-            onThemeChange={(id) => selectTemplate(id as any)}
+            onThemeChange={(id) => {
+              setPreviewId(null);
+              selectTemplate(id as ThemeChoice);
+            }}
+            onPreview={(id) => setPreviewId(id)}
+            previewId={previewId}
             layout="grid"
           />
+          <TemplateConfigPanel data={data} setData={setData} onSave={onSave} />
         </div>
       </div>
 
@@ -155,7 +167,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
             transition={{ duration: 0.3, ease: 'easeOut' }}
             className="w-full h-full flex justify-center"
           >
-            <TemplateRenderer data={data} mode={mode} />
+            <TemplateRenderer data={previewData} mode={mode} />
           </motion.div>
         </div>
       </div>

@@ -55,6 +55,7 @@ export function websiteConfigFromSalonData(data: SalonData): Partial<SalonData> 
     offers: data.offers,
     team: data.team,
     websiteAppearance: data.websiteAppearance,
+    templateConfig: data.templateConfig,
     brandColor: data.brandColor,
     salonNameFont: data.salonNameFont,
     salonNameColor: data.salonNameColor,

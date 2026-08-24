@@ -30,9 +30,12 @@ import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
-import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { loadOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { persistOwnerBusinessSetup, loadOwnerSalonRow, mergeSalonRowIntoDraft } from './lib/ownerBusinessSetup';
 import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
+import { switchSalonTemplatePresentation } from './lib/templateConfig';
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
+import { resumeWizardStep } from './lib/ownerSession';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
@@ -154,6 +157,25 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     setStep(0);
   }, [authLoading, user]);
 
+  // First login: skip marketing hero. Resume Business Setup from
+  // salon_public_websites.config.lastCompletedStep. Unpublished owners stay
+  // in the wizard even if they opened /dashboard.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    if (backendHydratedFor.current !== user.id && isSupabaseConfigured) return;
+    const published = data.publishState === 'published' && !!data.publishedUrl;
+    if (published && initialModule === 'owner-dashboard') {
+      setActiveModule('owner-dashboard');
+      return;
+    }
+    if (!published) {
+      setActiveModule('wizard');
+      const resumeAt = resumeWizardStep(data.lastCompletedStep);
+      setStep((current) => (current === 0 || current < resumeAt ? resumeAt : current));
+      if ((data.lastCompletedStep || 0) > 0) setShowResumeBanner(true);
+    }
+  }, [authLoading, user, backendHydratedUser, data.lastCompletedStep, data.publishState, data.publishedUrl, initialModule]);
+
   // PHASE 1 — ensure the authenticated owner has a salon. A brand-new owner has
   // an auth.users + profiles row but no organization / owner membership / salon
   // yet; the SECURITY DEFINER RPC `provision_owner_salon` (M42) creates that
@@ -166,9 +188,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     if (provisionedFor.current === user.id) return;
     provisionedFor.current = user.id;
     let active = true;
-    const initialSlug = data.websiteSlug || suggestedWebsiteSlug(data);
+    const signupName = (() => {
+      try { return safeGetItem('nexora_signup_salon_name') || ''; } catch { return ''; }
+    })();
+    const salonName = (signupName || data.salonName || '').trim() || 'My Salon';
+    const initialSlug = data.websiteSlug || suggestedWebsiteSlug({ ...data, salonName });
     void resolveOrProvisionOwnerSalon({
-      salonName: data.salonName,
+      salonName,
       slug: initialSlug,
       templateKey: data.templateId,
     })
@@ -203,6 +229,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         if (!active) return;
         setBackendHydratedUser(user.id);
         if (!draft) return;
+        const salonRow = await loadOwnerSalonRow();
         setData((current) => {
           // template_key is the presentation authority changed by
           // set_owner_salon_template. Config may legitimately predate a
@@ -211,7 +238,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             draft.templateKey || draft.config.templateId || current.templateId
           ) as SalonData['templateId'];
           persistedTemplate.current = hydratedTemplate;
-          return {
+          return mergeSalonRowIntoDraft({
             ...current,
             ...draft.config,
             salonId: draft.salonId,
@@ -221,7 +248,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
               : undefined,
             templateId: hydratedTemplate,
             publishState: draft.isPublished ? 'published' : 'draft',
-          };
+          }, salonRow);
         });
       })
       .catch((error) => console.error('Backend website draft hydration failed:', error));
@@ -276,15 +303,15 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     if (!isSupabaseConfigured || !user || backendHydratedFor.current !== user.id || !data.websiteSlug) return;
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
-      void saveOwnerWebsiteDraft(data)
+      void persistOwnerBusinessSetup(data)
         .then((saved) => {
-          if (!saved) {
+          if ('error' in saved) {
             setSaveStatus('saved');
             return;
           }
           setData((current) => current.salonId === saved.salonId
             ? current
-            : { ...current, salonId: saved.salonId, websiteSlug: saved.slug, publishState: saved.isPublished ? 'published' : 'draft' });
+            : { ...current, salonId: saved.salonId, websiteSlug: saved.slug || current.websiteSlug });
           setSaveStatus('saved');
         })
         .catch((error) => {
@@ -307,7 +334,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // fully reversible with no data loss.
   const handleThemeChange = (nextTheme: ThemeId) => {
     const requestId = ++templateSwitchSequence.current;
-    setData(prev => ({ ...prev, templateId: nextTheme }));
+    setData(prev => switchSalonTemplatePresentation(prev, nextTheme));
     if (!isSupabaseConfigured || !user) return;
     // Serialize writes so rapid changes cannot reach Supabase out of order.
     // Every accepted transition is presentation-only and the final queued RPC
@@ -320,13 +347,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         // restore if a later queued request fails.
         persistedTemplate.current = saved.templateId;
         if (templateSwitchSequence.current !== requestId) return;
-        setData(current => ({ ...current, templateId: saved.templateId }));
+        setData(current => switchSalonTemplatePresentation(current, saved.templateId));
       } catch (error) {
         if (templateSwitchSequence.current !== requestId) return;
         // Do not leave an optimistic template visible as though it were live
         // when Supabase rejected the presentation-only update.
         setData(current => current.templateId === nextTheme
-          ? { ...current, templateId: persistedTemplate.current }
+          ? switchSalonTemplatePresentation(current, persistedTemplate.current || current.templateId || nextTheme)
           : current);
         console.error('Failed to persist template switch:', error);
         showToast(
@@ -339,7 +366,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // Preview-only variant (Step 13 full preview): updates the live preview
   // without persisting; the explicit "Apply" path uses handleThemeChange.
   const handleThemeSwitchPreview = (nextTheme: ThemeId) => {
-    setData(prev => ({ ...prev, templateId: nextTheme }));
+    setData(prev => switchSalonTemplatePresentation(prev, nextTheme));
   };
 
   const nextStep = () => setStep(s => {
@@ -457,22 +484,18 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   );
 
   useEffect(() => {
-    if (
-      (activeModule === 'dashboard' || activeModule === 'owner-dashboard') &&
-      !hasAuthoritativePublishState
-    ) {
-      setActiveModule('wizard');
+    // Marketing dashboard (screens 18–25) still requires a published site.
+    // The authenticated owner dashboard is session-owned and must open after
+    // login even before the owner finishes the public-site publish wizard.
+    if (activeModule === 'dashboard' && !hasAuthoritativePublishState) {
+      setActiveModule(initialModule === 'owner-dashboard' ? 'owner-dashboard' : 'wizard');
     }
-  }, [activeModule, hasAuthoritativePublishState]);
+  }, [activeModule, hasAuthoritativePublishState, initialModule]);
 
   const changeActiveModule = (nextModule: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard') => {
-    if (
-      (nextModule === 'dashboard' || nextModule === 'owner-dashboard') &&
-      !hasAuthoritativePublishState
-    ) {
-      setActiveModule('wizard');
-      setStep(Math.min(step, 12));
-      showToast('Publish your website successfully before opening the dashboard.');
+    if (nextModule === 'dashboard' && !hasAuthoritativePublishState) {
+      setActiveModule('owner-dashboard');
+      showToast('Open your salon workspace. Publish later to unlock the public-site dashboard.');
       return;
     }
     setActiveModule(nextModule);
@@ -548,7 +571,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // PHASE 17.1 — SALON OWNER DASHBOARD (screen 26). Rendered inside the same
   // app chrome as every other module; it resolves its own salon from the
   // authenticated session and never receives a salon id from here.
-  if (activeModule === 'owner-dashboard' && hasAuthoritativePublishState) {
+  if (activeModule === 'owner-dashboard' && (!isSupabaseConfigured || !!user)) {
     return (
       <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
         <TopBar
@@ -685,7 +708,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       <main className="flex-1 flex overflow-hidden">
         <>
           {/* Complete Business Setup */}
-          {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
           {step === 2 && <StepServices data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 3 && (
             <StepTeam

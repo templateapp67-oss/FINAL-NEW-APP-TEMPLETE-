@@ -33,6 +33,8 @@ import { resendConfirmationEmail, signUpWithPassword } from '../lib/useAuth';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
+import { safeSetItem } from '../lib/safeStorage';
+import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
 
 export default function SignUpPage() {
   const [salonName, setSalonName] = useState('');
@@ -107,11 +109,22 @@ export default function SignUpPage() {
     setNotice(null);
 
     try {
-      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password);
+      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password, {
+        salonName: salonName.trim() || undefined,
+      });
       setBusy(false);
       if (err) {
         setError(err);
         return;
+      }
+
+      const name = salonName.trim();
+      if (name) {
+        try {
+          safeSetItem('nexora_signup_salon_name', name);
+        } catch {
+          /* ignore */
+        }
       }
 
       // Track the referral at account creation: the code stays in
@@ -134,9 +147,15 @@ export default function SignUpPage() {
         return;
       }
       setPassword('');
-      setNotice(
-        'Your account is ready. You can now log in to open your salon workspace.',
-      );
+      const session = await completeOwnerAuthSession({
+        salonName: salonName.trim() || undefined,
+      });
+      if ('error' in session) {
+        setError(session.error);
+        return;
+      }
+      setNotice('Opening business setup…');
+      await enterOwnerWorkspace();
     } catch (err: any) {
       setBusy(false);
       setError(err?.message || 'An unexpected error occurred. Please try again.');

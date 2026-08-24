@@ -2,6 +2,7 @@ import { Sparkles, ArrowRight, CheckCircle2, Smartphone, Calendar } from 'lucide
 import { motion } from 'motion/react';
 import { useAuthModal } from '../components/AuthModalProvider';
 import { useAuth, signOut } from '../lib/useAuth';
+import { enterOwnerWorkspace } from '../lib/ownerSession';
 import { useBrandConfig } from '../config/brandConfig';
 
 export default function HeroSplit({ onNext }: { onNext: () => void }) {
@@ -14,7 +15,7 @@ export default function HeroSplit({ onNext }: { onNext: () => void }) {
       openAuth('login');
       return;
     }
-    onNext();
+    void enterOwnerWorkspace();
   };
   return (
     <div className="min-h-screen bg-[#f9f8f6] flex flex-col font-sans overflow-hidden">

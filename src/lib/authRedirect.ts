@@ -57,11 +57,11 @@ function authUrl(path: string, params?: Record<string, string>): string {
   return url.toString();
 }
 
-export function signupConfirmationRedirect(next = '/dashboard'): string {
+export function signupConfirmationRedirect(next = '/builder'): string {
   return authUrl('/auth/callback', { flow: 'signup', next });
 }
 
-export function oauthRedirect(next = '/dashboard'): string {
+export function oauthRedirect(next = '/builder'): string {
   return authUrl('/auth/callback', { flow: 'oauth', next });
 }
 

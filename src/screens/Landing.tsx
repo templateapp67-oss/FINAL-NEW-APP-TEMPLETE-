@@ -5,6 +5,7 @@ import TemplateRenderer from '../components/TemplateRenderer';
 import ShareReferralPremium from '../components/ShareReferralPremium';
 import BrandingWhiteLabel from '../components/BrandingWhiteLabel';
 import TemplateSelectionDashboard from '../components/TemplateSelectionDashboard';
+import TemplateConfigPanel from '../components/TemplateConfigPanel';
 import ThemeSwitcher from '../components/ThemeSwitcher';
 import OwnerAvatar from '../components/OwnerAvatar';
 import { ThemeId } from '../lib/themeServices';
@@ -1722,6 +1723,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
 
                 {/* Template Selection Dashboard Component */}
                 <TemplateSelectionDashboard data={data} setData={setData} onSave={(msg) => console.log(msg)} onThemeChange={onThemeChange} />
+                <TemplateConfigPanel data={data} setData={setData} />
 
                 {/* Left - Right Grid Split */}
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">

@@ -60,15 +60,19 @@ export const BOOKING_HOLD_MINUTES = 15;
 /**
  * Tenant id for the salon whose website is open. Resolution reuses the
  * EXISTING Phase 10.7 rule (the payment engine's tenant ownership):
- * provenance on the salon's own service rows first, then an explicit
- * `businessId` on the data payload, then the shared public-site
- * fallback. No salon id is ever invented, hardcoded or user-supplied.
+ * provenance on the salon's own service rows first, then the `salonId`
+ * resolved from the public database projection, then a legacy explicit
+ * `businessId` payload, and finally the shared local-preview fallback. No
+ * salon id is ever invented, hardcoded or accepted from URL input.
  */
 export function bookingBusinessId(data: SalonData): string {
   const fromServices = (data.services || [])
     .map((service) => (service as Service & { businessId?: string }).businessId)
     .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
   if (fromServices) return fromServices;
+  if (typeof data.salonId === 'string' && data.salonId.trim().length > 0) {
+    return data.salonId.trim();
+  }
   const explicit = (data as SalonData & { businessId?: string }).businessId;
   if (typeof explicit === 'string' && explicit.trim().length > 0) return explicit;
   return 'public-site';

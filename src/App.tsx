@@ -32,6 +32,7 @@ import { useUsageTracking } from './hooks/useUsageTracking';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
@@ -43,7 +44,16 @@ const MAX_STEP_INDEX = 15; // 0-based: 0..15 => 1..16
 type DashboardTab = 'overview' | 'website' | 'bookings' | 'payments' | 'share' | 'settings' | 'referral' | 'branding';
 const DASHBOARD_TABS: DashboardTab[] = ['overview', 'website', 'bookings', 'payments', 'share', 'settings', 'referral', 'branding'];
 
-export default function App() {
+interface AppProps {
+  /**
+   * When the app is mounted at `/dashboard`, start on the real Salon Owner
+   * Dashboard (screen 26) instead of the website builder. The builder stays
+   * available through the TopBar module switcher.
+   */
+  initialModule?: 'wizard' | 'owner-dashboard';
+}
+
+export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<number>(() => {
     try {
@@ -76,6 +86,8 @@ export default function App() {
   });
 
   const [activeModule, setActiveModule] = useState<'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard'>(() => {
+    // A deep-link to /dashboard opens the real Owner Dashboard by default.
+    if (initialModule === 'owner-dashboard') return 'owner-dashboard';
     try {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
@@ -125,6 +137,44 @@ export default function App() {
 
   const isInitialMount = useRef(true);
   const backendHydratedFor = useRef<string | null>(null);
+  const provisionedFor = useRef<string | null>(null);
+
+  // PHASE 1 — ensure the authenticated owner has a salon. A brand-new owner has
+  // an auth.users + profiles row but no organization / owner membership / salon
+  // yet; the SECURITY DEFINER RPC `provision_owner_salon` (M42) creates that
+  // tenant idempotently. This runs once per user id, before draft hydration,
+  // so every downstream read (draft, services, location, dashboard) resolves
+  // to the session-owned salon. No salon/user id is ever supplied by the
+  // browser for authorization — auth.uid() inside the RPC is the sole source.
+  useEffect(() => {
+    if (!isSupabaseConfigured || authLoading || !user) return;
+    if (provisionedFor.current === user.id) return;
+    provisionedFor.current = user.id;
+    let active = true;
+    const initialSlug = data.websiteSlug || suggestedWebsiteSlug(data);
+    void resolveOrProvisionOwnerSalon({
+      salonName: data.salonName,
+      slug: initialSlug,
+      templateKey: data.templateId,
+    })
+      .then((result) => {
+        if (!active || 'error' in result || !result.salonId) return;
+        setData((current) => {
+          if (current.salonId === result.salonId) return current;
+          return {
+            ...current,
+            salonId: result.salonId,
+            websiteSlug: result.slug || current.websiteSlug,
+          };
+        });
+      })
+      .catch((error) => console.error('Owner provisioning failed:', error));
+    return () => { active = false; };
+    // Provisioning is intentionally keyed only on the authenticated user; it
+    // must not re-run because the salon name is edited (renaming is a separate,
+    // explicit action).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user]);
 
   // In configured deployments the published-website row is the draft/content
   // authority. Local storage remains only an offline/UI cache.
@@ -216,22 +266,31 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [data, user]);
 
+  // TEMPLATE SWITCHING — PRESENTATION ONLY.
+  // Changing template must never delete/clear the business, services, products,
+  // customers, bookings, payments, location or ownership. We update local state
+  // optimistically and persist ONLY the template selection through the
+  // SECURITY DEFINER RPC `set_owner_salon_template`, which updates
+  // salons.theme_id + salon_public_websites.template_key and touches nothing
+  // else. The in-memory services/packages arrays are the theme-scoped UI cache
+  // StepServices rehydrates from the database for the active theme; persisted
+  // rows (keyed by salon_id + theme_id) are untouched, so switching A→B→A is
+  // fully reversible with no data loss.
   const handleThemeChange = (nextTheme: ThemeId) => {
-    // Never restore an in-memory theme snapshot. StepServices hydrates only the
-    // newly selected database theme after clearing every service/form buffer.
-    setData(prev => ({
-      ...prev,
-      templateId: nextTheme,
-      services: [],
-      packages: [],
-    }));
+    setData(prev => ({ ...prev, templateId: nextTheme }));
+    if (!isSupabaseConfigured || !user) return;
+    setOwnerTemplate(nextTheme).catch((error) => {
+      console.error('Failed to persist template switch:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Could not save the template change.',
+      );
+    });
   };
 
+  // Preview-only variant (Step 13 full preview): updates the live preview
+  // without persisting; the explicit "Apply" path uses handleThemeChange.
   const handleThemeSwitchPreview = (nextTheme: ThemeId) => {
-    setData(prev => ({
-      ...prev,
-      templateId: nextTheme,
-    }));
+    setData(prev => ({ ...prev, templateId: nextTheme }));
   };
 
   const nextStep = () => setStep(s => {

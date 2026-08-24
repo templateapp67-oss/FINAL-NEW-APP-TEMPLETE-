@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SalonData } from '../types';
-import { normalizeThemeId, ThemeId } from '../lib/themeServices';
+import { normalizeThemeId, DEFAULT_THEME_ID, ThemeId } from '../lib/themeServices';
 import { CheckCircle2, Sparkles, Layout } from 'lucide-react';
 import { safeSetItem, safeGetItem } from '../lib/safeStorage';
 
@@ -22,16 +22,15 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
     setRefreshKey(prev => prev + 1);
   }, [data.templateId]);
 
-  const themes = [
-    {
-      id: 'hair' as ThemeId,
-      name: 'Hair & Unisex Salon',
-      category: 'Hair & Beauty',
-      tagline: 'Refined unisex hair styling, coloring and premium care.',
-      accent: '#ac0053',
-      badgeBg: 'bg-[#ffd9e1]/50 text-[#ac0053]',
-      image: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?q=80&w=600&auto=format&fit=crop',
-    },
+  const themes: Array<{
+    id: ThemeId;
+    name: string;
+    category: string;
+    tagline: string;
+    accent: string;
+    badgeBg: string;
+    image: string;
+  }> = [
     {
       id: 'barber_mens_grooming' as ThemeId,
       name: "Barber & Men's Grooming",
@@ -119,9 +118,9 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
   };
 
   const handleReset = () => {
-    const defaultTheme = 'hair';
+    const defaultTheme = DEFAULT_THEME_ID;
     setSwitchingId(defaultTheme);
-    
+
     if (onThemeChange) {
       onThemeChange(defaultTheme);
     } else {
@@ -211,7 +210,7 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
           );
         })}
 
-        {currentTemplate !== 'hair' && (
+        {currentTemplate !== DEFAULT_THEME_ID && (
           <button
             onClick={handleReset}
             className="w-full py-3 mt-4 border border-gray-300 rounded-xl text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 transition-colors"
@@ -304,7 +303,7 @@ export default function ThemeSelector({ data, setData, onSave, onThemeChange, la
         );
       })}
       
-      {currentTemplate !== 'hair' && (
+      {currentTemplate !== DEFAULT_THEME_ID && (
         <div className="sm:col-span-2 lg:col-span-3 mt-2">
           <button
             onClick={handleReset}

@@ -1,0 +1,246 @@
+/**
+ * OWNER SELF-PROVISIONING + WHITE-LABEL WEBSITE BINDING
+ *
+ * A brand-new authenticated owner has an auth.users + public.profiles row but
+ * no organization / owner membership / salon yet. The ONLY sanctioned way to
+ * create that tenant — and bind it to a LIVE public website slug — is the
+ * SECURITY DEFINER RPC `public.provision_owner_salon(name, slug, template_id)`
+ * (migration 20260823000401).
+ *
+ * The browser never inserts into organizations / organization_members /
+ * salons / salon_public_websites directly (RLS + the M36 membership guard
+ * forbid it). This module is the single place that calls the provisioning
+ * RPC. It is idempotent: if the owner already has a salon it is returned
+ * unchanged, so it is safe to call on every login/refresh.
+ *
+ * Identity comes solely from the Supabase session (auth.uid() inside the
+ * function). No user id, organization id, or salon id is supplied by the
+ * client for authorization.
+ */
+
+import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
+import { resolveOwnerSalonId } from './ownerSalon';
+import { suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
+
+export const PROVISION_OWNER_SALON_FN = 'provision_owner_salon';
+export const SET_OWNER_TEMPLATE_FN = 'set_owner_salon_template';
+
+export type OwnerTemplateKey =
+  | 'barber_mens_grooming'
+  | 'hair_studio_color_bar'
+  | 'beauty_skin_spa'
+  | 'family_full_service'
+  | 'nail_lash_studio';
+
+/** The five selectable templates, in display order. */
+export const OWNER_TEMPLATE_KEYS: OwnerTemplateKey[] = [
+  'barber_mens_grooming',
+  'hair_studio_color_bar',
+  'beauty_skin_spa',
+  'family_full_service',
+  'nail_lash_studio',
+];
+
+/** Canonical default for a freshly provisioned salon (template #1). */
+export const DEFAULT_OWNER_TEMPLATE: OwnerTemplateKey = 'barber_mens_grooming';
+
+export function isOwnerTemplateKey(value: unknown): value is OwnerTemplateKey {
+  return (
+    typeof value === 'string' &&
+    (OWNER_TEMPLATE_KEYS as readonly string[]).includes(value)
+  );
+}
+
+export interface ProvisionedOwnerSalon {
+  salonId: string;
+  organizationId: string;
+  slug: string;
+  templateId: OwnerTemplateKey;
+  isPublished: boolean;
+  /** True when the owner already had a salon and nothing was created. */
+  alreadyExisted: boolean;
+}
+
+interface ProvisionRpcRow {
+  out_salon_id?: string;
+  out_organization_id?: string;
+  out_slug?: string;
+  out_template_id?: string;
+  out_is_published?: boolean;
+  out_already_existed?: boolean;
+}
+
+function firstRow<T>(data: T | T[] | null): T | null {
+  if (data == null) return null;
+  return Array.isArray(data) ? (data[0] ?? null) : data;
+}
+
+/**
+ * Derive a usable website slug from the salon name / an explicit choice,
+ * falling back to a safe placeholder. Server-side uniqueness is still
+ * enforced authoritatively by the RPC.
+ */
+function deriveSlug(input?: { slug?: string; salonName?: string }): string {
+  const explicit = (input?.slug || '').trim().toLowerCase();
+  if (explicit) return slugifySalonName(explicit) || explicit;
+  return suggestedWebsiteSlug({ salonName: input?.salonName }) || 'my-salon';
+}
+
+/**
+ * Ensure the authenticated owner has exactly one salon with a LIVE public
+ * website at `slug`, creating it if needed.
+ *
+ * When a salon already exists the RPC returns it (slug/template unchanged) —
+ * provisioning is idempotent. Pass `slug`/`templateKey` to bind the initial
+ * white-label address and template on first creation.
+ */
+export async function ensureOwnerSalon(input?: {
+  salonName?: string;
+  slug?: string;
+  templateKey?: OwnerTemplateKey | string;
+}): Promise<ProvisionedOwnerSalon | null> {
+  if (!isSupabaseConfigured) return null;
+  const client = requireSupabase();
+
+  const name = input?.salonName?.trim().slice(0, 120) || 'My Salon';
+  const slug = deriveSlug(input);
+  const templateKey = isOwnerTemplateKey(input?.templateKey)
+    ? input.templateKey
+    : DEFAULT_OWNER_TEMPLATE;
+
+  const { data, error } = await client.rpc(PROVISION_OWNER_SALON_FN, {
+    p_salon_name: name,
+    p_slug: slug,
+    p_template_id: templateKey,
+  });
+
+  if (error) {
+    console.error('Owner provisioning failed:', error);
+    throw new Error(sanitizeProvisionError(error.message));
+  }
+
+  const row = firstRow(data as ProvisionRpcRow | ProvisionRpcRow[] | null);
+  if (!row?.out_salon_id || !row.out_organization_id || !row.out_slug) {
+    throw new Error('Could not set up your salon website. Please try again.');
+  }
+
+  return {
+    salonId: row.out_salon_id,
+    organizationId: row.out_organization_id,
+    slug: row.out_slug,
+    templateId: isOwnerTemplateKey(row.out_template_id)
+      ? row.out_template_id
+      : DEFAULT_OWNER_TEMPLATE,
+    isPublished: row.out_is_published === true,
+    alreadyExisted: row.out_already_existed === true,
+  };
+}
+
+/**
+ * Resolve the owner's salon, auto-provisioning one (with a live slug) on first
+ * login when the owner has none. Safe to call on every authenticated boot.
+ */
+export async function resolveOrProvisionOwnerSalon(input?: {
+  salonName?: string;
+  slug?: string;
+  templateKey?: OwnerTemplateKey | string;
+}): Promise<{ salonId: string; slug?: string; provisioned: boolean } | { error: string }> {
+  if (!isSupabaseConfigured) {
+    return { error: 'Authentication is not configured.' };
+  }
+
+  const resolution = await resolveOwnerSalonId();
+  if (resolution.status === 'resolved') {
+    return { salonId: resolution.salonId, provisioned: false };
+  }
+  if (resolution.status === 'not-authenticated') {
+    return { error: 'Please log in to continue.' };
+  }
+  if (resolution.status === 'ambiguous') {
+    return { error: 'Multiple salons are linked to your account. Please contact support.' };
+  }
+  if (resolution.status === 'permission-denied') {
+    return { error: 'You do not have permission to access this salon.' };
+  }
+  if (resolution.status !== 'no-membership') {
+    return { error: 'Unable to determine your salon. Please try again.' };
+  }
+
+  try {
+    const provisioned = await ensureOwnerSalon(input);
+    if (!provisioned) return { error: 'Authentication is not configured.' };
+    return {
+      salonId: provisioned.salonId,
+      slug: provisioned.slug,
+      provisioned: !provisioned.alreadyExisted,
+    };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Could not set up your salon.',
+    };
+  }
+}
+
+/**
+ * Data-safe template switch. Calls the SECURITY DEFINER RPC
+ * `set_owner_salon_template`, which updates ONLY salons.theme_id and
+ * salon_public_websites.template_key. It never deletes or modifies services,
+ * products, bookings, payments, location or ownership — those rows are keyed
+ * by salon_id (and services by salon_id+theme_id) and survive any switch.
+ */
+export async function setOwnerTemplate(
+  templateKey: OwnerTemplateKey | string,
+): Promise<{ salonId: string; templateId: OwnerTemplateKey }> {
+  if (!isSupabaseConfigured) {
+    throw new Error('Authentication is not configured.');
+  }
+  if (!isOwnerTemplateKey(templateKey)) {
+    throw new Error('Choose one of the five available templates.');
+  }
+  const client = requireSupabase();
+  const { data, error } = await client.rpc(SET_OWNER_TEMPLATE_FN, {
+    p_template_id: templateKey,
+  });
+  if (error) {
+    console.error('Template switch failed:', error);
+    throw new Error(sanitizeTemplateError(error.message));
+  }
+  const row = firstRow(data as { out_salon_id?: string; out_template_id?: string }[] | null);
+  if (!row?.out_salon_id) throw new Error('Could not switch template. Please try again.');
+  return {
+    salonId: row.out_salon_id,
+    templateId: isOwnerTemplateKey(row.out_template_id)
+      ? row.out_template_id
+      : DEFAULT_OWNER_TEMPLATE,
+  };
+}
+
+function sanitizeProvisionError(message: string | undefined): string {
+  const msg = (message || '').toLowerCase();
+  if (/please log in|not authenticated|28000/.test(msg)) {
+    return 'Please log in to set up your salon.';
+  }
+  if (/multiple salons|p0003/.test(msg)) {
+    return 'Multiple salons are linked to your account. Please contact support.';
+  }
+  if (/already in use|23505|duplicate/.test(msg)) {
+    return 'That website address is already in use. Try another.';
+  }
+  if (/reserved/.test(msg)) {
+    return 'That website address is reserved. Choose another.';
+  }
+  if (/3.{0,3}60|lowercase|hyphen|characters/.test(msg)) {
+    return 'Website address must be 3–60 lowercase letters, numbers or hyphens.';
+  }
+  return 'Could not set up your salon. Please try again.';
+}
+
+function sanitizeTemplateError(message: string | undefined): string {
+  const msg = (message || '').toLowerCase();
+  if (/please log in|28000/.test(msg)) return 'Please log in to change your template.';
+  if (/no salon|p0002/.test(msg)) return 'No salon is linked to your account yet.';
+  if (/multiple salons|p0003/.test(msg)) {
+    return 'Multiple salons are linked to your account. Please contact support.';
+  }
+  return 'Could not switch template. Please try again.';
+}

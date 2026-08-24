@@ -3,17 +3,30 @@ import type { SalonData } from '../types';
 /**
  * Theme = the salon website template chosen in Step 2.
  *
- * `family-salon` is intentionally retained as a legacy storage id only. It is
- * never offered as a new choice; saved drafts are normalised to the new,
- * UI-only Full-Service Family Salon theme.
+ * PHASE 1 defines exactly FIVE selectable templates:
+ *   1. Barber & Men's Grooming      barber_mens_grooming
+ *   2. Hair Studio & Color Bar      hair_studio_color_bar
+ *   3. Beauty, Skin & Spa           beauty_skin_spa
+ *   4. Full-Service Family Salon    family_full_service
+ *   5. Nail & Lash Studio           nail_lash_studio
+ *
+ * `hair` is the original unisex starter theme. It is deliberately NOT offered
+ * as a new choice and is retained only as a legacy storage id: saved drafts
+ * are normalised forward to template #1 (Barber & Men's Grooming) so nothing
+ * breaks. `family-salon` is the same kind of legacy id for the Family slot.
  */
-export type ThemeId = Exclude<NonNullable<SalonData['templateId']>, 'family-salon'>;
-export type LegacyThemeId = 'family-salon';
+export type ThemeId =
+  | 'barber_mens_grooming'
+  | 'hair_studio_color_bar'
+  | 'beauty_skin_spa'
+  | 'family_full_service'
+  | 'nail_lash_studio';
+
+export type LegacyThemeId = 'hair' | 'family-salon';
 export type CatalogueThemeId = ThemeId | LegacyThemeId;
 
-/** All currently selectable themes, in display order. */
+/** The five Phase 1 selectable templates, in display order. */
 export const THEME_IDS: ThemeId[] = [
-  'hair',
   'barber_mens_grooming',
   'hair_studio_color_bar',
   'beauty_skin_spa',
@@ -21,32 +34,31 @@ export const THEME_IDS: ThemeId[] = [
   'nail_lash_studio',
 ];
 
+/** Template #1 — the canonical default for new salons. */
+export const DEFAULT_THEME_ID: ThemeId = 'barber_mens_grooming';
+
 /**
- * Normalises a saved `templateId` into a valid ThemeId.
+ * Normalises a saved `templateId` into a valid Phase 1 ThemeId.
  *
- * - `barber` is the legacy id for the Barber & Men's Grooming slot (now
- *   `barber_mens_grooming`).
- * - `hair-studio` is the legacy id for the Hair Studio & Color Bar slot (now
- *   `hair_studio_color_bar`).
- * - `wellness` is the legacy id for the Beauty, Skin & Spa slot (now
- *   `beauty_skin_spa`).
- * - `family-salon` is the old family slot and now resolves to
- *   `family_full_service`.
+ * Legacy ids are mapped forward so old drafts never break:
+ * - `hair` / `barber`            → barber_mens_grooming   (template #1)
+ * - `hair-studio`                → hair_studio_color_bar  (template #2)
+ * - `wellness`                   → beauty_skin_spa        (template #3)
+ * - `family-salon`               → family_full_service    (template #4)
  *
- * Old drafts saved with legacy ids are mapped forward so nothing breaks,
- * while new data is always written with a canonical id.
+ * Anything unrecognised falls back to template #1.
  */
 export function normalizeThemeId(id: string | undefined | null): ThemeId {
   if (id === 'barber') return 'barber_mens_grooming';
+  if (id === 'hair') return DEFAULT_THEME_ID;
   if (id === 'hair-studio') return 'hair_studio_color_bar';
   if (id === 'wellness') return 'beauty_skin_spa';
   if (id === 'family-salon') return 'family_full_service';
   if (id && (THEME_IDS as string[]).includes(id)) return id as ThemeId;
-  return 'hair';
+  return DEFAULT_THEME_ID;
 }
 
 export const THEME_LABELS: Record<ThemeId, string> = {
-  hair: 'Hair & Unisex Salon',
   barber_mens_grooming: "Barber & Men's Grooming",
   hair_studio_color_bar: 'Hair Studio & Color Bar',
   beauty_skin_spa: 'Beauty, Skin & Spa',

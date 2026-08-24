@@ -1,4 +1,5 @@
 import { DEFAULT_BRAND_CONFIG } from './config/brandConfig';
+import { DEFAULT_THEME_ID } from './lib/themeServices';
 
 export type CatalogStatus = 'active' | 'inactive' | 'archived';
 export type DiscountType = 'percentage' | 'fixed';
@@ -558,7 +559,7 @@ export function getPublicStaffData(member: TeamMember) {
 }
 
 export const initialData: SalonData = {
-  templateId: 'hair',
+  templateId: DEFAULT_THEME_ID,
   salonName: DEFAULT_BRAND_CONFIG.defaultSalon.name,
   tagline: DEFAULT_BRAND_CONFIG.defaultSalon.tagline,
   ownerName: DEFAULT_BRAND_CONFIG.defaultSalon.ownerName,

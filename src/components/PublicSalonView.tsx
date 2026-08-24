@@ -164,7 +164,7 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     ...emptyPublicData(slug),
     ...whiteLabel,
     salonId: salon.id,
-    templateId: selectedTheme as SalonData['templateId'] || 'hair',
+    templateId: (selectedTheme as SalonData['templateId']) || 'barber_mens_grooming',
     salonName: salon.name,
     tagline: typeof config.tagline === 'string' ? config.tagline : '',
     about: typeof config.about === 'string' ? config.about : '',

@@ -147,8 +147,9 @@ export function applyTemplateConfigToSalon(
 }
 
 /**
- * Presentation-only template switch. Keeps services, packages, team, gallery,
- * bookings-related rules, and identity fields intact.
+ * Presentation-only template switch on the SAME salon.
+ * Does not clone the business. Identity, services, products, location,
+ * customers, bookings, payments and ownership stay on the original rows.
  */
 export function switchSalonTemplatePresentation(
   data: SalonData,
@@ -164,6 +165,14 @@ export function switchSalonTemplatePresentation(
   );
   return {
     ...data,
+    salonId: data.salonId,
+    salonName: data.salonName,
+    ownerName: data.ownerName,
+    phone: data.phone,
+    email: data.email,
+    address: data.address,
+    openingHours: data.openingHours,
+    bookingRules: data.bookingRules,
     templateId,
     templateConfig: config,
     brandColor: config.accentColor,
@@ -171,11 +180,11 @@ export function switchSalonTemplatePresentation(
     salonNameFont: config.salonNameFont,
     salonNameColor: config.salonNameColor,
     heroPosition: config.heroPosition,
-    services: data.services || [],
-    packages: data.packages || [],
-    team: data.team || [],
-    gallery: data.gallery || [],
-    offers: data.offers || [],
+    services: data.services,
+    packages: data.packages,
+    team: data.team,
+    gallery: data.gallery,
+    offers: data.offers,
   };
 }
 

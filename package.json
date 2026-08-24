@@ -72,6 +72,7 @@
     "test:phase4": "tsx scripts/test-phase4-final.mjs",
     "test:phase-1a-audit": "node scripts/test-phase1a-audit.mjs",
     "test:phase-1b": "node scripts/test-phase1b-owner-flow.mjs && node scripts/test-phase1b-owner-auth.mjs && node scripts/test-phase1b-business-setup.mjs && node scripts/test-phase1b-template-architecture.mjs",
+    "test:template-switching": "tsx scripts/test-template-config-switching.mts && node scripts/test-whitelabel.mjs",
     "test:phase1a-audit": "node scripts/test-phase1a-audit.mjs",
     "validate:main-website": "node scripts/validate-main-website-compat.mjs",
     "test:phase-10.6": "tsx scripts/test-phase-10.6.mjs",

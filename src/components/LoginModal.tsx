@@ -24,7 +24,6 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
-import { safeGetItem } from '../lib/safeStorage';
 
 /**
  * Sign in / sign up against the existing Supabase Auth (email + password,
@@ -240,9 +239,9 @@ export default function LoginModal({
         setMode('login');
         return;
       }
-      const session = await completeOwnerAuthSession({
-        salonName: safeGetItem('nexora_signup_salon_name') || undefined,
-      });
+      // Modal signup has no business-name field. Provisioning resolves the
+      // authenticated user's scoped metadata and otherwise uses “My Salon”.
+      const session = await completeOwnerAuthSession();
       if ('error' in session) {
         setError(session.error);
         return;

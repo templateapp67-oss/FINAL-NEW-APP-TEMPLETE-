@@ -474,7 +474,7 @@ export default function StepPublish({ data, setData, onNext, onPrev, onSave }: P
           </div>
         </div>
         <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden">
-          <TemplateRenderer data={data} mode={mode} />
+          <TemplateRenderer data={data} mode={mode} renderMode="owner-preview" />
         </div>
         <div className="absolute right-[-10%] bottom-[-10%] w-[520px] h-[520px] rounded-full blur-3xl pointer-events-none" style={{ backgroundColor: withHexAlpha(brandColor, '24') }} />
       </section>

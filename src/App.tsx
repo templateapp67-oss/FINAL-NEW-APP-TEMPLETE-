@@ -23,19 +23,25 @@ import StaffManagementModule from './components/StaffManagementModule';
 import OwnerDashboard from './components/OwnerDashboard';
 import TopBar from './components/TopBar';
 import { initialData, SalonData } from './types';
-import type { ThemeId } from './lib/themeServices';
+import { normalizeThemeId, type ThemeId } from './lib/themeServices';
 import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
-import { loadOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
 import { persistOwnerBusinessSetup, loadOwnerSalonRow, mergeSalonRowIntoDraft } from './lib/ownerBusinessSetup';
 import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
-import { switchSalonTemplatePresentation } from './lib/templateConfig';
+import {
+  applyTemplateConfigToSalon,
+  restoreSavedTemplatePresentation,
+  switchSalonTemplatePresentation,
+} from './lib/templateConfig';
+import { templateSwitchProtectedRevision, templateVisualConfigRevision } from './lib/templateSwitchInvariants';
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
-import { resumeWizardStep } from './lib/ownerSession';
+import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
+import { emptyOwnerSalonData } from './lib/ownerPreview';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
@@ -75,6 +81,10 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   });
 
   const [data, setData] = useState<SalonData>(() => {
+    // Never expose the demonstration salon while an authenticated workspace is
+    // resolving. Local storage is not tenant-scoped and may belong to another
+    // browser user, so configured deployments hydrate only from Supabase.
+    if (isSupabaseConfigured) return emptyOwnerSalonData();
     try {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
@@ -142,10 +152,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const isInitialMount = useRef(true);
   const backendHydratedFor = useRef<string | null>(null);
   const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
-  const provisionedFor = useRef<string | null>(null);
-  const templateSwitchSequence = useRef(0);
+  const [ownerHydrationError, setOwnerHydrationError] = useState('');
+  const [ownerHydrationRetry, setOwnerHydrationRetry] = useState(0);
   const templateSwitchQueue = useRef<Promise<void>>(Promise.resolve());
-  const persistedTemplate = useRef<SalonData['templateId']>(data.templateId);
+  const latestData = useRef(data);
+  latestData.current = data;
+  const protectedDataRevision = templateSwitchProtectedRevision(data);
+  const visualConfigRevision = templateVisualConfigRevision(data);
 
   // A configured production workspace is an owner-only flow. A cached wizard
   // step must never let a signed-out browser bypass Login. Local unconfigured
@@ -162,7 +175,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // in the wizard even if they opened /dashboard.
   useEffect(() => {
     if (authLoading || !user) return;
-    if (backendHydratedFor.current !== user.id && isSupabaseConfigured) return;
+    if (isSupabaseConfigured && backendHydratedUser !== user.id) return;
     const published = data.publishState === 'published' && !!data.publishedUrl;
     if (published && initialModule === 'owner-dashboard') {
       setActiveModule('owner-dashboard');
@@ -176,84 +189,84 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     }
   }, [authLoading, user, backendHydratedUser, data.lastCompletedStep, data.publishState, data.publishedUrl, initialModule]);
 
-  // PHASE 1 — ensure the authenticated owner has a salon. A brand-new owner has
-  // an auth.users + profiles row but no organization / owner membership / salon
-  // yet; the SECURITY DEFINER RPC `provision_owner_salon` (M42) creates that
-  // tenant idempotently. This runs once per user id, before draft hydration,
-  // so every downstream read (draft, services, location, dashboard) resolves
-  // to the session-owned salon. No salon/user id is ever supplied by the
-  // browser for authorization — auth.uid() inside the RPC is the sole source.
-  useEffect(() => {
-    if (!isSupabaseConfigured || authLoading || !user) return;
-    if (provisionedFor.current === user.id) return;
-    provisionedFor.current = user.id;
-    let active = true;
-    const signupName = (() => {
-      try { return safeGetItem('nexora_signup_salon_name') || ''; } catch { return ''; }
-    })();
-    const salonName = (signupName || data.salonName || '').trim() || 'My Salon';
-    const initialSlug = data.websiteSlug || suggestedWebsiteSlug({ ...data, salonName });
-    void resolveOrProvisionOwnerSalon({
-      salonName,
-      slug: initialSlug,
-      templateKey: data.templateId,
-    })
-      .then((result) => {
-        if (!active || 'error' in result || !result.salonId) return;
-        setData((current) => {
-          if (current.salonId === result.salonId) return current;
-          return {
-            ...current,
-            salonId: result.salonId,
-            websiteSlug: result.slug || current.websiteSlug,
-          };
-        });
-      })
-      .catch((error) => console.error('Owner provisioning failed:', error));
-    return () => { active = false; };
-    // Provisioning is intentionally keyed only on the authenticated user; it
-    // must not re-run because the salon name is edited (renaming is a separate,
-    // explicit action).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user]);
-
-  // In configured deployments the published-website row is the draft/content
-  // authority. Local storage remains only an offline/UI cache.
+  // Provision first, then hydrate this exact authenticated tenant. Keeping the
+  // sequence in one effect prevents a first-login draft read from racing the
+  // salon-creation RPC. Owner modules remain blocked until the final merged
+  // record is ready; no local/sample record can render or autosave meanwhile.
   useEffect(() => {
     if (!isSupabaseConfigured || authLoading || !user) return;
     if (backendHydratedFor.current === user.id) return;
     backendHydratedFor.current = user.id;
+    setBackendHydratedUser(null);
+    setOwnerHydrationError('');
+    setData(emptyOwnerSalonData());
+
     let active = true;
-    void loadOwnerWebsiteDraft()
-      .then((draft) => {
-        if (!active) return;
-        setBackendHydratedUser(user.id);
-        if (!draft) return;
-        const salonRow = await loadOwnerSalonRow();
-        setData((current) => {
-          // template_key is the presentation authority changed by
-          // set_owner_salon_template. Config may legitimately predate a
-          // post-publish template switch, so it is only the fallback.
-          const hydratedTemplate = (
-            draft.templateKey || draft.config.templateId || current.templateId
-          ) as SalonData['templateId'];
-          persistedTemplate.current = hydratedTemplate;
-          return mergeSalonRowIntoDraft({
-            ...current,
-            ...draft.config,
-            salonId: draft.salonId,
-            websiteSlug: draft.slug || current.websiteSlug,
-            publishedUrl: draft.isPublished && draft.slug
-              ? publicWebsiteUrl(draft.slug)
-              : undefined,
-            templateId: hydratedTemplate,
-            publishState: draft.isPublished ? 'published' : 'draft',
-          }, salonRow);
-        });
-      })
-      .catch((error) => console.error('Backend website draft hydration failed:', error));
+    // Provision from the current authenticated identity only. A browser-local
+    // signup-name cache is unscoped and can leak one owner's name into another
+    // account that later signs in on the same device.
+    const salonName = ownerSalonNameFromMetadata(user) || 'My Salon';
+    const initialSlug = suggestedWebsiteSlug({ ...emptyOwnerSalonData(), salonName });
+
+    void (async () => {
+      const provisioned = await resolveOrProvisionOwnerSalon({
+        salonName,
+        slug: initialSlug,
+        templateKey: emptyOwnerSalonData().templateId,
+      });
+      if ('error' in provisioned) throw new Error(provisioned.error);
+      if (!active) return;
+
+      const [draft, salonRow] = await Promise.all([
+        loadOwnerWebsiteDraft(),
+        loadOwnerSalonRow(),
+      ]);
+      if (!active) return;
+
+      const baseline = emptyOwnerSalonData();
+      const draftConfig = draft?.config ?? {};
+      // template_key is the presentation authority changed by the switch RPC.
+      // Generic config aliases can be older than it.
+      const hydratedTemplate = (
+        draft?.templateKey || draftConfig.templateId || baseline.templateId
+      ) as SalonData['templateId'];
+      const configTemplate = (
+        draftConfig.templateId || hydratedTemplate
+      ) as SalonData['templateId'];
+      const merged = mergeSalonRowIntoDraft({
+        ...baseline,
+        ...draftConfig,
+        salonId: draft?.salonId || provisioned.salonId,
+        websiteSlug: draft?.slug || provisioned.slug || '',
+        publishedUrl: draft?.isPublished && draft.slug
+          ? publicWebsiteUrl(draft.slug)
+          : '',
+        templateId: configTemplate,
+        publishState: draft?.isPublished ? 'published' : 'draft',
+      }, salonRow);
+      const authoritativeTemplate = hydratedTemplate
+        || configTemplate
+        || baseline.templateId
+        || 'barber_mens_grooming';
+      const restored = restoreSavedTemplatePresentation(merged, authoritativeTemplate);
+      const hydrated = restored
+        || (normalizeThemeId(configTemplate) !== normalizeThemeId(authoritativeTemplate)
+          ? switchSalonTemplatePresentation(merged, authoritativeTemplate)
+          : applyTemplateConfigToSalon(merged, {}));
+
+      setData(hydrated);
+      setBackendHydratedUser(user.id);
+    })().catch((error: unknown) => {
+      if (!active) return;
+      backendHydratedFor.current = null;
+      setOwnerHydrationError(
+        error instanceof Error ? error.message : 'Unable to load your salon workspace.',
+      );
+      console.error('Owner provisioning or hydration failed:', error);
+    });
+
     return () => { active = false; };
-  }, [authLoading, user]);
+  }, [authLoading, ownerHydrationRetry, user?.id]);
 
   // Persist dashboard tab
   useEffect(() => {
@@ -299,11 +312,20 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     return () => clearTimeout(timer);
   }, [step, data, activeModule, dashboardTab]);
 
+  // Business autosave is keyed only by protected business/content data. A
+  // template transition cannot cancel a pending business save or start a new
+  // one, and therefore cannot touch salons, organizations, hours, or location.
   useEffect(() => {
-    if (!isSupabaseConfigured || !user || backendHydratedFor.current !== user.id || !data.websiteSlug) return;
+    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id || !latestData.current.websiteSlug) return;
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
-      void persistOwnerBusinessSetup(data)
+      // Serialize draft, visual, and template writes in one client queue so a
+      // delayed full-draft save cannot overwrite a newer per-template map.
+      const save = templateSwitchQueue.current.then(() => (
+        persistOwnerBusinessSetup(latestData.current)
+      ));
+      templateSwitchQueue.current = save.then(() => undefined, () => undefined);
+      void save
         .then((saved) => {
           if ('error' in saved) {
             setSaveStatus('saved');
@@ -315,52 +337,52 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           setSaveStatus('saved');
         })
         .catch((error) => {
-          console.error('Backend website draft autosave failed:', error);
+          console.error('Backend business autosave failed:', error);
           setSaveStatus('saved');
         });
     }, 1200);
     return () => window.clearTimeout(timer);
-  }, [data, user]);
+  }, [protectedDataRevision, user, backendHydratedUser]);
+
+  // Appearance edits have a separate presentation-only persistence path. The
+  // template id itself is excluded because set_owner_salon_template is its
+  // single database write authority.
+  useEffect(() => {
+    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id || !latestData.current.websiteSlug) return;
+    const timer = window.setTimeout(() => {
+      const save = templateSwitchQueue.current.then(() => (
+        saveOwnerWebsiteVisualConfig(latestData.current)
+      ));
+      templateSwitchQueue.current = save.then(() => undefined, () => undefined);
+      void save.catch((error) => {
+        console.error('Backend visual config autosave failed:', error);
+      });
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [visualConfigRevision, user, backendHydratedUser]);
 
   // TEMPLATE SWITCHING — PRESENTATION ONLY.
-  // Changing template must never delete/clear the business, services, products,
-  // customers, bookings, payments, location or ownership. We update local state
-  // optimistically and persist ONLY the template selection through the
-  // SECURITY DEFINER RPC `set_owner_salon_template`, which updates
-  // salons.theme_id + salon_public_websites.template_key and touches nothing
-  // else. The in-memory services/packages arrays are the theme-scoped UI cache
-  // StepServices rehydrates from the database for the active theme; persisted
-  // rows (keyed by salon_id + theme_id) are untouched, so switching A→B→A is
-  // fully reversible with no data loss.
-  const handleThemeChange = (nextTheme: ThemeId) => {
-    const requestId = ++templateSwitchSequence.current;
-    setData(prev => switchSalonTemplatePresentation(prev, nextTheme));
-    if (!isSupabaseConfigured || !user) return;
-    // Serialize writes so rapid changes cannot reach Supabase out of order.
-    // Every accepted transition is presentation-only and the final queued RPC
-    // is necessarily the owner's latest selection.
-    templateSwitchQueue.current = templateSwitchQueue.current.then(async () => {
+  // Each caller receives the promise for its own serialized RPC. State changes
+  // only after that RPC succeeds, so selectors cannot report false success and
+  // no rollback can invoke the generic business autosave.
+  const handleThemeChange = (nextTheme: ThemeId): Promise<void> => {
+    const operation = templateSwitchQueue.current.then(async () => {
       try {
-        const saved = await setOwnerTemplate(nextTheme);
-        // Track every serialized success, including an older request whose UI
-        // settlement was superseded. This is the exact database template to
-        // restore if a later queued request fails.
-        persistedTemplate.current = saved.templateId;
-        if (templateSwitchSequence.current !== requestId) return;
-        setData(current => switchSalonTemplatePresentation(current, saved.templateId));
+        const appliedTheme = isSupabaseConfigured && user
+          ? (await setOwnerTemplate(nextTheme)).templateId
+          : nextTheme;
+        setData((current) => switchSalonTemplatePresentation(current, appliedTheme));
       } catch (error) {
-        if (templateSwitchSequence.current !== requestId) return;
-        // Do not leave an optimistic template visible as though it were live
-        // when Supabase rejected the presentation-only update.
-        setData(current => current.templateId === nextTheme
-          ? switchSalonTemplatePresentation(current, persistedTemplate.current || current.templateId || nextTheme)
-          : current);
         console.error('Failed to persist template switch:', error);
-        showToast(
-          error instanceof Error ? error.message : 'Could not save the template change.',
-        );
+        showToast(error instanceof Error ? error.message : 'Could not save the template change.');
+        throw error;
       }
     });
+
+    // Keep the queue usable after a failed operation while returning the
+    // original (possibly rejected) promise to this specific caller.
+    templateSwitchQueue.current = operation.catch(() => undefined);
+    return operation;
   };
 
   // Preview-only variant (Step 13 full preview): updates the live preview
@@ -519,6 +541,37 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         />
         <div className="flex-1 overflow-auto">
           <HeroSplit onNext={() => setStep(1)} />
+        </div>
+      </div>
+    );
+  }
+
+  if (isSupabaseConfigured && user && backendHydratedUser !== user.id) {
+    return (
+      <div
+        className="h-screen bg-[#f9f9f9] flex items-center justify-center px-6 font-sans text-gray-900"
+        data-testid="owner-workspace-hydration-boundary"
+      >
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          {ownerHydrationError ? (
+            <>
+              <h1 className="text-lg font-extrabold">We couldn’t load your salon workspace</h1>
+              <p role="alert" className="mt-2 text-sm text-gray-600">{ownerHydrationError}</p>
+              <button
+                type="button"
+                onClick={() => setOwnerHydrationRetry((current) => current + 1)}
+                className="mt-5 rounded-xl bg-[#ac0053] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#8d0044]"
+              >
+                Try again
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-[#ffd9e1] border-t-[#ac0053]" />
+              <h1 className="mt-4 text-lg font-extrabold">Loading your salon workspace</h1>
+              <p className="mt-1 text-sm text-gray-500">Fetching your real business details and website settings…</p>
+            </>
+          )}
         </div>
       </div>
     );

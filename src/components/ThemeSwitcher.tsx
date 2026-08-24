@@ -5,16 +5,36 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface Props {
   currentTheme: ThemeId;
-  onThemeChange: (themeId: ThemeId) => void;
+  onThemeChange: (themeId: ThemeId) => Promise<void> | void;
   variant?: 'minimal' | 'full';
 }
 
 export default function ThemeSwitcher({ currentTheme, onThemeChange, variant = 'full' }: Props) {
   const [isOpen, setIsOpen] = React.useState(false);
+  const [applyingThemes, setApplyingThemes] = React.useState<Partial<Record<ThemeId, number>>>({});
+  const latestRequest = React.useRef(0);
+  const [switchError, setSwitchError] = React.useState<string | null>(null);
+  const pendingThemeCount = Object.values(applyingThemes as Record<string, number | undefined>)
+    .reduce<number>((total, count) => total + (count ?? 0), 0);
 
-  const handleSelect = (id: ThemeId) => {
-    onThemeChange(id);
-    setIsOpen(false);
+  const handleSelect = async (id: ThemeId) => {
+    if (pendingThemeCount === 0 && id === currentTheme) return;
+    const requestId = ++latestRequest.current;
+    setApplyingThemes((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
+    setSwitchError(null);
+    try {
+      await onThemeChange(id);
+      if (latestRequest.current === requestId) setIsOpen(false);
+    } catch (error) {
+      if (latestRequest.current === requestId) {
+        setSwitchError(error instanceof Error ? error.message : 'Could not switch the template.');
+      }
+    } finally {
+      setApplyingThemes((current) => ({
+        ...current,
+        [id]: Math.max(0, (current[id] ?? 1) - 1),
+      }));
+    }
   };
 
   const activeLabel = THEME_LABELS[currentTheme] || 'Select Theme';
@@ -47,17 +67,18 @@ export default function ThemeSwitcher({ currentTheme, onThemeChange, variant = '
                   {THEME_IDS.map((id) => (
                     <button
                       key={id}
-                      onClick={() => handleSelect(id)}
+                      onClick={() => void handleSelect(id)}
                       className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between transition-colors ${
                         currentTheme === id
                           ? 'bg-[#ffd9e1]/30 text-[#ac0053]'
                           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                       }`}
                     >
-                      <span>{THEME_LABELS[id]}</span>
+                      <span>{(applyingThemes[id] ?? 0) > 0 ? 'Applying…' : THEME_LABELS[id]}</span>
                       {currentTheme === id && <Check className="w-3.5 h-3.5" />}
                     </button>
                   ))}
+                  {switchError && <p role="alert" className="px-3 py-2 text-[10px] font-semibold text-red-600">{switchError}</p>}
                 </div>
               </motion.div>
               <div className="fixed inset-0 z-[90]" onClick={() => setIsOpen(false)} />
@@ -102,17 +123,18 @@ export default function ThemeSwitcher({ currentTheme, onThemeChange, variant = '
                 {THEME_IDS.map((id) => (
                   <button
                     key={id}
-                    onClick={() => handleSelect(id)}
+                    onClick={() => void handleSelect(id)}
                     className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${
                       currentTheme === id
                         ? 'bg-[#ac0053] text-white shadow-md shadow-[#ac0053]/20'
                         : 'text-gray-700 hover:bg-[#ffd9e1]/20 hover:text-[#ac0053]'
                     }`}
                   >
-                    <span className="text-xs font-bold">{THEME_LABELS[id]}</span>
+                    <span className="text-xs font-bold">{(applyingThemes[id] ?? 0) > 0 ? 'Applying…' : THEME_LABELS[id]}</span>
                     {currentTheme === id && <Check className="w-4 h-4" />}
                   </button>
                 ))}
+                {switchError && <p role="alert" className="px-4 py-2 text-[10px] font-semibold text-red-600">{switchError}</p>}
               </div>
               <div className="p-3 border-t border-gray-100 bg-gray-50/30 text-center">
                 <p className="text-[10px] text-gray-400 font-medium">Changes apply instantly to preview</p>

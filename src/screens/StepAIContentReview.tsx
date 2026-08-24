@@ -719,7 +719,7 @@ export default function StepAIContentReview({ data, setData, onNext, onPrev, onS
         <div className="flex-1 overflow-hidden p-3 bg-[radial-gradient(#e5e2e1_1px,transparent_1px)] [background-size:16px_16px] relative">
           <motion.div key={activeField + mode + reviewed.heroHeadline} initial={{ opacity: 0.8 }} animate={{ opacity: 1 }} className="w-full h-full flex justify-center">
             <div className="w-full h-full overflow-auto">
-              <TemplateRenderer data={previewData} mode={mode} />
+              <TemplateRenderer data={previewData} mode={mode} renderMode="owner-preview" />
               {/* Extra overlay for focused section highlight in preview */}
               {activeField === 'booking' && (
                 <div className="mt-4 mx-4 p-3 bg-[#ac0053] text-white rounded-xl text-xs font-semibold text-center shadow-lg">

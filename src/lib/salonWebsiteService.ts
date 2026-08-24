@@ -3,6 +3,12 @@ import { resolveOwnerSalonId } from './ownerSalon';
 import { isValidWebsiteSlug, suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
 import { requireSupabase } from './supabaseClient';
 import { DEFAULT_THEME_ID, normalizeThemeId } from './themeServices';
+import {
+  activeTemplateConfigFromSalon,
+  normalizeTemplateConfigs,
+  sanitizeTemplateConfigForTemplate,
+  templateSupportsConfig,
+} from './templateConfig';
 
 export const SALON_PUBLIC_WEBSITES_TABLE = 'salon_public_websites';
 
@@ -37,8 +43,11 @@ export function websiteConfigFromSalonData(data: SalonData): Partial<SalonData> 
     phone: data.phone,
     email: data.email,
     whatsappPhone: data.whatsappPhone,
-    contactOptions: data.contactOptions,
-    bookingRules: data.bookingRules,
+    // Keep an unconfigured owner unconfigured. In particular, never serialize
+    // the demonstration salon's contact/deposit policy into a new tenant just
+    // because runtime booking code has safe operational defaults.
+    ...(data.contactOptions ? { contactOptions: data.contactOptions } : {}),
+    ...(data.bookingRules ? { bookingRules: data.bookingRules } : {}),
     logoUrl: data.logoUrl,
     heroImageUrl: data.heroImageUrl,
     heroPosition: data.heroPosition,
@@ -55,7 +64,11 @@ export function websiteConfigFromSalonData(data: SalonData): Partial<SalonData> 
     offers: data.offers,
     team: data.team,
     websiteAppearance: data.websiteAppearance,
-    templateConfig: data.templateConfig,
+    templateConfig: sanitizeTemplateConfigForTemplate(
+      activeTemplateConfigFromSalon(data),
+      data.templateId,
+    ),
+    templateConfigs: normalizeTemplateConfigs(data.templateConfigs),
     brandColor: data.brandColor,
     salonNameFont: data.salonNameFont,
     salonNameColor: data.salonNameColor,
@@ -67,6 +80,69 @@ export function websiteConfigFromSalonData(data: SalonData): Partial<SalonData> 
     metaKeywords: data.metaKeywords,
     lastCompletedStep: data.lastCompletedStep,
   };
+}
+
+export const SET_OWNER_WEBSITE_VISUAL_CONFIG_FN = 'set_owner_salon_visual_config';
+
+export function websiteVisualConfigFromSalonData(data: SalonData): Record<string, unknown> {
+  const normalized = activeTemplateConfigFromSalon(data);
+  const templateConfig = sanitizeTemplateConfigForTemplate(normalized, data.templateId);
+  const visualConfig: Record<string, unknown> = {
+    templateConfig,
+    templateConfigs: {
+      ...normalizeTemplateConfigs(data.templateConfigs),
+      [normalizeThemeId(data.templateId)]: templateConfig,
+    },
+    websiteAppearance: normalized.appearance,
+    brandColor: normalized.accentColor,
+    salonNameFont: normalized.salonNameFont,
+    salonNameColor: normalized.salonNameColor,
+  };
+  if (templateSupportsConfig(data.templateId, 'heroPosition')) {
+    visualConfig.heroPosition = normalized.heroPosition;
+  }
+  return visualConfig;
+}
+
+function isMissingVisualConfigRpc(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes(SET_OWNER_WEBSITE_VISUAL_CONFIG_FN)
+    && (normalized.includes('not find') || normalized.includes('does not exist') || normalized.includes('schema cache'));
+}
+
+/**
+ * Persist only the visual website overlay. The RPC merges a strict JSON key
+ * allowlist in the database, so appearance edits never invoke business setup
+ * writes. The fallback supports environments where the additive migration has
+ * not been deployed yet and still updates only salon_public_websites.config.
+ */
+export async function saveOwnerWebsiteVisualConfig(data: SalonData): Promise<void> {
+  const client = requireSupabase();
+  const visualConfig = websiteVisualConfigFromSalonData(data);
+  const { error: rpcError } = await client.rpc(SET_OWNER_WEBSITE_VISUAL_CONFIG_FN, {
+    p_visual_config: visualConfig,
+  });
+  if (!rpcError) return;
+  if (!isMissingVisualConfigRpc(rpcError.message || '')) {
+    throw new Error(rpcError.message || 'Unable to save the website appearance.');
+  }
+
+  const resolution = await resolveOwnerSalonId();
+  if (resolution.status !== 'resolved') throw new Error('No owner salon is available.');
+  const { data: row, error: loadError } = await client
+    .from(SALON_PUBLIC_WEBSITES_TABLE)
+    .select('config')
+    .eq('salon_id', resolution.salonId)
+    .single();
+  if (loadError) throw new Error('Unable to load the website appearance.');
+  const currentConfig = row?.config && typeof row.config === 'object' && !Array.isArray(row.config)
+    ? row.config as Record<string, unknown>
+    : {};
+  const { error: updateError } = await client
+    .from(SALON_PUBLIC_WEBSITES_TABLE)
+    .update({ config: { ...currentConfig, ...visualConfig } })
+    .eq('salon_id', resolution.salonId);
+  if (updateError) throw new Error('Unable to save the website appearance.');
 }
 
 export async function loadOwnerWebsiteDraft(): Promise<{
@@ -91,13 +167,21 @@ export async function loadOwnerWebsiteDraft(): Promise<{
     config: {},
     isPublished: false,
   };
+  const rawConfig = data.config && typeof data.config === 'object' && !Array.isArray(data.config)
+    ? data.config as Partial<SalonData>
+    : {};
   return {
     salonId: data.salon_id,
     slug: optionalString(data.slug) || null,
     templateKey: optionalString(data.template_key) || null,
-    config: data.config && typeof data.config === 'object' && !Array.isArray(data.config)
-      ? data.config as Partial<SalonData>
-      : {},
+    config: {
+      ...rawConfig,
+      templateConfig: sanitizeTemplateConfigForTemplate(
+        rawConfig.templateConfig,
+        optionalString(data.template_key) || rawConfig.templateId,
+      ),
+      templateConfigs: normalizeTemplateConfigs(rawConfig.templateConfigs),
+    },
     isPublished: data.is_published === true,
   };
 }
@@ -123,7 +207,9 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
   if (existing) {
     const { data: saved, error } = await client
       .from(SALON_PUBLIC_WEBSITES_TABLE)
-      .update({ config, template_key: templateKey })
+      // Template selection has one write authority: set_owner_salon_template.
+      // A delayed business autosave must never overwrite a newer selection.
+      .update({ config })
       .eq('salon_id', resolution.salonId)
       .select('slug,is_published')
       .single();

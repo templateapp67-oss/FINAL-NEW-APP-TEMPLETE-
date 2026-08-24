@@ -33,7 +33,6 @@ import { resendConfirmationEmail, signUpWithPassword } from '../lib/useAuth';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
-import { safeSetItem } from '../lib/safeStorage';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
 
 export default function SignUpPage() {
@@ -118,14 +117,9 @@ export default function SignUpPage() {
         return;
       }
 
-      const name = salonName.trim();
-      if (name) {
-        try {
-          safeSetItem('nexora_signup_salon_name', name);
-        } catch {
-          /* ignore */
-        }
-      }
+      // The business name is scoped to this account in Supabase Auth metadata
+      // by signUpWithPassword. Never mirror it into a shared browser key: a
+      // later login in the same browser must not inherit another owner's name.
 
       // Track the referral at account creation: the code stays in
       // `nexora_referral_code` (attribution for this account) and the new

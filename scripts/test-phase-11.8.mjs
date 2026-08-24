@@ -51,6 +51,14 @@ dom.window.HTMLMediaElement.prototype.pause = function pause() {};
 
 const React = (await import('react')).default;
 const { render, cleanup, act, fireEvent } = await import('@testing-library/react');
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
+const withAuth = (element) => React.createElement(AuthModalProvider, null, element);
+const renderWithAuth = (element) => {
+  const utils = render(withAuth(element));
+  const rerender = utils.rerender;
+  utils.rerender = (nextElement) => rerender(withAuth(nextElement));
+  return utils;
+};
 
 const Barber = (await import('../src/components/BarberTemplateRenderer.tsx')).default;
 const HairStudio = (await import('../src/components/HairStudioTemplateRenderer.tsx')).default;
@@ -162,7 +170,7 @@ for (const config of CASES) {
     section(`${config.label} — ${mode} acceptance`);
     reset();
     const data = salonData(config.id);
-    const utils = render(React.createElement(config.Component, { data, mode }));
+    const utils = renderWithAuth(React.createElement(config.Component, { data, mode }));
     const hero = heroOf(utils.container);
     const H = heroText(config.id, 'en');
 
@@ -228,7 +236,7 @@ for (const config of CASES) {
 
     await test('correct fallback media when the owner supplied none', () => {
       reset();
-      const bare = render(React.createElement(config.Component, {
+      const bare = renderWithAuth(React.createElement(config.Component, {
         data: salonData(config.id, { heroImageUrl: '', gallery: [], socialVideos: [] }), mode,
       }));
       const bareHero = heroOf(bare.container);
@@ -240,7 +248,7 @@ for (const config of CASES) {
 
     await test('loading state reserves space; error state degrades gracefully', async () => {
       reset();
-      const fresh = render(React.createElement(config.Component, { data: salonData(config.id), mode }));
+      const fresh = renderWithAuth(React.createElement(config.Component, { data: salonData(config.id), mode }));
       const freshHero = heroOf(fresh.container);
       const frame = freshHero.querySelector('[data-testid="hero-media-frame"]');
       assert.ok(/\d/.test(frame.style.aspectRatio || ''), 'frame reserves no space while loading');
@@ -321,7 +329,7 @@ for (const config of CASES) {
   for (const mode of MODES) {
     section(`${config.label} — ${mode} complete flows`);
     reset();
-    const utils = render(React.createElement(config.Component, { data: salonData(config.id), mode }));
+    const utils = renderWithAuth(React.createElement(config.Component, { data: salonData(config.id), mode }));
     const hero = heroOf(utils.container);
 
     await test('Hero → Book Appointment → existing booking flow (and back)', async () => {
@@ -381,7 +389,7 @@ for (const config of CASES) {
     for (const locale of ['en', 'hi']) {
       for (const appearance of ['light', 'dark']) {
         reset({ locale, appearance });
-        const utils = render(React.createElement(config.Component, { data: salonData(config.id), mode }));
+        const utils = renderWithAuth(React.createElement(config.Component, { data: salonData(config.id), mode }));
         const hero = heroOf(utils.container);
         const T = heroText(config.id, locale);
 
@@ -424,7 +432,7 @@ const SURFACE_BASELINE = new Map();
 for (const config of CASES) {
   for (const appearance of ['light', 'dark']) {
     reset({ appearance });
-    const utils = render(React.createElement(config.Component, { data: salonData(config.id), mode: 'desktop' }));
+    const utils = renderWithAuth(React.createElement(config.Component, { data: salonData(config.id), mode: 'desktop' }));
     SURFACE_BASELINE.set(`${config.id}:${appearance}`, heroOf(utils.container).getAttribute('style'));
   }
 }
@@ -449,7 +457,7 @@ for (const mode of MODES) {
       step += 1;
       const data = salonData(config.id);
       if (utils === null) {
-        utils = render(React.createElement(config.Component, { data, mode }));
+        utils = renderWithAuth(React.createElement(config.Component, { data, mode }));
       } else {
         await act(async () => { utils.rerender(React.createElement(config.Component, { data, mode })); });
       }
@@ -540,7 +548,7 @@ section('Motion preferences at acceptance level');
 
 for (const config of CASES) {
   reset({ reducedMotion: true });
-  const utils = render(React.createElement(config.Component, { data: salonData(config.id), mode: 'desktop' }));
+  const utils = renderWithAuth(React.createElement(config.Component, { data: salonData(config.id), mode: 'desktop' }));
   const hero = heroOf(utils.container);
 
   await test(`${config.id}: reduced motion keeps a working, still hero`, async () => {
@@ -558,7 +566,7 @@ setReducedMotionForTests(false);
 for (const config of CASES) {
   reset();
   setThemeHeroVideo(config.id, `https://cdn.example.com/${config.id}.mp4`);
-  const utils = render(React.createElement(config.Component, { data: salonData(config.id), mode: 'desktop' }));
+  const utils = renderWithAuth(React.createElement(config.Component, { data: salonData(config.id), mode: 'desktop' }));
   const hero = heroOf(utils.container);
 
   await test(`${config.id}: a registered clip plays muted, inline and labelled`, () => {

@@ -22,7 +22,8 @@ import {
   NAIL_LASH_STUDIO_THEME,
 } from './themeServices';
 import type { OwnerTemplateKey } from './ownerProvisioning';
-import type { SalonData, WebsiteAppearance } from '../types';
+import type { SalonData, TemplateConfigs, WebsiteAppearance } from '../types';
+import { assertTemplateSwitchPreservesBusiness } from './templateSwitchInvariants';
 
 export const OWNER_TEMPLATES: ReadonlyArray<{
   id: ThemeId;
@@ -93,6 +94,8 @@ export interface TemplateConfig {
   showOwnerPhoto: boolean;
 }
 
+export type TemplateConfigField = keyof TemplateConfig;
+
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   appearance: 'light',
   accentColor: BARBER_THEME.gold,
@@ -102,7 +105,34 @@ export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   showOwnerPhoto: true,
 };
 
+const COMMON_TEMPLATE_CONFIG_FIELDS = [
+  'appearance',
+  'accentColor',
+  'salonNameFont',
+  'salonNameColor',
+] as const satisfies readonly TemplateConfigField[];
+
+/**
+ * Fail-closed capability matrix. A setting is copied, edited, and persisted
+ * only when the target renderer supports it. Gallery/layout keys are not part
+ * of this matrix and are therefore discarded rather than copied across themes.
+ */
+export const TEMPLATE_CONFIG_CAPABILITIES: Readonly<Record<ThemeId, readonly TemplateConfigField[]>> = {
+  barber_mens_grooming: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'heroPosition'],
+  hair_studio_color_bar: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
+  beauty_skin_spa: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
+  family_full_service: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
+  nail_lash_studio: COMMON_TEMPLATE_CONFIG_FIELDS,
+};
+
 const HERO_POSITIONS = new Set(['Top', 'Center', 'Bottom']);
+
+export function templateSupportsConfig(
+  templateId: ThemeId | string | null | undefined,
+  field: TemplateConfigField,
+): boolean {
+  return TEMPLATE_CONFIG_CAPABILITIES[normalizeThemeId(templateId)].includes(field);
+}
 
 export function normalizeTemplateConfig(
   raw: Partial<TemplateConfig> | null | undefined,
@@ -129,10 +159,68 @@ export function normalizeTemplateConfig(
   };
 }
 
-/** Merge config into salon presentation fields without touching business arrays. */
-/** Owner photo is presentation-only; hide when the saved overlay says so. */
+/** Strip unknown and target-incompatible values before writing JSONB. */
+export function sanitizeTemplateConfigForTemplate(
+  raw: Partial<TemplateConfig> | Record<string, unknown> | null | undefined,
+  templateId: ThemeId | string | null | undefined,
+): Partial<TemplateConfig> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const id = normalizeThemeId(templateId);
+  const normalized = normalizeTemplateConfig(raw as Partial<TemplateConfig>, id);
+  const sanitized: Partial<TemplateConfig> = {};
+  for (const field of TEMPLATE_CONFIG_CAPABILITIES[id]) {
+    if (Object.prototype.hasOwnProperty.call(raw, field)) {
+      Object.assign(sanitized, { [field]: normalized[field] });
+    }
+  }
+  return sanitized;
+}
+
+/** Sanitize the complete per-template map loaded from JSONB or local storage. */
+export function normalizeTemplateConfigs(raw: unknown): TemplateConfigs {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const source = raw as Record<string, unknown>;
+  const normalized: TemplateConfigs = {};
+  for (const templateId of THEME_IDS) {
+    const value = source[templateId];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    normalized[templateId] = sanitizeTemplateConfigForTemplate(
+      value as Record<string, unknown>,
+      templateId,
+    );
+  }
+  return normalized;
+}
+
+/** Resolve the active overlay, including backwards-compatible top-level aliases. */
+export function activeTemplateConfigFromSalon(data: SalonData): TemplateConfig {
+  return normalizeTemplateConfig({
+    ...data.templateConfig,
+    appearance: data.websiteAppearance ?? data.templateConfig?.appearance,
+    accentColor: data.brandColor ?? data.templateConfig?.accentColor,
+    salonNameFont: data.salonNameFont ?? data.templateConfig?.salonNameFont,
+    salonNameColor: data.salonNameColor ?? data.templateConfig?.salonNameColor,
+    heroPosition: data.heroPosition ?? data.templateConfig?.heroPosition,
+  }, data.templateId);
+}
+
+function compatibleConfigForNewTemplate(
+  current: TemplateConfig,
+  currentTemplate: ThemeId,
+  nextTemplate: ThemeId,
+): Partial<TemplateConfig> {
+  const sourceCapabilities = new Set(TEMPLATE_CONFIG_CAPABILITIES[currentTemplate]);
+  const compatible: Partial<TemplateConfig> = {};
+  for (const field of TEMPLATE_CONFIG_CAPABILITIES[nextTemplate]) {
+    if (sourceCapabilities.has(field)) Object.assign(compatible, { [field]: current[field] });
+  }
+  return compatible;
+}
+
+/** Owner photo is presentation-only and is hidden when unsupported or disabled. */
 export function shouldShowOwnerPhoto(data: Pick<SalonData, 'templateConfig' | 'templateId'>): boolean {
-  return normalizeTemplateConfig(data.templateConfig, data.templateId).showOwnerPhoto;
+  return templateSupportsConfig(data.templateId, 'showOwnerPhoto')
+    && normalizeTemplateConfig(data.templateConfig, data.templateId).showOwnerPhoto;
 }
 
 export function heroObjectPosition(data: Pick<SalonData, 'heroPosition' | 'templateConfig'>): string {
@@ -142,62 +230,109 @@ export function heroObjectPosition(data: Pick<SalonData, 'heroPosition' | 'templ
   return 'center center';
 }
 
+/** Merge supported config into salon presentation fields without touching business arrays. */
 export function applyTemplateConfigToSalon(
   data: SalonData,
   config: Partial<TemplateConfig>,
 ): SalonData {
-  const next = normalizeTemplateConfig({ ...data.templateConfig, ...config }, data.templateId);
+  const templateId = normalizeThemeId(data.templateId);
+  const supportedPatch = sanitizeTemplateConfigForTemplate(config, templateId);
+  const next = normalizeTemplateConfig({
+    ...activeTemplateConfigFromSalon(data),
+    ...supportedPatch,
+  }, templateId);
   return {
     ...data,
     templateConfig: next,
+    templateConfigs: {
+      ...normalizeTemplateConfigs(data.templateConfigs),
+      [templateId]: sanitizeTemplateConfigForTemplate(next, templateId),
+    },
     websiteAppearance: next.appearance,
     brandColor: next.accentColor,
     salonNameFont: next.salonNameFont,
     salonNameColor: next.salonNameColor,
-    heroPosition: next.heroPosition,
+    heroPosition: templateSupportsConfig(templateId, 'heroPosition') ? next.heroPosition : undefined,
   };
 }
 
 /**
- * Presentation-only template switch on the SAME salon.
- * Does not clone the business. Identity, services, products, location,
- * customers, bookings, payments and ownership stay on the original rows.
+ * Restore one template directly from its saved per-template entry. This is
+ * used during hydration because template_key can be newer than the legacy
+ * top-level aliases when a page reload lands between the switch RPC and the
+ * debounced visual-config save.
+ */
+export function restoreSavedTemplatePresentation(
+  data: SalonData,
+  template: ThemeId | OwnerTemplateKey | string,
+): SalonData | null {
+  const templateId = normalizeThemeId(template);
+  const savedConfigs = normalizeTemplateConfigs(data.templateConfigs);
+  const saved = savedConfigs[templateId];
+  if (!saved) return null;
+  const config = normalizeTemplateConfig(saved, templateId);
+  const restored: SalonData = {
+    ...data,
+    templateId,
+    templateConfig: config,
+    templateConfigs: {
+      ...savedConfigs,
+      [templateId]: sanitizeTemplateConfigForTemplate(config, templateId),
+    },
+    brandColor: config.accentColor,
+    websiteAppearance: config.appearance,
+    salonNameFont: config.salonNameFont,
+    salonNameColor: config.salonNameColor,
+    heroPosition: templateSupportsConfig(templateId, 'heroPosition') ? config.heroPosition : undefined,
+  };
+  assertTemplateSwitchPreservesBusiness(data, restored);
+  return restored;
+}
+
+/**
+ * Presentation-only template switch on the SAME salon. The outgoing template
+ * keeps its own sanitized config; a previously visited target restores its
+ * saved config, while a first visit receives only settings supported by both
+ * renderers. No business/content field is cloned or recreated.
  */
 export function switchSalonTemplatePresentation(
   data: SalonData,
   nextTemplate: ThemeId | OwnerTemplateKey | string,
 ): SalonData {
+  const currentTemplate = normalizeThemeId(data.templateId);
   const templateId = normalizeThemeId(nextTemplate);
-  const config = normalizeTemplateConfig(
-    {
-      ...data.templateConfig,
-      accentColor: data.templateConfig?.accentColor || defaultAccentForTemplate(templateId),
-    },
+  if (templateId === currentTemplate) return data;
+  const currentConfig = activeTemplateConfigFromSalon(data);
+  const savedConfigs = normalizeTemplateConfigs(data.templateConfigs);
+  const configsWithCurrent: TemplateConfigs = {
+    ...savedConfigs,
+    [currentTemplate]: sanitizeTemplateConfigForTemplate(currentConfig, currentTemplate),
+  };
+  const savedTarget = savedConfigs[templateId];
+  const targetSeed = savedTarget ?? compatibleConfigForNewTemplate(
+    currentConfig,
+    currentTemplate,
     templateId,
   );
-  return {
+  const config = normalizeTemplateConfig(targetSeed, templateId);
+  const switched: SalonData = {
     ...data,
-    salonId: data.salonId,
-    salonName: data.salonName,
-    ownerName: data.ownerName,
-    phone: data.phone,
-    email: data.email,
-    address: data.address,
-    openingHours: data.openingHours,
-    bookingRules: data.bookingRules,
     templateId,
     templateConfig: config,
+    templateConfigs: {
+      ...configsWithCurrent,
+      [templateId]: sanitizeTemplateConfigForTemplate(config, templateId),
+    },
     brandColor: config.accentColor,
     websiteAppearance: config.appearance,
     salonNameFont: config.salonNameFont,
     salonNameColor: config.salonNameColor,
-    heroPosition: config.heroPosition,
-    services: data.services,
-    packages: data.packages,
-    team: data.team,
-    gallery: data.gallery,
-    offers: data.offers,
+    heroPosition: templateSupportsConfig(templateId, 'heroPosition') ? config.heroPosition : undefined,
   };
+
+  // Fail closed at runtime if this helper ever starts changing a business field.
+  assertTemplateSwitchPreservesBusiness(data, switched);
+  return switched;
 }
 
 export function assertFiveTemplates(): ThemeId[] {

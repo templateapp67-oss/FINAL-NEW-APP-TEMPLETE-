@@ -35,6 +35,7 @@ import {
 } from '../lib/siteVideoGallery';
 import { videoGalleryChrome } from '../lib/siteVideoGalleryI18n';
 import type { VideoGalleryChromeCopy } from '../lib/siteVideoGalleryI18n';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import type { VideoKind } from '../lib/siteVideoCatalog';
 import { openOriginalVideoDestination } from '../lib/originalVideoDestination';
 import {
@@ -317,10 +318,11 @@ export default function SiteVideoGallery({ themeId, data, mode }: Props) {
   const X = structureCopyFrom(structureText(themeId, locale));
   const config = videoGalleryThemeConfig(themeId);
   const { broken, mark } = useBrokenThumbs();
+  const ownerPreview = useIsOwnerPreview();
 
   const items = useMemo(
-    () => videoItemsForTheme(themeId, data, locale),
-    [themeId, data, locale],
+    () => videoItemsForTheme(themeId, data, locale, ownerPreview),
+    [themeId, data, locale, ownerPreview],
   );
   const sources = useMemo(
     () => configuredSocialSources(data.socialProfiles),

@@ -441,6 +441,7 @@ export function galleryItemsForTheme(
   themeId: SiteHeaderThemeId,
   data: SalonData,
   locale: AppLocale = 'en',
+  ownerDataOnly = false,
 ): GalleryItem[] {
   const config = galleryThemeConfig(themeId);
   const items: GalleryItem[] = [];
@@ -462,7 +463,7 @@ export function galleryItemsForTheme(
 
   // Registered presentation media — only when the owner has not configured
   // any gallery photo (the pre-14.1 fallback behaviour of family + nail).
-  if (items.length === 0 && config.themeMedia.length > 0) {
+  if (!ownerDataOnly && items.length === 0 && config.themeMedia.length > 0) {
     config.themeMedia.forEach((media, index) => {
       const src = safeMediaUrl(media.src);
       if (!src || seen.has(src)) return;

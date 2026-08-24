@@ -27,7 +27,10 @@ import SiteOffers from './SiteOffers';
 import SiteCombos from './SiteCombos';
 import SiteGallery from './SiteGallery';
 import SiteServiceDirectory from './SiteServiceDirectory';
-import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { canCall, canWhatsApp, hasSalonAddress, openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
+import { useIsOwnerPreview } from './SiteRenderContext';
+import OwnerPreviewTemplateNotice from './OwnerPreviewTemplateNotice';
 import { displayService } from '../lib/displayService';
 import { galleryThemeMedia } from '../lib/siteGallery';
 import { FAMILY_SURFACES, surfacesOf } from '../lib/themeSurfaces';
@@ -281,6 +284,7 @@ function ContactButton({ href, icon: Icon, children, primary = false, t }: { hre
 }
 
 export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
   setOwnerAppearanceDefault(data.websiteAppearance);
@@ -326,13 +330,16 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
   const offersState = resolveSectionState('offers', (data.packages || []));
   const teamState = resolveSectionState('team', publicTeam);
   const ownerState = resolveSectionState('owner', data.ownerName ? [data.ownerName] : []);
-  const aboutState = resolveSectionState('about', [data.about || '1']);
-  const locationState = resolveSectionState('location', ['ready']);
-  const secondaryImage = data.gallery?.[1]?.url || galleryThemeMedia('family_full_service')[1]?.src || '';
+  const aboutState = resolveSectionState('about', data.about ? [data.about] : (!ownerPreview ? ['fallback'] : []));
+  const hasAddress = hasSalonAddress(data, ownerPreview);
+  const locationState = resolveSectionState('location', hasAddress ? [data.address?.fullAddress] : []);
+  const secondaryImage = data.gallery?.[1]?.url || (!ownerPreview ? galleryThemeMedia('family_full_service')[1]?.src : '') || '';
   const familyContactAccess = resolveSiteContactAccess(data, 'family_full_service');
-  const hours = data.openingHours
+  const hours = data.openingHours && Object.keys(data.openingHours).length > 0
     ? Object.entries(data.openingHours)
-    : [['monday', { open: true, startTime: '10:00', endTime: '20:00' }], ['tuesday', { open: true, startTime: '10:00', endTime: '20:00' }], ['wednesday', { open: true, startTime: '10:00', endTime: '20:00' }], ['thursday', { open: true, startTime: '10:00', endTime: '20:00' }]];
+    : ownerPreview
+      ? []
+      : [['monday', { open: true, startTime: '10:00', endTime: '20:00' }], ['tuesday', { open: true, startTime: '10:00', endTime: '20:00' }], ['wednesday', { open: true, startTime: '10:00', endTime: '20:00' }], ['thursday', { open: true, startTime: '10:00', endTime: '20:00' }]];
 
   const renderServiceMenu = (items: Service[], focuses: readonly FocusItem[], dark = false) => (
     items.length > 0 ? (
@@ -358,7 +365,9 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
             <span className="w-2.5 h-2.5 rounded-full bg-[#4ecb8d]" />
           </div>
           <div className="mx-auto rounded-lg border px-5 py-1 text-[10px] font-mono tracking-wide" style={{ borderColor: line, color: muted, backgroundColor: mode === 'desktop' ? t.card : t.card }}>
-            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'familysalon'}
+            {ownerPreview && !(data.websiteSlug || '').trim()
+              ? OWNER_PREVIEW_EMPTY.websiteAddress
+              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'familysalon'}`}
           </div>
         </div>
       ) : (
@@ -384,6 +393,16 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
         {/* Services — complete directory (PHASE 12.4: theme-scoped categories + search + sort) */}
         <SiteServiceDirectory themeId="family_full_service" data={data} mode={mode} />
 
+        {ownerPreview ? (
+          <OwnerPreviewTemplateNotice
+            title="Family service menu design"
+            detail="Your real services appear in the directory above. Add and categorize services to populate the family menu areas without sample offerings."
+            accent={teal}
+            background={sky}
+            color={ink}
+          />
+        ) : (
+          <>
         {/* Men's services */}
         <section id="section-men-services" className="px-5 md:px-8 py-12" style={{ backgroundColor: sky }}>
           <div className="grid md:grid-cols-[0.82fr_1.18fr] gap-7 items-start">
@@ -437,6 +456,8 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
             </div>
           </div>
         </section>
+          </>
+        )}
 
         {/* Offers & Discounts */}
         <SiteOffers themeId="family_full_service" data={data} mode={mode} />
@@ -449,6 +470,24 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
 
         <SiteVideoGallery themeId="family_full_service" data={data} mode={mode} />
 
+        {ownerPreview ? (
+          data.about ? (
+            <section {...sectionProps('about', aboutState)} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: t.well }}>
+              <div className="max-w-2xl mx-auto">
+                <SectionIntro eyebrow={S.aboutEyebrow} title={S.aboutTitle} body={data.about} t={t} />
+              </div>
+            </section>
+          ) : (
+            <OwnerPreviewTemplateNotice
+              title="About section setup"
+              detail={OWNER_PREVIEW_EMPTY.about}
+              accent={teal}
+              background={t.well}
+              color={ink}
+            />
+          )
+        ) : (
+          <>
         {/* About */}
         <section {...sectionProps('about', aboutState)} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: t.well }}>
           <div className="grid md:grid-cols-[0.92fr_1.08fr] gap-8 items-center">
@@ -465,6 +504,8 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
             </div>
           </div>
         </section>
+          </>
+        )}
 
         <section {...sectionProps('owner', ownerState)} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: white }}>
           {ownerState === 'ready' ? (
@@ -475,9 +516,13 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
               </div>
               )}
               <div className="min-w-0">
-                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em]" style={{ color: tealDeep }}>{data.ownerRole || S.ownerEmptyTitle}</p>
+                {(!ownerPreview || data.ownerRole) && (
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.18em]" style={{ color: tealDeep }}>{data.ownerRole || S.ownerEmptyTitle}</p>
+                )}
                 <h3 className="text-2xl font-extrabold mt-1 break-words" style={{ color: t.heading }}>{data.ownerName}</h3>
-                <p className="text-xs mt-2 leading-relaxed" style={{ color: muted }}>{data.reviewedContent?.ownerIntro || data.about || S.aboutFallbackBody}</p>
+                {(!ownerPreview || data.reviewedContent?.ownerIntro || data.about) && (
+                  <p className="text-xs mt-2 leading-relaxed" style={{ color: muted }}>{data.reviewedContent?.ownerIntro || data.about || S.aboutFallbackBody}</p>
+                )}
               </div>
             </div>
           ) : <SectionStatePanel status={ownerState} copy={X} palette={palette} emptyTitle={S.ownerEmptyTitle} emptyBody={S.ownerEmptyBody} />}
@@ -500,15 +545,32 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
           <div className="grid md:grid-cols-[1fr_1fr] gap-8">
             <div>
               <SectionIntro eyebrow={S.contactEyebrow} title={S.contactTitle} body={S.contactBody} light t={t} />
-              <div className="grid grid-cols-3 gap-2 mt-7"><SiteProtectedContactAction action="call" data={data} themeId="family_full_service" testId="theme-contact-call" ariaLabel={S.contactCall} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.13em] transition-all hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}><Phone className="w-4 h-4" />{S.contactCall}</SiteProtectedContactAction><SiteProtectedContactAction action="whatsapp" data={data} themeId="family_full_service" testId="theme-contact-whatsapp" ariaLabel={S['common.whatsApp']} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.13em] transition-all hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}><MessageCircle className="w-4 h-4" />{S['common.whatsApp']}</SiteProtectedContactAction><button type="button" data-open-booking="true" onClick={openSiteBooking} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.13em] transition-all hover:-translate-y-0.5" style={{ backgroundColor: t.sun, color: '#12385b' }}><CalendarDays className="w-4 h-4" />{S.contactBookOnline}</button></div>
-              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 text-[10px] font-bold text-white/75"><span className="flex items-center gap-1.5"><HeartHandshake className="w-3.5 h-3.5" style={{ color: sun }} /> {S.contactNote1}</span><span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" style={{ color: sun }} /> {S.contactNote2}</span></div>
+              <div className="grid grid-cols-3 gap-2 mt-7">
+                {canCall(data) && <SiteProtectedContactAction action="call" data={data} themeId="family_full_service" testId="theme-contact-call" ariaLabel={S.contactCall} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.13em] transition-all hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}><Phone className="w-4 h-4" />{S.contactCall}</SiteProtectedContactAction>}
+                {canWhatsApp(data) && <SiteProtectedContactAction action="whatsapp" data={data} themeId="family_full_service" testId="theme-contact-whatsapp" ariaLabel={S['common.whatsApp']} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.13em] transition-all hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}><MessageCircle className="w-4 h-4" />{S['common.whatsApp']}</SiteProtectedContactAction>}
+                <button type="button" data-open-booking="true" onClick={openSiteBooking} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.13em] transition-all hover:-translate-y-0.5" style={{ backgroundColor: t.sun, color: '#12385b' }}><CalendarDays className="w-4 h-4" />{S.contactBookOnline}</button>
+              </div>
+              {!ownerPreview && <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 text-[10px] font-bold text-white/75"><span className="flex items-center gap-1.5"><HeartHandshake className="w-3.5 h-3.5" style={{ color: sun }} /> {S.contactNote1}</span><span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" style={{ color: sun }} /> {S.contactNote2}</span></div>}
             </div>
             <div className="rounded-[1.75rem] p-5 md:p-6" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
               <div className="grid sm:grid-cols-2 gap-5">
-                <div><h3 className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-white flex items-center gap-2"><MapPin className="w-4 h-4" style={{ color: sun }} /> {S.contactVisitLabel}</h3><p className="text-xs leading-relaxed mt-3 text-white/75">{data.address?.fullAddress || 'Your salon address will appear here.'}</p><a data-testid="theme-contact-directions" href={salonMapsHref(data)} target="_blank" rel="noreferrer" className="site-touch inline-flex items-center gap-1.5 mt-4 text-[10px] font-extrabold text-white">{S['common.getDirections']} <Navigation className="w-3.5 h-3.5" /></a></div>
-                <div><h3 className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-white flex items-center gap-2"><Clock3 className="w-4 h-4" style={{ color: sun }} /> {S.contactHoursLabel}</h3><div className="mt-3"><SiteSalonStatus themeId="family_full_service" data={data} placement="contact" inverted /></div><div className="space-y-2 mt-3">{hours.slice(0, 5).map(([day, schedule]) => <div key={day} className="flex justify-between gap-2 text-[10px] border-b pb-1.5 text-white/75" style={{ borderColor: 'rgba(255,255,255,0.16)' }}><span className="capitalize">{dayLabel(day as string, locale)}</span><span>{schedule.open ? `${schedule.startTime} – ${schedule.endTime}` : S['common.closed']}</span></div>)}</div></div>
+                <div>
+                  <h3 className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-white flex items-center gap-2"><MapPin className="w-4 h-4" style={{ color: sun }} /> {S.contactVisitLabel}</h3>
+                  <p className="text-xs leading-relaxed mt-3 text-white/75">{hasAddress ? data.address?.fullAddress : OWNER_PREVIEW_EMPTY.address}</p>
+                  {hasAddress && <a data-testid="theme-contact-directions" href={salonMapsHref(data, ownerPreview)} target="_blank" rel="noreferrer" className="site-touch inline-flex items-center gap-1.5 mt-4 text-[10px] font-extrabold text-white">{S['common.getDirections']} <Navigation className="w-3.5 h-3.5" /></a>}
+                </div>
+                <div>
+                  <h3 className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-white flex items-center gap-2"><Clock3 className="w-4 h-4" style={{ color: sun }} /> {S.contactHoursLabel}</h3>
+                  <div className="mt-3"><SiteSalonStatus themeId="family_full_service" data={data} placement="contact" inverted /></div>
+                  <div className="space-y-2 mt-3">
+                    {hours.length > 0 ? hours.slice(0, 5).map(([day, schedule]) => <div key={day} className="flex justify-between gap-2 text-[10px] border-b pb-1.5 text-white/75" style={{ borderColor: 'rgba(255,255,255,0.16)' }}><span className="capitalize">{dayLabel(day as string, locale)}</span><span>{schedule.open ? `${schedule.startTime} – ${schedule.endTime}` : S['common.closed']}</span></div>) : <p className="text-[10px] text-white/75">{OWNER_PREVIEW_EMPTY.hours}</p>}
+                  </div>
+                </div>
               </div>
-              <div className="mt-5 pt-4 border-t flex flex-wrap items-center justify-between gap-2 text-[10px] text-white/70" style={{ borderColor: 'rgba(255,255,255,0.16)' }}><span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" style={{ color: sun }} /> {data.email || 'hello@familysalon.com'}</span><span data-testid="theme-contact-phone">{data.phone ? displayContactNumber(data.phone, familyContactAccess.call.unlocked) : S.contactPhoneFallback}</span></div>
+              <div className="mt-5 pt-4 border-t flex flex-wrap items-center justify-between gap-2 text-[10px] text-white/70" style={{ borderColor: 'rgba(255,255,255,0.16)' }}>
+                {(data.email || !ownerPreview) && <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" style={{ color: sun }} /> {data.email || 'hello@familysalon.com'}</span>}
+                {(data.phone || !ownerPreview) && <span data-testid="theme-contact-phone">{data.phone ? displayContactNumber(data.phone, familyContactAccess.call.unlocked) : S.contactPhoneFallback}</span>}
+              </div>
             </div>
           </div>
         </section>

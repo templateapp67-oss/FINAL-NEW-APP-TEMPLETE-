@@ -28,9 +28,9 @@ import {
   deleteSavedService,
   loadSavedServicesForTheme,
   savePredefinedServices,
+  savedServiceToSalonService,
   setSavedServiceStatus,
   updateSavedService,
-  type SavedService,
   type SavedServiceStatus,
 } from '../lib/savedServiceService';
 import {
@@ -144,24 +144,6 @@ interface Props {
   onPrev: () => void;
   onSave?: () => void;
 }
-
-const savedServiceToUi = (service: SavedService): Service => ({
-  id: service.id,
-  businessId: service.businessId,
-  themeId: service.themeId,
-  themeKey: service.themeKey,
-  categoryId: service.categoryId,
-  predefinedServiceId: service.predefinedServiceId,
-  name: service.name,
-  category: service.category,
-  description: service.description,
-  price: service.price,
-  duration: service.duration,
-  featured: service.featured,
-  status: service.status,
-  translations: service.translations,
-  media: service.media,
-});
 
 export default function StepServices({ data, setData, onNext, onPrev, onSave }: Props) {
   const theme = normalizeThemeId(data.templateId);
@@ -344,7 +326,7 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       .then(([services, commerce]) => {
         if (savedLoadRequestRef.current !== requestId) return;
         const uiServices = mergeCommerceIntoServices(
-          services.map(savedServiceToUi),
+          services.map(savedServiceToSalonService),
           commerce,
         );
         setData((previous) => normalizeThemeId(previous.templateId) === targetTheme
@@ -968,7 +950,7 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
             ...previous,
             services: previous.services.some((item) => item.id === saved.id)
               ? previous.services
-              : [...previous.services, savedServiceToUi(saved)],
+              : [...previous.services, savedServiceToSalonService(saved)],
           }
         : previous
       );
@@ -1050,7 +1032,7 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
         services: previous.services.map((item) =>
           item.id === service.id
             ? {
-                ...savedServiceToUi(updated),
+                ...savedServiceToSalonService(updated),
                 promotionalBadge: item.promotionalBadge,
                 pricingVariants: item.pricingVariants,
                 translations: updated.translations ?? item.translations,
@@ -1113,7 +1095,7 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
         services: previous.services.map((item) =>
           item.id === service.id
             ? {
-                ...savedServiceToUi(updated),
+                ...savedServiceToSalonService(updated),
                 promotionalBadge: item.promotionalBadge,
                 pricingVariants: item.pricingVariants,
                 translations: updated.translations ?? item.translations,
@@ -1193,7 +1175,7 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
         if (saveRequestRef.current !== requestId) return;
         setData((previous) => ({
           ...previous,
-          services: [...previous.services, savedServiceToUi(saved)],
+          services: [...previous.services, savedServiceToSalonService(saved)],
         }));
         if (onSave) onSave();
       } catch (error) {

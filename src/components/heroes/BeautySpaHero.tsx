@@ -13,6 +13,7 @@ import type { CSSProperties } from 'react';
 import type { SalonData } from '../../types';
 import SiteImage from '../SiteImage';
 import HeroMediaFrame from './HeroMediaFrame';
+import OwnerPreviewHeroMedia from './OwnerPreviewHeroMedia';
 import SiteSalonStatus from '../SiteSalonStatus';
 import { useSiteLocale, useThemeAppearance } from '../SiteHeader';
 import { getSalonNameStyle } from '../../lib/brandIdentity';
@@ -22,6 +23,7 @@ import { heroCtaOptions, heroDescription, heroFocusBadges, heroHeadline, heroLog
 import { heroImageSizes, heroImageSrc, heroMediaPlan, useReducedMotion } from '../../lib/siteHeroMedia';
 import { openSiteBooking } from '../../lib/siteBooking';
 import SiteProtectedContactAction from '../SiteProtectedContactAction';
+import { useIsOwnerPreview } from '../SiteRenderContext';
 import { heroCtaClass, heroLinkProps } from '../../lib/siteHeroNav';
 import type { ViewportMode } from '../../lib/siteStructure';
 import { Star, MapPin, Flower2, Leaf, PlayCircle, Phone, MessageCircle, Images } from 'lucide-react';
@@ -32,12 +34,13 @@ interface Props {
 }
 
 export default function BeautySpaHero({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   const locale = useSiteLocale();
   const appearance = useThemeAppearance('beauty_skin_spa');
   const t = surfacesOf(BEAUTY_SPA_SURFACES, appearance);
   const H = heroText('beauty_skin_spa', locale);
   const headline = heroHeadline(data, H);
-  const focus = heroFocusBadges(data, H.focus);
+  const focus = heroFocusBadges(data, H.focus, 2, ownerPreview);
   const media = heroMedia('beauty_skin_spa', data);
   const meta = heroMeta('beauty_skin_spa', data);
   const reducedMotion = useReducedMotion();
@@ -74,6 +77,16 @@ export default function BeautySpaHero({ data, mode }: Props) {
       <div className={`relative z-10 ${pad}`}>
         <div className={`grid gap-10 items-center ${cols}`}>
           {/* ---- The arch ----------------------------------------- */}
+          {ownerPreview ? (
+            <OwnerPreviewHeroMedia
+              data={data}
+              mode={mode}
+              accent={t.emerald}
+              background={t.card}
+              className="order-1 rounded-t-full rounded-b-[3rem]"
+              aspectRatio={compact ? '4/4.2' : '3/4'}
+            />
+          ) : (
           <div data-testid="hero-media" className="relative order-1">
             <div
               className="absolute inset-x-6 -top-3 bottom-6 rounded-t-full rounded-b-[3rem] opacity-70"
@@ -118,6 +131,7 @@ export default function BeautySpaHero({ data, mode }: Props) {
               ))}
             </div>
           </div>
+          )}
 
           {/* ---- Calm copy ---------------------------------------- */}
           <div className={`order-2 ${compact ? 'text-center' : ''}`}>
@@ -147,19 +161,21 @@ export default function BeautySpaHero({ data, mode }: Props) {
               </span>
             </div>
 
-            <span
-              className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 mt-6 text-[10px] uppercase tracking-[0.3em] font-semibold ${compact ? 'mx-auto' : ''}`}
-              style={{ backgroundColor: t.card, color: t.emerald }}
-            >
-              <Leaf className="w-3.5 h-3.5" aria-hidden /> {H.eyebrow}
-            </span>
+            {!ownerPreview && (
+              <span
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 mt-6 text-[10px] uppercase tracking-[0.3em] font-semibold ${compact ? 'mx-auto' : ''}`}
+                style={{ backgroundColor: t.card, color: t.emerald }}
+              >
+                <Leaf className="w-3.5 h-3.5" aria-hidden /> {H.eyebrow}
+              </span>
+            )}
 
             <h1
               data-testid="hero-headline"
               className={`mt-5 font-serif leading-[1.08] ${h1Size}`}
               style={{ color: t.textStrong }}
             >
-              {headline.main} <span style={{ color: t.emerald }}>{headline.accent}</span>
+              {headline.main}{!ownerPreview && <> <span style={{ color: t.emerald }}>{headline.accent}</span></>}
             </h1>
 
             <p
@@ -170,7 +186,8 @@ export default function BeautySpaHero({ data, mode }: Props) {
               {heroDescription(data, H.description)}
             </p>
 
-            {/* PHASE 11.2 — ritual focus, as soft rounded petals */}
+            {/* Owner mode shows only focus labels proven by real services. */}
+            {focus.length > 0 && (
             <div data-testid="hero-focus" className="mt-7">
               <span className="text-[9px] uppercase tracking-[0.32em] font-semibold" style={{ color: t.emerald }}>
                 {H.focusLabel}
@@ -187,10 +204,13 @@ export default function BeautySpaHero({ data, mode }: Props) {
                   </span>
                 ))}
               </div>
-              <p data-testid="hero-audience" className="mt-3 text-[10px] leading-relaxed" style={{ color: t.muted }}>
-                {H.audience}
-              </p>
+              {!ownerPreview && (
+                <p data-testid="hero-audience" className="mt-3 text-[10px] leading-relaxed" style={{ color: t.muted }}>
+                  {H.audience}
+                </p>
+              )}
             </div>
+            )}
 
             <div className={`flex flex-wrap gap-3 mt-8 ${compact ? 'justify-center' : ''}`}>
               <button
@@ -288,10 +308,12 @@ export default function BeautySpaHero({ data, mode }: Props) {
               </div>
             )}
 
-            <div className={`flex flex-wrap gap-x-6 gap-y-2 mt-6 text-[10px] ${compact ? 'justify-center' : ''}`} style={{ color: t.muted }}>
-              <span>{H.chip1}</span>
-              <span>{H.chip2}</span>
-            </div>
+            {!ownerPreview && (
+              <div className={`flex flex-wrap gap-x-6 gap-y-2 mt-6 text-[10px] ${compact ? 'justify-center' : ''}`} style={{ color: t.muted }}>
+                <span>{H.chip1}</span>
+                <span>{H.chip2}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

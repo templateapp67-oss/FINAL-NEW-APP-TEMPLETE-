@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SalonData, EnabledContactOptions, BookingRules, SalonOpeningHours, DaySchedule } from '../types';
 import PreviewPane from '../components/PreviewPane';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
 import { 
   Phone, 
   MessageCircle, 
@@ -57,8 +58,8 @@ export default function StepContactBooking({ data, setData, onNext, onPrev, onSa
   const [editingWhatsapp, setEditingWhatsapp] = useState(false);
   const [copiedSuccess, setCopiedSuccess] = useState(false);
 
-  const phone = data.phone || '+91 98765 43210';
-  const whatsappPhone = data.whatsappPhone || data.phone || '+91 98765 43210';
+  const phone = data.phone || '';
+  const whatsappPhone = data.whatsappPhone || data.phone || '';
   const contactOptions = data.contactOptions || DEFAULT_CONTACT_OPTIONS;
   const bookingRules = { ...DEFAULT_BOOKING_RULES, ...(data.bookingRules || {}), advanceDepositPercentage: 25 };
   const hours = data.openingHours || DEFAULT_HOURS;
@@ -185,10 +186,11 @@ export default function StepContactBooking({ data, setData, onNext, onPrev, onSa
                     type="text"
                     value={phone}
                     onChange={e => updatePhone(e.target.value)}
+                    placeholder="Add phone number"
                     className="mt-1 px-2.5 py-1 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 outline-none focus:border-[#ac0053]"
                   />
                 ) : (
-                  <p className="text-xs text-gray-600 font-medium">{phone}</p>
+                  <p className="text-xs text-gray-600 font-medium">{phone || OWNER_PREVIEW_EMPTY.phone}</p>
                 )}
               </div>
             </div>
@@ -214,11 +216,12 @@ export default function StepContactBooking({ data, setData, onNext, onPrev, onSa
                     type="text"
                     value={whatsappPhone}
                     onChange={e => updateWhatsapp(e.target.value)}
+                    placeholder="Add WhatsApp number"
                     className="mt-1 px-2.5 py-1 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 outline-none focus:border-[#25D366]"
                   />
-                ) : (
+                ) : whatsappPhone ? (
                   <p className="text-xs text-gray-600 font-medium">{whatsappPhone}</p>
-                )}
+                ) : null}
               </div>
             </div>
             <button

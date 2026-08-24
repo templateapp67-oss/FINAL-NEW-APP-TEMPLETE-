@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import ThemeSelector from '../components/ThemeSelector';
@@ -7,7 +7,7 @@ import { normalizeThemeId, type ThemeId } from '../lib/themeServices';
 import { switchSalonTemplatePresentation } from '../lib/templateConfig';
 import { CheckCircle2, ArrowRight, ArrowLeft, Eye, Layout, Monitor, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
-import { safeSetItem, safeGetItem } from '../lib/safeStorage';
+
 
 interface Props {
   data: SalonData;
@@ -15,51 +15,40 @@ interface Props {
   onNext: () => void;
   onPrev: () => void;
   onSave?: (msg?: string) => void;
-  onThemeChange?: (id: ThemeChoice) => void;
+  onThemeChange?: (id: ThemeId) => Promise<void> | void;
 }
-
-type ThemeChoice = 'hair' | 'barber_mens_grooming' | 'hair_studio_color_bar' | 'beauty_skin_spa' | 'family_full_service' | 'nail_lash_studio';
 
 export default function StepTemplate({ data, setData, onNext, onPrev, onSave, onThemeChange }: Props) {
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
-  const [isSwitching, setIsSwitching] = useState(false);
+  const [pendingSwitches, setPendingSwitches] = useState(0);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+  const isSwitching = pendingSwitches > 0;
   const [previewId, setPreviewId] = useState<ThemeId | null>(null);
+  const latestApplyRequest = useRef(0);
   const currentTemplate = normalizeThemeId(data.templateId);
   const previewData = previewId && previewId !== currentTemplate
     ? switchSalonTemplatePresentation(data, previewId)
     : data;
 
-  const selectTemplate = (id: ThemeChoice) => {
-    if (id === currentTemplate) return;
-    setIsSwitching(true);
+  useEffect(() => {
+    if (pendingSwitches === 0) setSaveStatus('saved');
+  }, [pendingSwitches]);
+
+  const selectTemplate = async (id: ThemeId): Promise<void> => {
+    if (pendingSwitches === 0 && id === currentTemplate) return;
+    setPendingSwitches((count) => count + 1);
     setSaveStatus('saving');
-    if (onThemeChange) {
-      onThemeChange(id);
-    } else {
-      setData(prev => {
-        const nextData = { ...prev, templateId: id, services: prev.services || [], packages: prev.packages || [] };
-        try {
-          const raw = safeGetItem('nexora_onboarding_state');
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            parsed.data = nextData;
-            safeSetItem('nexora_onboarding_state', JSON.stringify(parsed));
-          } else {
-            safeSetItem('nexora_onboarding_state', JSON.stringify({ step: 2, data: nextData }));
-          }
-        } catch (e) {
-          console.error('Failed to persist theme change', e);
-        }
-        return nextData;
-      });
+    try {
+      if (onThemeChange) {
+        await onThemeChange(id);
+      } else {
+        setData((prev) => switchSalonTemplatePresentation(prev, id));
+        onSave?.(`Template switched to ${id}`);
+      }
+    } finally {
+      setPendingSwitches((count) => Math.max(0, count - 1));
     }
-    if (onSave) onSave(`Template switched to ${id}`);
-    setTimeout(() => {
-      setIsSwitching(false);
-      setSaveStatus('saved');
-    }, 400);
   };
 
   return (
@@ -113,9 +102,16 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
             data={data}
             setData={setData}
             onSave={onSave}
-            onThemeChange={(id) => {
-              setPreviewId(null);
-              selectTemplate(id as ThemeChoice);
+            onThemeChange={async (id) => {
+              const requestId = ++latestApplyRequest.current;
+              setPreviewId(id);
+              try {
+                await selectTemplate(id);
+                if (latestApplyRequest.current === requestId) setPreviewId(null);
+              } catch (error) {
+                if (latestApplyRequest.current === requestId) setPreviewId(null);
+                throw error;
+              }
             }}
             onPreview={(id) => setPreviewId(id)}
             previewId={previewId}
@@ -155,19 +151,19 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         {/* Preview Canvas */}
         <div className="flex-1 overflow-hidden p-4 md:p-6 bg-[radial-gradient(#e5e2e1_1px,transparent_1px)] [background-size:16px_16px] relative flex justify-center items-start">
           {isSwitching && (
-            <div className="absolute inset-0 bg-white/80 backdrop-blur-xs z-40 flex flex-col items-center justify-center space-y-3 transition-opacity">
-              <div className="w-8 h-8 rounded-full border-2 border-[#ac0053] border-t-transparent animate-spin"></div>
-              <p className="text-xs font-semibold text-[#1a1c1c] tracking-wider uppercase animate-pulse">Applying template layout...</p>
+            <div className="absolute right-6 top-6 z-40 flex items-center gap-2 rounded-full border border-[#ffd9e1] bg-white/95 px-3 py-2 shadow-md pointer-events-none">
+              <div className="w-4 h-4 rounded-full border-2 border-[#ac0053] border-t-transparent animate-spin"></div>
+              <p className="text-[10px] font-bold text-[#1a1c1c] tracking-wider uppercase">Saving template…</p>
             </div>
           )}
           <motion.div
-            key={currentTemplate + mode}
+            key={normalizeThemeId(previewData.templateId) + mode}
             initial={{ opacity: 0, scale: 0.99 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.3, ease: 'easeOut' }}
             className="w-full h-full flex justify-center"
           >
-            <TemplateRenderer data={previewData} mode={mode} />
+            <TemplateRenderer data={previewData} mode={mode} renderMode="owner-preview" />
           </motion.div>
         </div>
       </div>

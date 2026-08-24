@@ -245,7 +245,7 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
           {/* Scrollable Preview Area */}
           <div className="flex-grow p-6 overflow-y-auto flex justify-center items-center relative">
             <div className="w-full h-full flex items-center justify-center overflow-hidden relative">
-              <TemplateRenderer data={previewData} mode={mode} />
+              <TemplateRenderer data={previewData} mode={mode} renderMode="owner-preview" />
             </div>
           </div>
         </div>

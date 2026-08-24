@@ -233,8 +233,42 @@ export function featuredDiscountLabel(offer: ServiceOffer): string {
   return `₹${offer.discountValue.toLocaleString('en-IN')} off`;
 }
 
+/**
+ * Real owner-selected services eligible for the owner preview's Featured
+ * section. No catalog suggestion or static seed is consulted.
+ */
+export function ownerFeaturedServices(
+  themeId: SiteHeaderThemeId,
+  services: readonly Service[],
+): FeaturedService[] {
+  return services
+    .filter((service) => service.status !== 'inactive' && service.status !== 'archived')
+    .filter((service) => !service.themeKey || service.themeKey === themeId)
+    .filter((service) => !service.themeId || service.themeId === themeId)
+    .filter((service) => service.featured === true)
+    .map((service, index) => ({
+      key: service.id,
+      name: service.name,
+      description: service.description,
+      category: service.category,
+      price: service.price,
+      duration: service.duration,
+      isSuggested: false,
+      suggestedSortOrder: index,
+      media: service.media,
+      pricingVariants: service.pricingVariants,
+      themeId,
+      categoryId: service.categoryId || undefined,
+      predefinedServiceId: service.predefinedServiceId || undefined,
+      translations: service.translations,
+    }));
+}
+
 /** Async loader hook with theme-isolation + retry (no stale-theme leakage). */
-export function useFeaturedServices(themeId: SiteHeaderThemeId): FeaturedServicesState {
+export function useFeaturedServices(
+  themeId: SiteHeaderThemeId,
+  enabled = true,
+): FeaturedServicesState {
   const [status, setStatus] = useState<FeaturedStatus>('loading');
   const [services, setServices] = useState<FeaturedService[]>([]);
   const [nonce, setNonce] = useState(0);
@@ -246,8 +280,9 @@ export function useFeaturedServices(themeId: SiteHeaderThemeId): FeaturedService
     let cancelled = false;
 
     // Clear immediately so a theme switch can never paint a previous theme.
-    setStatus('loading');
+    setStatus(enabled ? 'loading' : 'empty');
     setServices([]);
+    if (!enabled) return () => { cancelled = true; };
 
     fetchFeaturedServices(themeId)
       .then((items) => {
@@ -264,7 +299,7 @@ export function useFeaturedServices(themeId: SiteHeaderThemeId): FeaturedService
     return () => {
       cancelled = true;
     };
-  }, [themeId, nonce]);
+  }, [themeId, nonce, enabled]);
 
   const retry = useCallback(() => setNonce((value) => value + 1), []);
 

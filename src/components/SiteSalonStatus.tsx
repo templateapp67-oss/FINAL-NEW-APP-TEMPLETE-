@@ -6,6 +6,8 @@ import type { SiteHeaderThemeId } from '../lib/siteNavigation';
 import { resolveSalonStatus, useTickingNow } from '../lib/salonStatus';
 import type { SalonStatusKind } from '../lib/salonStatus';
 import { salonStatusLabel } from '../lib/siteStatusI18n';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
+import { useIsOwnerPreview } from './SiteRenderContext';
 
 export type StatusPlacement = 'announcement' | 'contact' | 'booking';
 
@@ -72,11 +74,15 @@ export default function SiteSalonStatus({
   inverted = false,
 }: Props) {
   const locale = useSiteLocale();
+  const ownerPreview = useIsOwnerPreview();
   const headerTheme: SiteHeaderThemeId = isSiteHeaderTheme(themeId) ? themeId : 'hair_studio_color_bar';
   useThemeAppearance(headerTheme);
   const now = useTickingNow();
   const status = resolveSalonStatus(data, now);
-  const label = salonStatusLabel(status, locale);
+  const hasConfiguredHours = Boolean(data.openingHours && Object.keys(data.openingHours).length > 0);
+  const label = ownerPreview && !hasConfiguredHours
+    ? OWNER_PREVIEW_EMPTY.hours
+    : salonStatusLabel(status, locale);
   const theme = isSiteHeaderTheme(themeId) ? themeId : headerTheme;
   const sharp = theme === 'barber_mens_grooming' || theme === 'hair_studio_color_bar';
 
@@ -84,7 +90,7 @@ export default function SiteSalonStatus({
     <span
       data-testid="site-salon-status"
       data-placement={placement}
-      data-status={status.kind}
+      data-status={ownerPreview && !hasConfiguredHours ? 'not-configured' : status.kind}
       data-theme={themeId}
       className={`inline-flex items-center gap-1.5 border shrink-0 ${
         sharp ? '' : 'rounded-full'

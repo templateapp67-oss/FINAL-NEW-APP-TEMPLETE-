@@ -370,6 +370,20 @@ export interface TemplateConfig {
   showOwnerPhoto: boolean;
 }
 
+/** Canonical template ids used as keys in the per-template JSONB config map. */
+export type TemplateConfigKey =
+  | 'barber_mens_grooming'
+  | 'hair_studio_color_bar'
+  | 'beauty_skin_spa'
+  | 'family_full_service'
+  | 'nail_lash_studio';
+
+/**
+ * Each template keeps only its supported settings. Partial values are
+ * normalized when that template is previewed or activated.
+ */
+export type TemplateConfigs = Partial<Record<TemplateConfigKey, Partial<TemplateConfig>>>;
+
 export interface ReviewedContent {
   heroHeadline: string;
   tagline: string;
@@ -515,8 +529,10 @@ export interface SalonData {
   offers?: ServiceOffer[];
   team: TeamMember[];
   websiteAppearance?: WebsiteAppearance;
-  /** Presentation-only template overlay (config JSONB). */
-  templateConfig?: TemplateConfig;
+  /** Presentation-only overlay for the currently active template (config JSONB). */
+  templateConfig?: Partial<TemplateConfig>;
+  /** Sanitized, presentation-only settings preserved separately per template. */
+  templateConfigs?: TemplateConfigs;
   brandColor?: string;
   /** Brand identity: font preset id for the salon name (see SALON_NAME_FONTS). */
   salonNameFont?: string;

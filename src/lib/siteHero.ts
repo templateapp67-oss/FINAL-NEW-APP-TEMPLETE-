@@ -118,6 +118,12 @@ function galleryUrls(data: SalonData): string[] {
     .filter((url) => url.length > 0);
 }
 
+/** Real owner-supplied hero/gallery visuals, with no theme stock appended. */
+export function ownerHeroMediaUrls(data: SalonData): string[] {
+  const urls = [safeMediaUrl(data.heroImageUrl), ...galleryUrls(data)].filter(Boolean);
+  return [...new Set(urls)];
+}
+
 /**
  * Resolves the hero visuals for one theme. Owner media first
  * (`heroImageUrl`, then gallery), theme fallbacks after — always de-duplicated
@@ -226,6 +232,7 @@ export function heroFocusBadges(
   data: SalonData,
   focus: readonly string[],
   minMatches = 2,
+  ownerDataOnly = false,
 ): string[] {
   const list = [...focus];
   const tokenize = (label: string) =>
@@ -239,13 +246,14 @@ export function heroFocusBadges(
       .filter((service) => service.status !== 'inactive' && service.status !== 'archived')
       .flatMap((service) => [...tokenize(service.category || ''), ...tokenize(service.name || '')]),
   );
-  if (catalogWords.size === 0) return list;
+  if (catalogWords.size === 0) return ownerDataOnly ? [] : list;
 
   const matched = list.filter((label) => {
     const tokens = tokenize(label);
     if (tokens.length === 0) return false;
     return tokens.some((token) => catalogWords.has(token));
   });
+  if (ownerDataOnly) return matched;
   return matched.length >= minMatches ? matched : list;
 }
 

@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { Sparkles, Mic, ImagePlus, ArrowLeft, ArrowRight, X } from 'lucide-react';
 import { SalonData } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import { motion } from 'motion/react';
 import { useBrandConfig } from '../config/brandConfig';
-import ThemeSelector from '../components/ThemeSelector';
+import { listOwnerTemplates, normalizeThemeId, switchSalonTemplatePresentation } from '../lib/templateConfig';
+import type { ThemeId } from '../lib/themeServices';
 import {
   OWNER_ROLES,
   OWNER_PHOTO_ACCEPT,
@@ -17,11 +18,11 @@ import {
 
 interface Props {
   data: SalonData;
-  setData: (d: SalonData) => void;
+  setData: Dispatch<SetStateAction<SalonData>>;
   onNext: () => void;
   onPrev: () => void;
   onSave?: () => void;
-  onThemeChange?: (id: import('../lib/themeServices').ThemeId) => void;
+  onThemeChange?: (id: ThemeId) => Promise<void> | void;
 }
 
 export default function StepDetails({ data, setData, onNext, onPrev, onSave, onThemeChange }: Props) {
@@ -29,6 +30,31 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [switchingTemplates, setSwitchingTemplates] = useState<Partial<Record<ThemeId, number>>>({});
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const latestTemplateRequest = useRef(0);
+  const pendingTemplateCount = Object.values(switchingTemplates as Record<string, number | undefined>)
+    .reduce<number>((total, count) => total + (count ?? 0), 0);
+
+  const applyTemplate = async (id: ThemeId) => {
+    if (pendingTemplateCount === 0 && normalizeThemeId(data.templateId) === id) return;
+    const requestId = ++latestTemplateRequest.current;
+    setSwitchingTemplates((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
+    setTemplateError(null);
+    try {
+      if (onThemeChange) await onThemeChange(id);
+      else setData((current) => switchSalonTemplatePresentation(current, id));
+    } catch (error) {
+      if (latestTemplateRequest.current === requestId) {
+        setTemplateError(error instanceof Error ? error.message : 'Could not apply this template. Please try again.');
+      }
+    } finally {
+      setSwitchingTemplates((current) => ({
+        ...current,
+        [id]: Math.max(0, (current[id] ?? 1) - 1),
+      }));
+    }
+  };
 
   const persist = (next: SalonData) => {
     setData(next);
@@ -109,19 +135,27 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
                         <button
                           key={theme.id}
                           type="button"
-                          onClick={() => onThemeChange?.(theme.id)}
-                          className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                          onClick={() => void applyTemplate(theme.id)}
+                          disabled={active && pendingTemplateCount === 0}
+                          className={`text-left rounded-xl border px-3 py-2.5 transition-colors disabled:opacity-60 ${
                             active
                               ? 'border-[#ac0053] bg-[#ffd9e1]/30'
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          <span className="block text-xs font-bold text-gray-900">{theme.name}</span>
+                          <span className="block text-xs font-bold text-gray-900">
+                            {(switchingTemplates[theme.id] ?? 0) > 0 ? 'Applying…' : theme.name}
+                          </span>
                           <span className="block text-[11px] text-gray-500 line-clamp-2">{theme.tagline}</span>
                         </button>
                       );
                     })}
                   </div>
+                  {templateError && (
+                    <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                      {templateError}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <div className="flex justify-between items-end mb-2">

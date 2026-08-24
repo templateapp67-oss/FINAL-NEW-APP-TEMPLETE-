@@ -28,7 +28,10 @@ import SiteOffers from './SiteOffers';
 import SiteCombos from './SiteCombos';
 import SiteGallery from './SiteGallery';
 import SiteServiceDirectory from './SiteServiceDirectory';
-import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { canCall, canWhatsApp, hasSalonAddress, openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
+import { useIsOwnerPreview } from './SiteRenderContext';
+import OwnerPreviewTemplateNotice from './OwnerPreviewTemplateNotice';
 import { NAIL_LASH_SURFACES, surfacesOf } from '../lib/themeSurfaces';
 import { shouldShowOwnerPhoto } from '../lib/templateConfig';
 import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
@@ -205,6 +208,7 @@ function ContactAction({ href, icon: Icon, children, primary = false, book = fal
 }
 
 export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
   setOwnerAppearanceDefault(data.websiteAppearance);
@@ -224,13 +228,18 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
   const offersState = resolveSectionState('offers', data.packages);
   const teamState = resolveSectionState('team', data.team);
   const ownerState = resolveSectionState('owner', data.ownerName ? [data.ownerName] : []);
-  const aboutState = resolveSectionState('about', [1]);
-  const locationState = resolveSectionState('location', ['ready']);
+  const aboutState = resolveSectionState('about', data.about ? [data.about] : (!ownerPreview ? ['fallback'] : []));
+  const hasAddress = hasSalonAddress(data, ownerPreview);
+  const locationState = resolveSectionState('location', hasAddress ? [data.address?.fullAddress] : []);
 
   const publicTeam = (data.team || []).map(getPublicStaffData);
   const nailContactAccess = resolveSiteContactAccess(data, 'nail_lash_studio');
-  const studioImage = data.heroImageUrl || 'https://images.unsplash.com/photo-1600948836101-f9ffda59d250?q=80&w=1200&auto=format&fit=crop';
-  const hours = data.openingHours ? Object.entries(data.openingHours).slice(0, 5) : [['monday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['tuesday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['wednesday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['thursday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['friday', { open: true, startTime: '10:00 AM', endTime: '09:00 PM' }]];
+  const studioImage = data.heroImageUrl || (!ownerPreview ? 'https://images.unsplash.com/photo-1600948836101-f9ffda59d250?q=80&w=1200&auto=format&fit=crop' : '');
+  const hours = data.openingHours && Object.keys(data.openingHours).length > 0
+    ? Object.entries(data.openingHours).slice(0, 5)
+    : ownerPreview
+      ? []
+      : [['monday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['tuesday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['wednesday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['thursday', { open: true, startTime: '10:00 AM', endTime: '08:00 PM' }], ['friday', { open: true, startTime: '10:00 AM', endTime: '09:00 PM' }]];
 
   return (
     <div className={`relative shadow-2xl border flex flex-col overflow-hidden transition-all duration-500 origin-top mx-auto h-full ${siteFrameClass(mode, 'rounded-2xl')} ${mode === 'mobile' ? 'rounded-[2rem] border-[8px] site-has-mobile-dock' : ''}`} style={{ borderColor: mode === 'mobile' ? ink : line, backgroundColor: t.page }}>
@@ -238,7 +247,9 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
         <div className="h-10 flex items-center gap-2 px-4 shrink-0" style={{ backgroundColor: sand, borderBottom: `1px solid ${line}` }}>
           <div className="flex gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#ff8073]" /><span className="w-2.5 h-2.5 rounded-full bg-[#ffd166]" /><span className="w-2.5 h-2.5 rounded-full bg-[#65cf98]" /></div>
           <div className="mx-auto rounded-lg border px-5 py-1 text-[10px] font-mono tracking-wide" style={{ borderColor: line, color: muted, backgroundColor: t.card }}>
-            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'nailandlash'}
+            {ownerPreview && !(data.websiteSlug || '').trim()
+              ? OWNER_PREVIEW_EMPTY.websiteAddress
+              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'nailandlash'}`}
           </div>
         </div>
       ) : <div className="h-6 w-full flex justify-center items-start shrink-0" style={{ backgroundColor: t.footerBg }}><div className="w-24 h-4 rounded-b-xl" style={{ backgroundColor: '#09070b' }} /></div>}
@@ -266,6 +277,16 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
         {/* Combos & Packages */}
         <SiteCombos themeId="nail_lash_studio" data={data} mode={mode} />
 
+        {ownerPreview ? (
+          <OwnerPreviewTemplateNotice
+            title="Nail and lash showcase design"
+            detail="Add your real portfolio media and services to replace this template setup state without showing sample treatments or stock work."
+            accent={pink}
+            background={t.artBand}
+            color={ink}
+          />
+        ) : (
+          <>
         {/* Nail Art Showcase */}
         <section id="section-nail-art" className="px-5 md:px-8 py-12" style={{ backgroundColor: t.artBand }}><div className="flex flex-col md:flex-row md:items-end justify-between gap-5 mb-8"><SectionTitle eyebrow={S.nailArtEyebrow} title={S.nailArtTitle} body={S.nailArtBody} light t={t} /><a href="#section-contact" data-open-booking="true" onClick={(e) => { e.preventDefault(); openSiteBooking(); }} className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.18em] self-start" style={{ backgroundColor: pink, color: '#ffffff' }}>{S.startYourSet} <ArrowRight className="w-3.5 h-3.5" /></a></div><div className={`grid gap-3 ${siteGrid(mode, { desktop: 3, tablet: 2, mobile: 2 })}`}>{NAIL_ART.map((item, index) => <ImageShowcaseCard key={item.name} item={item} index={index} />)}</div></section>
 
@@ -277,6 +298,8 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
 
         {/* Lash & Brow */}
         <section id="section-lash-brow" className="px-5 md:px-8 py-12" style={{ backgroundColor: pinkSoft }}><div className="grid md:grid-cols-[1fr_1.2fr] gap-8 items-center"><div><SectionTitle eyebrow={S.lashEyebrow} title={S.lashTitle} body={S.lashBody} t={t} /><div className="mt-6 rounded-2xl p-4 border" style={{ borderColor: line, backgroundColor: t.card }}><div className="flex items-center gap-3"><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: t.artBand, color: pink }}><Eye className="w-4 h-4" /></span><div><p className="text-xs font-extrabold" style={{ color: ink }}>{S.lashNoteTitle}</p><p className="text-[9px] mt-1" style={{ color: muted }}>{S.lashNoteBody}</p></div></div></div></div><div className="grid gap-2 grid-cols-2 md:grid-cols-3">{LASH_BROW.map((item, index) => <ImageShowcaseCard key={item.name} item={item} index={index} compact />)}</div></div></section>
+          </>
+        )}
 
         {/* Gallery */}
         {/* Gallery — PHASE 14.1: theme-scoped portfolio (featured, filter, lightbox, before/after) */}
@@ -285,20 +308,43 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
 
         <SiteVideoGallery themeId="nail_lash_studio" data={data} mode={mode} />
 
+        {ownerPreview ? (
+          data.about ? (
+            <section {...sectionProps('about', aboutState)} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: sand }}>
+              <div className="max-w-2xl mx-auto"><SectionTitle eyebrow={S.aboutEyebrow} title={S.aboutTitle} body={data.about} t={t} /></div>
+            </section>
+          ) : (
+            <OwnerPreviewTemplateNotice
+              title="About section setup"
+              detail={OWNER_PREVIEW_EMPTY.about}
+              accent={pink}
+              background={sand}
+              color={ink}
+            />
+          )
+        ) : (
+          <>
         {/* About Studio */}
         <section {...sectionProps('about', aboutState)} className="px-5 md:px-8 py-12" style={{ backgroundColor: sand }}><div className="grid md:grid-cols-[1fr_1fr] gap-8 items-center"><div className="relative min-h-[275px]"><div className="absolute left-3 right-3 top-3 bottom-[-8px] rounded-[2rem] rotate-3" style={{ backgroundColor: pink }} /><img src={studioImage} alt="Inside the Nail & Lash Studio" className="relative w-full h-[275px] object-cover rounded-[2rem] border-4 border-white shadow-xl -rotate-2" /><div className="absolute left-[-5px] top-10 rounded-2xl px-3 py-2.5 shadow-lg border" style={{ borderColor: line, backgroundColor: t.card }}><Award className="w-4 h-4" style={{ color: pink }} /><p className="text-[9px] font-extrabold mt-1" style={{ color: ink }}>{S.aboutBadge1}<br />{S.aboutBadge2}</p></div></div><div><SectionTitle eyebrow={S.aboutEyebrow} title={S.aboutTitle} body={data.about || S.aboutFallbackBody} t={t} /><div className="grid gap-2 grid-cols-2 md:grid-cols-3 mt-7">{[{ value: '01', label: S.aboutStat1Label }, { value: '∞', label: S.aboutStat2Label }, { value: '5★', label: S.aboutStat3Label }].map((stat) => <div key={stat.label} className="rounded-2xl p-3 border" style={{ borderColor: line, backgroundColor: t.card }}><p className="text-xl font-extrabold" style={{ color: pinkDeep }}>{stat.value}</p><p className="text-[8px] uppercase tracking-[0.12em] font-bold mt-1" style={{ color: muted }}>{stat.label}</p></div>)}</div></div></div></section>
-
+          </>
+        )}
 
         <section {...sectionProps('owner', ownerState)} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: white }}>
           {ownerState === 'ready' ? (
             <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
-              <div className="w-24 h-24 rounded-full overflow-hidden shrink-0 border-4" style={{ borderColor: pinkSoft }}>
-                <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
-              </div>
+              {shouldShowOwnerPhoto(data) && (
+                <div className="w-24 h-24 rounded-full overflow-hidden shrink-0 border-4" style={{ borderColor: pinkSoft }}>
+                  <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
+                </div>
+              )}
               <div className="min-w-0">
-                <p className="text-[9px] font-extrabold uppercase tracking-[0.18em]" style={{ color: pinkDeep }}>{data.ownerRole || S.ownerEmptyTitle}</p>
+                {(!ownerPreview || data.ownerRole) && (
+                  <p className="text-[9px] font-extrabold uppercase tracking-[0.18em]" style={{ color: pinkDeep }}>{data.ownerRole || S.ownerEmptyTitle}</p>
+                )}
                 <h3 className="text-2xl font-extrabold mt-1 break-words" style={{ color: ink }}>{data.ownerName}</h3>
-                <p className="text-xs mt-2" style={{ color: muted }}>{data.reviewedContent?.ownerIntro || data.about || S.aboutFallbackBody}</p>
+                {(!ownerPreview || data.reviewedContent?.ownerIntro || data.about) && (
+                  <p className="text-xs mt-2" style={{ color: muted }}>{data.reviewedContent?.ownerIntro || data.about || S.aboutFallbackBody}</p>
+                )}
               </div>
             </div>
           ) : <SectionStatePanel status={ownerState} copy={X} palette={palette} emptyTitle={S.ownerEmptyTitle} emptyBody={S.ownerEmptyBody} />}
@@ -310,7 +356,38 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
         <SiteReviews themeId="nail_lash_studio" data={data} mode={mode} />
 
         {/* Contact */}
-        <section {...sectionProps('location', locationState, 'section-contact')} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: t.bandBg }}><div className="grid md:grid-cols-[0.9fr_1.1fr] gap-8"><div><SectionTitle eyebrow={S.contactEyebrow} title={S.contactTitle} body={S.contactBody} light t={t} /><div className="grid gap-2 grid-cols-2 md:grid-cols-3 mt-7"><SiteProtectedContactAction action="call" data={data} themeId="nail_lash_studio" testId="theme-contact-call" ariaLabel={S.call} className="site-touch flex items-center justify-center gap-2 rounded-xl py-3 text-[9px] font-extrabold uppercase tracking-[0.15em] transition-transform hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}>{S.call}<Phone className="w-3.5 h-3.5" /></SiteProtectedContactAction><SiteProtectedContactAction action="whatsapp" data={data} themeId="nail_lash_studio" testId="theme-contact-whatsapp" ariaLabel={S['common.whatsApp']} className="site-touch flex items-center justify-center gap-2 rounded-xl py-3 text-[9px] font-extrabold uppercase tracking-[0.15em] transition-transform hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}>{S['common.whatsApp']}<MessageCircle className="w-3.5 h-3.5" /></SiteProtectedContactAction><ContactAction icon={CalendarDays} primary book t={t}>{S.bookOnline}</ContactAction></div></div><div className="rounded-[1.75rem] p-5 md:p-6" style={{ backgroundColor: 'rgba(33,27,36,0.9)' }}><div className="grid sm:grid-cols-2 gap-5"><div><h3 className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-white flex items-center gap-2"><MapPin className="w-4 h-4" style={{ color: pinkGlow }} /> {S.visitTheEdit}</h3><p className="text-xs leading-relaxed mt-3 text-white/65">{data.address?.fullAddress || 'Your studio address will appear here.'}</p><a data-testid="theme-contact-directions" href={salonMapsHref(data)} target="_blank" rel="noreferrer" className="site-touch inline-flex items-center gap-1.5 mt-4 text-[9px] font-extrabold text-white">{S['common.getDirections']} <Navigation className="w-3.5 h-3.5" /></a></div><div><h3 className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-white flex items-center gap-2"><Clock3 className="w-4 h-4" style={{ color: pinkGlow }} /> {S.studioHours}</h3><div className="mt-3"><SiteSalonStatus themeId="nail_lash_studio" data={data} placement="contact" inverted /></div><div className="space-y-2 mt-3">{hours.map(([day, schedule]) => <div key={day} className="flex justify-between gap-2 text-[9px] border-b pb-1.5 text-white/65" style={{ borderColor: 'rgba(255,255,255,0.14)' }}><span>{dayLabel(day as string, locale)}</span><span>{schedule.open ? `${schedule.startTime} – ${schedule.endTime}` : S['common.closed']}</span></div>)}</div></div></div><div className="mt-5 pt-4 border-t flex flex-wrap items-center justify-between gap-2 text-[9px] text-white/55" style={{ borderColor: 'rgba(255,255,255,0.14)' }}><span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" style={{ color: pinkGlow }} /> {data.email || 'hello@theglowedit.com'}</span><span data-testid="theme-contact-phone">{data.phone ? displayContactNumber(data.phone, nailContactAccess.call.unlocked) : S.contactPhoneFallback}</span></div></div></div></section>
+        <section {...sectionProps('location', locationState, 'section-contact')} className="site-section px-5 md:px-8 py-12" style={{ backgroundColor: t.bandBg }}>
+          <div className="grid md:grid-cols-[0.9fr_1.1fr] gap-8">
+            <div>
+              <SectionTitle eyebrow={S.contactEyebrow} title={S.contactTitle} body={ownerPreview ? undefined : S.contactBody} light t={t} />
+              <div className="grid gap-2 grid-cols-2 md:grid-cols-3 mt-7">
+                {canCall(data) && <SiteProtectedContactAction action="call" data={data} themeId="nail_lash_studio" testId="theme-contact-call" ariaLabel={S.call} className="site-touch flex items-center justify-center gap-2 rounded-xl py-3 text-[9px] font-extrabold uppercase tracking-[0.15em] transition-transform hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}>{S.call}<Phone className="w-3.5 h-3.5" /></SiteProtectedContactAction>}
+                {canWhatsApp(data) && <SiteProtectedContactAction action="whatsapp" data={data} themeId="nail_lash_studio" testId="theme-contact-whatsapp" ariaLabel={S['common.whatsApp']} className="site-touch flex items-center justify-center gap-2 rounded-xl py-3 text-[9px] font-extrabold uppercase tracking-[0.15em] transition-transform hover:-translate-y-0.5" style={{ backgroundColor: t.card, color: t.ink }} showLockIcon={false}>{S['common.whatsApp']}<MessageCircle className="w-3.5 h-3.5" /></SiteProtectedContactAction>}
+                <ContactAction icon={CalendarDays} primary book t={t}>{S.bookOnline}</ContactAction>
+              </div>
+            </div>
+            <div className="rounded-[1.75rem] p-5 md:p-6" style={{ backgroundColor: 'rgba(33,27,36,0.9)' }}>
+              <div className="grid sm:grid-cols-2 gap-5">
+                <div>
+                  <h3 className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-white flex items-center gap-2"><MapPin className="w-4 h-4" style={{ color: pinkGlow }} /> {S.visitTheEdit}</h3>
+                  <p className="text-xs leading-relaxed mt-3 text-white/65">{hasAddress ? data.address?.fullAddress : OWNER_PREVIEW_EMPTY.address}</p>
+                  {hasAddress && <a data-testid="theme-contact-directions" href={salonMapsHref(data, ownerPreview)} target="_blank" rel="noreferrer" className="site-touch inline-flex items-center gap-1.5 mt-4 text-[9px] font-extrabold text-white">{S['common.getDirections']} <Navigation className="w-3.5 h-3.5" /></a>}
+                </div>
+                <div>
+                  <h3 className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-white flex items-center gap-2"><Clock3 className="w-4 h-4" style={{ color: pinkGlow }} /> {S.studioHours}</h3>
+                  <div className="mt-3"><SiteSalonStatus themeId="nail_lash_studio" data={data} placement="contact" inverted /></div>
+                  <div className="space-y-2 mt-3">
+                    {hours.length > 0 ? hours.map(([day, schedule]) => <div key={day} className="flex justify-between gap-2 text-[9px] border-b pb-1.5 text-white/65" style={{ borderColor: 'rgba(255,255,255,0.14)' }}><span>{dayLabel(day as string, locale)}</span><span>{schedule.open ? `${schedule.startTime} – ${schedule.endTime}` : S['common.closed']}</span></div>) : <p className="text-[9px] text-white/65">{OWNER_PREVIEW_EMPTY.hours}</p>}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 pt-4 border-t flex flex-wrap items-center justify-between gap-2 text-[9px] text-white/55" style={{ borderColor: 'rgba(255,255,255,0.14)' }}>
+                {(data.email || !ownerPreview) && <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" style={{ color: pinkGlow }} /> {data.email || 'hello@theglowedit.com'}</span>}
+                {(data.phone || !ownerPreview) && <span data-testid="theme-contact-phone">{data.phone ? displayContactNumber(data.phone, nailContactAccess.call.unlocked) : S.contactPhoneFallback}</span>}
+              </div>
+            </div>
+          </div>
+        </section>
 
         <FinalBookingCta themeId="nail_lash_studio" data={data} title={S.bookingTitle} body={S.bookingBody} cta={S['struct.bookCta']} palette={palette} />
         <SiteFooter themeId="nail_lash_studio" data={data} />

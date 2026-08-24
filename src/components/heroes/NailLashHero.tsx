@@ -14,6 +14,7 @@ import type { CSSProperties } from 'react';
 import type { SalonData } from '../../types';
 import SiteImage from '../SiteImage';
 import HeroMediaFrame from './HeroMediaFrame';
+import OwnerPreviewHeroMedia from './OwnerPreviewHeroMedia';
 import SiteSalonStatus from '../SiteSalonStatus';
 import { useSiteLocale, useThemeAppearance } from '../SiteHeader';
 import { getSalonNameStyle } from '../../lib/brandIdentity';
@@ -23,6 +24,7 @@ import { heroCtaOptions, heroDescription, heroFocusBadges, heroHeadline, heroLog
 import { heroImageSizes, heroImageSrc, heroMediaPlan, useReducedMotion } from '../../lib/siteHeroMedia';
 import { openSiteBooking } from '../../lib/siteBooking';
 import SiteProtectedContactAction from '../SiteProtectedContactAction';
+import { useIsOwnerPreview } from '../SiteRenderContext';
 import { heroCtaClass, heroLinkProps } from '../../lib/siteHeroNav';
 import type { ViewportMode } from '../../lib/siteStructure';
 import { Star, MapPin, Sparkles, ArrowRight, Camera, PlayCircle, Phone, MessageCircle, Images } from 'lucide-react';
@@ -33,12 +35,13 @@ interface Props {
 }
 
 export default function NailLashHero({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   const locale = useSiteLocale();
   const appearance = useThemeAppearance('nail_lash_studio');
   const t = surfacesOf(NAIL_LASH_SURFACES, appearance);
   const H = heroText('nail_lash_studio', locale);
   const headline = heroHeadline(data, H);
-  const focus = heroFocusBadges(data, H.focus);
+  const focus = heroFocusBadges(data, H.focus, 2, ownerPreview);
   const media = heroMedia('nail_lash_studio', data);
   const meta = heroMeta('nail_lash_studio', data);
   const reducedMotion = useReducedMotion();
@@ -105,7 +108,7 @@ export default function NailLashHero({ data, mode }: Props) {
               {heroSalonName(data)}
             </span>
           </div>
-          {showStudioBadge && (
+          {showStudioBadge && !ownerPreview && (
           <span
             data-testid="hero-studio-badge"
             className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.2em] shrink-0"
@@ -123,9 +126,9 @@ export default function NailLashHero({ data, mode }: Props) {
           style={{ color: t.ink }}
         >
           {headline.main}
-          {' '}
-          <br />
-          <span style={{ color: t.pink }}>{headline.accent}</span>
+          {!ownerPreview && (
+            <><br /><span style={{ color: t.pink }}>{headline.accent}</span></>
+          )}
         </h1>
 
         <div className={`grid gap-6 mt-6 items-start ${cols}`}>
@@ -138,7 +141,8 @@ export default function NailLashHero({ data, mode }: Props) {
               {heroDescription(data, H.description)}
             </p>
 
-            {/* PHASE 11.2 — studio specialities, as glossy neon tags */}
+            {/* Owner mode shows only focus labels proven by real services. */}
+            {focus.length > 0 && (
             <div data-testid="hero-focus" className="mt-6">
               <span className="text-[9px] font-extrabold uppercase tracking-[0.2em]" style={{ color: t.pinkDeep }}>
                 {H.focusLabel}
@@ -159,10 +163,13 @@ export default function NailLashHero({ data, mode }: Props) {
                   </span>
                 ))}
               </div>
-              <p data-testid="hero-audience" className="mt-3 text-[10px]" style={{ color: t.muted }}>
-                {H.audience}
-              </p>
+              {!ownerPreview && (
+                <p data-testid="hero-audience" className="mt-3 text-[10px]" style={{ color: t.muted }}>
+                  {H.audience}
+                </p>
+              )}
             </div>
+            )}
 
             <div className="flex flex-wrap gap-3 mt-6">
               <button
@@ -185,10 +192,12 @@ export default function NailLashHero({ data, mode }: Props) {
               </a>
             </div>
 
-            <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 text-[9px] font-extrabold uppercase tracking-[0.14em]" style={{ color: t.ink }}>
-              <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" style={{ color: t.pink }} aria-hidden /> {H.chip1}</span>
-              <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" style={{ color: t.pink }} aria-hidden /> {H.chip2}</span>
-            </div>
+            {!ownerPreview && (
+              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 text-[9px] font-extrabold uppercase tracking-[0.14em]" style={{ color: t.ink }}>
+                <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" style={{ color: t.pink }} aria-hidden /> {H.chip1}</span>
+                <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" style={{ color: t.pink }} aria-hidden /> {H.chip2}</span>
+              </div>
+            )}
 
             {/* PHASE 11.3 — optional actions as glossy neon tags */}
             {(cta.call || cta.whatsApp || cta.gallery) && (
@@ -232,6 +241,16 @@ export default function NailLashHero({ data, mode }: Props) {
           </div>
 
           {/* ---- Glam card shelf ---------------------------------- */}
+          {ownerPreview ? (
+            <OwnerPreviewHeroMedia
+              data={data}
+              mode={mode}
+              accent={t.pink}
+              background={t.card}
+              className="rounded-[1.75rem]"
+              aspectRatio="3/4"
+            />
+          ) : (
           <div data-testid="hero-media" className={`grid gap-3 ${mediaCols}`}>
             {/* PHASE 11.3 — look-of-the-week card carries the studio media */}
             <HeroMediaFrame
@@ -290,6 +309,7 @@ export default function NailLashHero({ data, mode }: Props) {
               )}
             </div>
           </div>
+          )}
         </div>
 
         {/* ---- Glossy receipt strip ------------------------------ */}

@@ -10,6 +10,8 @@ import SiteFloatingActions from './SiteFloatingActions';
 import SiteMobileActionBar from './SiteMobileActionBar';
 import SiteBookingHost from './SiteBookingHost';
 import SiteContactLockNotice from './SiteContactLockNotice';
+import SiteProtectedContactAction from './SiteProtectedContactAction';
+import { useIsOwnerPreview } from './SiteRenderContext';
 import SiteAnnouncementBar from './SiteAnnouncementBar';
 import BarberHero from './heroes/BarberHero';
 import SiteSeo from './SiteSeo';
@@ -25,7 +27,8 @@ import SiteCombos from './SiteCombos';
 import SiteGallery from './SiteGallery';
 import SiteServiceDirectory from './SiteServiceDirectory';
 import { setActiveTheme, markPerformance } from '../lib/sitePerformance';
-import { openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { canCall, canWhatsApp, hasSalonAddress, openSiteBooking, salonMapsHref } from '../lib/siteBooking';
+import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
 import { BARBER_SURFACES, surfacesOf } from '../lib/themeSurfaces';
 import { shouldShowOwnerPhoto } from '../lib/templateConfig';
 import { setOwnerAppearanceDefault } from '../lib/siteNavigation';
@@ -67,6 +70,7 @@ interface Props {
  * control flips the whole page between English and हिन्दी.
  */
 export default function BarberTemplateRenderer({ data, mode }: Props) {
+  const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
   setOwnerAppearanceDefault(data.websiteAppearance);
@@ -90,8 +94,10 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
   const offersState = resolveSectionState('offers', packages);
   const teamState = resolveSectionState('team', teamItems);
   const ownerState = resolveSectionState('owner', data.ownerName ? [data.ownerName] : []);
-  const aboutState = resolveSectionState('about', (data.about || S.heroFallbackAbout) ? [1] : []);
-  const locationState = resolveSectionState('location', data.address?.fullAddress ? [data.address.fullAddress] : ['fallback']);
+  const aboutState = resolveSectionState('about', (data.about || (!ownerPreview && S.heroFallbackAbout)) ? [1] : []);
+  const hasAddress = hasSalonAddress(data, ownerPreview);
+  const locationState = resolveSectionState('location', hasAddress ? [data.address?.fullAddress] : []);
+  const depositPercentage = data.bookingRules?.advanceDepositPercentage ?? 0;
   const btnGold: CSSProperties = {
     backgroundColor: gold,
     color: '#141414',
@@ -108,7 +114,9 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
             <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
           </div>
           <div className="mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide text-neutral-500 bg-[#141414]" style={{ borderColor: '#262626' }}>
-            {DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/{data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}
+            {ownerPreview && !(data.websiteSlug || '').trim()
+              ? OWNER_PREVIEW_EMPTY.websiteAddress
+              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}`}
           </div>
         </div>
       ) : (
@@ -151,7 +159,7 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
           <div className="max-w-2xl mx-auto text-center">
             <span className="text-[10px] font-bold uppercase tracking-[0.35em]" style={{ color: accentText }}>{S.aboutEyebrow}</span>
             <h3 className="text-2xl md:text-3xl font-black uppercase tracking-[0.05em] mt-2" style={{ color: textStrong }}>{S.aboutTitle}</h3>
-            <p className="text-xs md:text-sm mt-4 leading-relaxed" style={{ color: muted }}>{data.about || S.heroFallbackAbout}</p>
+            <p className="text-xs md:text-sm mt-4 leading-relaxed" style={{ color: muted }}>{data.about || (ownerPreview ? OWNER_PREVIEW_EMPTY.about : S.heroFallbackAbout)}</p>
           </div>
         </div>
 
@@ -242,18 +250,24 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
                   <MapPin className="w-4 h-4" style={{ color: gold }} /> {S.addressLabel}
                 </h4>
                 <p className="text-xs leading-relaxed" style={{ color: muted }}>
-                  {data.address?.fullAddress || 'Shop 14, Linking Road, Bandra West, Mumbai, Maharashtra 400050'}
+                  {hasAddress
+                    ? data.address?.fullAddress
+                    : ownerPreview
+                      ? OWNER_PREVIEW_EMPTY.address
+                      : 'Shop 14, Linking Road, Bandra West, Mumbai, Maharashtra 400050'}
                 </p>
-                <a
-                  data-testid="theme-contact-directions"
-                  href={salonMapsHref(data)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="site-touch w-full py-2.5 text-xs font-black uppercase tracking-[0.2em] border transition-all hover:brightness-110 flex items-center justify-center gap-2"
-                  style={btnGold}
-                >
-                  <Navigation className="w-3.5 h-3.5" /> {S['common.getDirections']}
-                </a>
+                {hasAddress && (
+                  <a
+                    data-testid="theme-contact-directions"
+                    href={salonMapsHref(data, ownerPreview)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="site-touch w-full py-2.5 text-xs font-black uppercase tracking-[0.2em] border transition-all hover:brightness-110 flex items-center justify-center gap-2"
+                    style={btnGold}
+                  >
+                    <Navigation className="w-3.5 h-3.5" /> {S['common.getDirections']}
+                  </a>
+                )}
               </div>
 
               <div className="p-6 border space-y-3" style={{ backgroundColor: card, borderColor: line }}>
@@ -262,13 +276,15 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
                 </h4>
                 <SiteSalonStatus themeId="barber_mens_grooming" data={data} placement="contact" />
                 <div className="space-y-2 text-xs" style={{ color: muted }}>
-                  {data.openingHours ? (
+                  {data.openingHours && Object.keys(data.openingHours).length > 0 ? (
                     Object.entries(data.openingHours).map(([day, sch]) => (
                       <div key={day} className="flex justify-between border-b pb-1.5" style={{ borderColor: line }}>
                         <span className="font-bold" style={{ color: textStrong }}>{dayLabel(day, locale)}</span>
                         {sch.open ? <span>{sch.startTime} – {sch.endTime}</span> : <span className="font-black" style={{ color: accentText }}>{S['common.closed']}</span>}
                       </div>
                     ))
+                  ) : ownerPreview ? (
+                    <p>{OWNER_PREVIEW_EMPTY.hours}</p>
                   ) : (
                     <div className="flex justify-between"><span>Mon - Sat</span><span>10:00 AM - 9:00 PM</span></div>
                   )}
@@ -287,26 +303,34 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
             <h3 className="text-2xl md:text-3xl font-black uppercase tracking-[0.05em] mb-6" style={{ color: textStrong }}>{S.contactTitle}</h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-              <button className="site-touch py-3 border hover:border-[#c9a227] font-black text-[11px] uppercase tracking-[0.15em] flex items-center justify-center gap-2 transition-colors" style={{ backgroundColor: card, borderColor: line, color: textStrong }}>
-                <Phone className="w-4 h-4" style={{ color: gold }} /> {S['common.callNow']}
-              </button>
-              <button className="py-3 text-white font-black text-[11px] uppercase tracking-[0.15em] flex items-center justify-center gap-2 transition-all hover:brightness-110" style={{ backgroundColor: '#25D366' }}>
-                <MessageCircle className="w-4 h-4" /> {S['common.whatsApp']}
-              </button>
+              {canCall(data) && (
+                <SiteProtectedContactAction action="call" data={data} themeId="barber_mens_grooming" testId="theme-contact-call" className="site-touch py-3 border hover:border-[#c9a227] font-black text-[11px] uppercase tracking-[0.15em] flex items-center justify-center gap-2 transition-colors" style={{ backgroundColor: card, borderColor: line, color: textStrong }}>
+                  <Phone className="w-4 h-4" style={{ color: gold }} /> {S['common.callNow']}
+                </SiteProtectedContactAction>
+              )}
+              {canWhatsApp(data) && (
+                <SiteProtectedContactAction action="whatsapp" data={data} themeId="barber_mens_grooming" testId="theme-contact-whatsapp" className="py-3 text-white font-black text-[11px] uppercase tracking-[0.15em] flex items-center justify-center gap-2 transition-all hover:brightness-110" style={{ backgroundColor: '#25D366' }}>
+                  <MessageCircle className="w-4 h-4" /> {S['common.whatsApp']}
+                </SiteProtectedContactAction>
+              )}
               <button data-open-booking="true" onClick={openSiteBooking} className="py-3 font-black text-[11px] uppercase tracking-[0.15em] flex items-center justify-center gap-2 transition-all hover:brightness-110" style={btnGold}>
                 <CalendarCheck className="w-4 h-4" /> {S['common.bookOnline']}
               </button>
             </div>
 
-            <div className="p-4 border text-left text-xs space-y-2" style={{ backgroundColor: card, borderColor: line }}>
-              <div className="flex items-center justify-between font-black">
-                <span className="flex items-center gap-1.5 uppercase tracking-wider text-[10px]" style={{ color: textStrong }}>
-                  <CreditCard className="w-4 h-4" style={{ color: gold }} /> {S.depositTitle}
-                </span>
-                <span className="px-2 py-0.5 text-[10px] font-black uppercase" style={{ backgroundColor: goldSoft, color: goldBright }}>{S['common.advanceAdvance']}</span>
+            {(!ownerPreview || depositPercentage > 0) && (
+              <div className="p-4 border text-left text-xs space-y-2" style={{ backgroundColor: card, borderColor: line }}>
+                <div className="flex items-center justify-between font-black">
+                  <span className="flex items-center gap-1.5 uppercase tracking-wider text-[10px]" style={{ color: textStrong }}>
+                    <CreditCard className="w-4 h-4" style={{ color: gold }} /> {S.depositTitle}
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] font-black uppercase" style={{ backgroundColor: goldSoft, color: goldBright }}>
+                    {ownerPreview ? `${depositPercentage}% advance` : S['common.advanceAdvance']}
+                  </span>
+                </div>
+                <p style={{ color: muted }}>{ownerPreview ? `A ${depositPercentage}% advance deposit is configured for online booking.` : S.depositBody}</p>
               </div>
-              <p style={{ color: muted }}>{S.depositBody}</p>
-            </div>
+            )}
           </div>
         </div>
 

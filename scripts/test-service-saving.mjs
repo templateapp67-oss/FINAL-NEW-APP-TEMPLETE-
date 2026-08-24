@@ -214,13 +214,15 @@ await test('refresh load and management RPCs never accept relationship or tenant
 await test('theme switching preserves business data while resetting transient service UI', async () => {
   const app = await readFile('src/App.tsx', 'utf8');
   const services = await readFile('src/screens/StepServices.tsx', 'utf8');
+  const templateLib = await readFile('src/lib/templateConfig.ts', 'utf8');
   assert.equal(app.includes('themeServiceSnapshots'), false);
-  assert.ok(app.includes('setOwnerTemplate(nextTheme)'));
-  assert.ok(app.includes('templateId: nextTheme'));
-  assert.doesNotMatch(app, /templateId:\s*nextTheme[^}]*services:\s*\[\]/,
-    'template update must not clear services');
-  assert.doesNotMatch(app, /templateId:\s*nextTheme[^}]*packages:\s*\[\]/,
-    'template update must not clear packages');
+  // Theme switching is persisted via the serialized owner RPC; only the
+  // presentation changes after the RPC succeeds — business fields are spread
+  // through and guarded by the runtime preservation assertion.
+  assert.ok(app.includes('(await setOwnerTemplate(nextTheme)).templateId'));
+  assert.ok(app.includes('switchSalonTemplatePresentation(current, appliedTheme)'));
+  assert.ok(templateLib.includes('assertTemplateSwitchPreservesBusiness(data, switched)'));
+  assert.ok(templateLib.includes('...data,'));
   assert.ok(services.includes('setLoadedCatalog(null)'));
   assert.ok(services.includes('setSelectedSuggested([])'));
   assert.ok(services.includes("setSuggestedFilter('All')"));

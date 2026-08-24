@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { SalonData, getPublicStaffData } from '../types';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
+import { publicWebsiteHref, slugifySalonName } from '../lib/publicWebsiteUrl';
 import SiteHeader, { useSiteLocale, useThemeAppearance } from './SiteHeader';
 import OwnerAvatar from './OwnerAvatar';
 import { BundlePrice } from './PromotionalPricing';
@@ -130,7 +131,7 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
           <div className="mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide" style={{ backgroundColor: card, borderColor: line, color: muted }}>
             {ownerPreview && !(data.websiteSlug || '').trim()
               ? OWNER_PREVIEW_EMPTY.websiteAddress
-              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon'}`}
+              : publicWebsiteHref((data.websiteSlug || '').trim() ? data.websiteSlug : slugifySalonName(data.salonName) || 'yoursalon', DEFAULT_BRAND_CONFIG.platform.websiteUrl)}
           </div>
         </div>
       ) : (

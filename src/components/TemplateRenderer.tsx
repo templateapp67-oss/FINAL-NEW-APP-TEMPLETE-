@@ -26,7 +26,7 @@ import NailLashStudioTemplateRenderer from './NailLashStudioTemplateRenderer';
 import { BundlePrice, ServicePrice } from './PromotionalPricing';
 import { resolveWebsiteCopy, buildWhatsAppHref } from '../lib/websiteCopy';
 import { scrollToSiteSection } from '../lib/siteNavigation';
-import { publicWebsiteHref } from '../lib/publicWebsiteUrl';
+import { publicWebsiteHref, slugifySalonName } from '../lib/publicWebsiteUrl';
 import { Sparkles, Phone, MessageCircle, CalendarCheck, MapPin, Clock, Navigation, Instagram, Facebook, Youtube, Video, Heart, ExternalLink, CreditCard, Play } from 'lucide-react';
 import { OWNER_PREVIEW_EMPTY, ownerPreviewData } from '../lib/ownerPreview';
 import { SiteRenderModeProvider, type SiteRenderMode } from './SiteRenderContext';
@@ -182,7 +182,13 @@ export default function TemplateRenderer({ data: sourceData, mode, renderMode = 
           <div className={`mx-auto px-4 py-1 rounded text-[10px] border font-mono tracking-wide ${isDark ? 'bg-zinc-950 text-zinc-400 border-zinc-700' : 'bg-white text-gray-500 border-gray-200'}`}>
             {ownerPreview && !(data.websiteSlug || '').trim()
               ? OWNER_PREVIEW_EMPTY.websiteAddress
-              : publicWebsiteHref(data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'yoursalon')}
+              // One slug system: allocated websiteSlug, else the business
+              // name through the phase-1B slugifier — never an inline regex.
+              : publicWebsiteHref(
+                  (data.websiteSlug || '').trim()
+                    ? data.websiteSlug
+                    : slugifySalonName(data.salonName) || 'yoursalon',
+                )}
           </div>
         </div>
       ) : (

@@ -31,13 +31,28 @@ The Publish action is real: `StepPublishSetup` → `publishOwnerSalonWebsite` �
 
 Drafts are never public. Duplicate names get `name-2`. First `published_at` permanently allocates the URL.
 
+## Public URL generation (single slug/URL system)
+
+`Nexora Salon` → `nexora-salon` → `https://nexora-salon.nexora.site`.
+
+One authority only:
+
+| Concern | Source |
+|---|---|
+| Slug normalization (browser) | `slugifySalonName` + `suggestedWebsiteSlug` (`src/lib/publicWebsiteUrl.ts`) |
+| Slug allocation (DB) | `private.nexora_business_slug` / `private.nexora_allocate_business_slug` (M44/M45) |
+| White-label URL | `publicWebsiteHref` / `publicWebsiteUrl` — `<slug>.<base-host>`; `base/<slug>` fallback on localhost/IP |
+| Subdomain → path | `extractSubdomainSlug` (client) / `resolveHostSlug` (server), identical results |
+
+All six template renderers and the SEO canonical URL (`buildCanonicalUrl`) consume these helpers — no local `slugify` forks, no inline URL regexes, no second URL/domain system. `buildCanonicalUrl` prefers the RPC-allocated `publishedUrl`, then falls back to `publicWebsiteUrl(suggestedWebsiteSlug(data), brand.platform.websiteUrl)`.
+
 ## Public journey
 
 `/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → template + config → renderer. Unpublished / inactive / deleted → 404. Anon cannot SELECT draft tables.
 
 ## Verification
 
-```
+```sh
 npm run test:phase2-publishing
 npm run test:public-website
 npm run test:public-security
@@ -45,6 +60,7 @@ npm run test:public-template-rendering
 npm run test:publish-readiness
 npm run test:owner-publish-flow
 npm run test:owner-publish-real   # app publish path → real persisted row (PGlite)
+npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://nexora-salon.nexora.site
 npm run lint
 npm run build
 ```

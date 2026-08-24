@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { SalonData, Service, ServiceOffer } from '../types';
 import { getPublicStaffData } from '../types';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
+import { publicWebsiteHref, slugifySalonName } from '../lib/publicWebsiteUrl';
 import SiteHeader, { useSiteLocale, useThemeAppearance } from './SiteHeader';
 import OwnerAvatar from './OwnerAvatar';
 import { BundlePrice, ServicePrice } from './PromotionalPricing';
@@ -367,7 +368,7 @@ export default function FamilyFullServiceTemplateRenderer({ data, mode }: Props)
           <div className="mx-auto rounded-lg border px-5 py-1 text-[10px] font-mono tracking-wide" style={{ borderColor: line, color: muted, backgroundColor: mode === 'desktop' ? t.card : t.card }}>
             {ownerPreview && !(data.websiteSlug || '').trim()
               ? OWNER_PREVIEW_EMPTY.websiteAddress
-              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'familysalon'}`}
+              : publicWebsiteHref((data.websiteSlug || '').trim() ? data.websiteSlug : slugifySalonName(data.salonName) || 'familysalon', DEFAULT_BRAND_CONFIG.platform.websiteUrl)}
           </div>
         </div>
       ) : (

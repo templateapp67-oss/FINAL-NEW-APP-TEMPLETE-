@@ -30,7 +30,8 @@ import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
-import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { loadOwnerWebsiteDraft } from './lib/salonWebsiteService';
+import { persistOwnerBusinessSetup, loadOwnerSalonRow, mergeSalonRowIntoDraft } from './lib/ownerBusinessSetup';
 import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
 import { switchSalonTemplatePresentation } from './lib/templateConfig';
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
@@ -228,6 +229,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         if (!active) return;
         setBackendHydratedUser(user.id);
         if (!draft) return;
+        const salonRow = await loadOwnerSalonRow();
         setData((current) => {
           // template_key is the presentation authority changed by
           // set_owner_salon_template. Config may legitimately predate a
@@ -236,7 +238,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             draft.templateKey || draft.config.templateId || current.templateId
           ) as SalonData['templateId'];
           persistedTemplate.current = hydratedTemplate;
-          return {
+          return mergeSalonRowIntoDraft({
             ...current,
             ...draft.config,
             salonId: draft.salonId,
@@ -246,7 +248,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
               : undefined,
             templateId: hydratedTemplate,
             publishState: draft.isPublished ? 'published' : 'draft',
-          };
+          }, salonRow);
         });
       })
       .catch((error) => console.error('Backend website draft hydration failed:', error));
@@ -301,15 +303,15 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     if (!isSupabaseConfigured || !user || backendHydratedFor.current !== user.id || !data.websiteSlug) return;
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
-      void saveOwnerWebsiteDraft(data)
+      void persistOwnerBusinessSetup(data)
         .then((saved) => {
-          if (!saved) {
+          if ('error' in saved) {
             setSaveStatus('saved');
             return;
           }
           setData((current) => current.salonId === saved.salonId
             ? current
-            : { ...current, salonId: saved.salonId, websiteSlug: saved.slug, publishState: saved.isPublished ? 'published' : 'draft' });
+            : { ...current, salonId: saved.salonId, websiteSlug: saved.slug || current.websiteSlug });
           setSaveStatus('saved');
         })
         .catch((error) => {

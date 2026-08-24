@@ -154,7 +154,8 @@
     "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",
     "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
     "test:public-template-rendering": "tsx scripts/test-public-template-rendering.mjs",
-    "test:public-security": "tsx scripts/test-public-access-security.mjs"
+    "test:public-security": "tsx scripts/test-public-access-security.mjs",
+    "test:slug-collision": "tsx scripts/test-slug-collision-handling.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

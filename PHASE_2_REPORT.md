@@ -46,6 +46,21 @@ One authority only:
 
 All six template renderers and the SEO canonical URL (`buildCanonicalUrl`) consume these helpers — no local `slugify` forks, no inline URL regexes, no second URL/domain system. `buildCanonicalUrl` prefers the RPC-allocated `publishedUrl`, then falls back to `publicWebsiteUrl(suggestedWebsiteSlug(data), brand.platform.websiteUrl)`.
 
+## Slug collision handling (M51)
+
+Duplicate business names never produce duplicate public URLs — uniqueness is decided and enforced **in the database**, for every writer:
+
+| Concern | Mechanism |
+|---|---|
+| Deterministic sequence | `private.nexora_allocate_business_slug` → `base`, `base-1`, `base-2`, … (fixed in M51; the previous loop skipped `-1`) |
+| Race safety | transaction-scoped `pg_advisory_xact_lock(hashtext(base))` serializes same-base allocations; provision/publish persist under a savepoint **retry on `unique_violation`** |
+| Final DB invariant | CI unique indexes on `lower(btrim(slug))` on `salon_public_websites` **and** `salons` (M51) — reject exact, case and whitespace variants from any writer |
+| Valid URL characters | URL-safe checks (`^[a-z0-9]+(-[a-z0-9]+)*$`, `NOT VALID` so legacy rows are untouched) on both slug columns |
+| Update safety | first `published_at` permanently locks the URL; rename → unpublish → republish keeps it |
+| Namespace | one shared slug namespace across `salon_public_websites.slug` and `salons.slug` |
+
+Verified end-to-end: `A/B/C = nexora-salon / nexora-salon-1 / nexora-salon-2`, each resolving to exactly its own business; a direct duplicate insert is rejected by the DB (no frontend decision); `NEXORA-SALON` and `Nexora Salon!` are rejected; the 4th duplicate gets `nexora-salon-3`.
+
 ## Public journey
 
 `/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → template + config → renderer. Unpublished / inactive / deleted → 404. Anon cannot SELECT draft tables.
@@ -61,6 +76,7 @@ npm run test:publish-readiness
 npm run test:owner-publish-flow
 npm run test:owner-publish-real   # app publish path → real persisted row (PGlite)
 npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://nexora-salon.nexora.site
+npm run test:slug-collision                       # A/B/C → nexora-salon / -1 / -2, DB-enforced uniqueness
 npm run lint
 npm run build
 ```

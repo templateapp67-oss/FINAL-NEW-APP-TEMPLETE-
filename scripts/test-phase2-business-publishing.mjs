@@ -217,6 +217,7 @@ await execMigration(await read('20260824000201_m45_business_slug_hardening.sql')
 await execMigration(await read('20260824000301_m46_public_access_security.sql'));
 await execMigration(await read('20260824000601_m49_public_template_config.sql'));
 await execMigration(await read('20260825000101_m50_publish_readiness_validation.sql'));
+await execMigration(await read('20260825000201_m51_slug_collision_hardening.sql'));
 ok('Phase 2 migrations apply over the existing publishing architecture');
 assert.equal(slugifySalonName('  Nexora Salon!!!  '), 'nexora-salon');
 assert.equal(slugifySalonName('Foo___---@@ Bar'), 'foo-bar');
@@ -231,6 +232,8 @@ const verify45 = (await db.query('select check_name, ok from public.verify_m45_b
 assert.ok(verify45.every((r) => r.ok === true), JSON.stringify(verify45));
 const verify46 = (await db.query('select check_name, ok from public.verify_m46_public_access_security()')).rows;
 assert.ok(verify46.every((r) => r.ok === true), JSON.stringify(verify46));
+const verify51 = (await db.query('select check_name, ok from public.verify_m51_slug_collision_hardening()')).rows;
+assert.ok(verify51.every((r) => r.ok === true), JSON.stringify(verify51));
 ok('Phase 2 database security, slug and anonymous-access verification is green');
 
 await db.query(`with o as (
@@ -240,7 +243,7 @@ await db.query(`with o as (
 const crossTableCandidate = (await db.query(
   `select private.nexora_allocate_business_slug('Legacy Only', null) as slug`,
 )).rows[0].slug;
-assert.equal(crossTableCandidate, 'legacy-only-2');
+assert.equal(crossTableCandidate, 'legacy-only-1');
 ok('collision lookup includes legacy salons and public website rows');
 
 const ids = {
@@ -269,7 +272,7 @@ await asRole('authenticated', ids.ownerB, async () => {
   salonB = (await db.query(`select * from public.provision_owner_salon(
     'Nexora Salon','also-ignored','hair_studio_color_bar')`)).rows[0];
 });
-assert.equal(salonB.out_slug, 'nexora-salon-2');
+assert.equal(salonB.out_slug, 'nexora-salon-1');
 assert.equal(salonB.out_is_published, false);
 ok('duplicate business names receive deterministic unique slugs');
 

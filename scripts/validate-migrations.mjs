@@ -73,6 +73,17 @@ const m50MigrationFiles = migrationFiles.filter((name) => name.includes('_m50_')
 assert.deepEqual(m50MigrationFiles, [
   '20260825000101_m50_publish_readiness_validation.sql',
 ], 'expected the M50 publish-readiness validation migration (read gate, owner-only)');
+const m51MigrationFiles = migrationFiles.filter((name) => name.includes('_m51_') || name.includes('_slug_collision_hardening'));
+assert.deepEqual(m51MigrationFiles, [
+  '20260825000201_m51_slug_collision_hardening.sql',
+], 'expected the M51 slug collision hardening migration after M50');
+const m51Source = await readFile(join(migrationsDir, m51MigrationFiles[0]), 'utf8');
+assert.match(m51Source, /nexora_allocate_business_slug/);
+assert.match(m51Source, /v_suffix - 1/, 'M51 must allocate base, base-1, base-2 deterministically');
+assert.match(m51Source, /pg_advisory_xact_lock/, 'M51 allocator must be serialized per base slug');
+assert.match(m51Source, /salon_public_websites_slug_ci_unique/, 'M51 must add the DB-wide CI unique slug index');
+assert.match(m51Source, /unique_violation/, 'M51 provision/publish must retry on unique violation');
+assert.match(m51Source, /salon_public_websites_slug_url_safe/, 'M51 must add the URL-safe slug character check');
 const m48Source = await readFile(join(migrationsDir, m48MigrationFiles[0]), 'utf8');
 const m48SwitchBody = m48Source.slice(
   m48Source.indexOf('create or replace function public.set_owner_salon_template'),

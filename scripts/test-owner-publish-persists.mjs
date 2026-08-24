@@ -104,15 +104,19 @@ await db.exec(`
 await db.exec(await sqlOf('20260822000101_m38_reconciliation_fix.sql'));
 await db.exec(await sqlOf('20260822000201_m39_owner_publish_website.sql'));
 await db.exec(await sqlOf('20260824000101_m44_business_publishing.sql'));
+await db.exec(await sqlOf('20260824000201_m45_business_slug_hardening.sql'));
 await db.exec(await sqlOf('20260825000101_m50_publish_readiness_validation.sql'));
+await db.exec(await sqlOf('20260825000201_m51_slug_collision_hardening.sql'));
 
 const selfTests = [
   (await db.query('select check_name, ok from public.verify_m39_owner_publish()')).rows,
   (await db.query('select check_name, ok from public.verify_phase2_business_publishing()')).rows,
   (await db.query('select check_name, ok from public.verify_m50_publish_readiness()')).rows,
+  (await db.query('select check_name, ok from public.verify_m45_business_slug_hardening()')).rows,
+  (await db.query('select check_name, ok from public.verify_m51_slug_collision_hardening()')).rows,
 ];
 assert.ok(selfTests.every((rows) => rows.every((r) => r.ok === true)), JSON.stringify(selfTests));
-ok('M39 + M44 + M50 publish migrations apply and their self-tests are green');
+ok('M39 + M44 + M45 + M50 + M51 publish migrations apply and their self-tests are green');
 
 // ---- Seed one authenticated owner tenant --------------------------------
 await db.query(

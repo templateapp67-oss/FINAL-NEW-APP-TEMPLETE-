@@ -62,7 +62,9 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
     if (onSave) onSave();
     try {
       const saved = await publishOwnerSalonWebsite({ ...data, websiteSlug: slug });
-      if (!saved.isPublished) throw new Error('The database did not confirm publication.');
+      if (!saved.isPublished || !saved.publishedAt) {
+        throw new Error('The database did not confirm publication.');
+      }
       const publishedUrl = publicWebsiteUrl(saved.slug, platform.websiteUrl);
       setData(prev => ({
         ...prev,
@@ -70,7 +72,7 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
         websiteSlug: saved.slug,
         publishState: 'published',
         publishedUrl,
-        lastCompletedStep: 14,
+        lastCompletedStep: 13,
       }));
       if (onSave) onSave();
       setPublishing(false);
@@ -110,7 +112,7 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
           {/* Header section */}
           <div className="flex flex-col gap-2">
             <span className="text-[10px] font-bold text-[#ac0053] uppercase tracking-widest flex items-center gap-1">
-              <Globe className="w-3.5 h-3.5" /> STEP 14 OF 15 • PUBLISH
+              <Globe className="w-3.5 h-3.5" /> STEP 13 OF 14 • PUBLISH
             </span>
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">
               Ready to publish your website?

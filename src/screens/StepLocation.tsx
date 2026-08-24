@@ -281,7 +281,7 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
         {/* Header Section */}
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#ac0053]">
-            <MapPin className="w-4 h-4" /> STEP 08 • LOCATION & OPENING HOURS
+            <MapPin className="w-4 h-4" /> STEP 07 • LOCATION & OPENING HOURS
           </div>
           <h1 className="text-2xl md:text-3xl font-bold text-[#1a1c1c]">Where is your salon?</h1>
           <p className="text-sm text-[#5f5e5e]">Add your address and opening hours. Customers will see this on your website.</p>
@@ -293,7 +293,7 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
             <h2 className="text-lg font-bold text-[#1a1c1c] flex items-center gap-2">
               <Building2 className="w-5 h-5 text-[#ac0053]" /> Business Address
             </h2>
-            <span className="text-xs font-medium text-gray-400">Step 8 of 15</span>
+            <span className="text-xs font-medium text-gray-400">Step 7 of 14</span>
           </div>
 
           <div className="space-y-2">
@@ -589,7 +589,7 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
         </button>
 
         <div className="hidden sm:block text-xs font-medium text-gray-400">
-          Step 8 of 15 • Location & Opening Hours
+          Step 7 of 14 • Location & Opening Hours
         </div>
 
         <button

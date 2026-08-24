@@ -9,6 +9,13 @@ export default function HeroSplit({ onNext }: { onNext: () => void }) {
   const { user } = useAuth();
   const { platform } = useBrandConfig();
   const baseDomain = platform.websiteUrl.replace(/^https?:\/\//, '');
+  const continueOwnerSetup = () => {
+    if (!user) {
+      openAuth('login');
+      return;
+    }
+    onNext();
+  };
   return (
     <div className="min-h-screen bg-[#f9f8f6] flex flex-col font-sans overflow-hidden">
       <header className="h-16 px-8 border-b border-gray-200/50 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-50">
@@ -73,10 +80,12 @@ export default function HeroSplit({ onNext }: { onNext: () => void }) {
             className="flex items-center gap-6 mt-4"
           >
             <button 
-              onClick={onNext}
+              type="button"
+              data-testid="owner-flow-continue"
+              onClick={continueOwnerSetup}
               className="bg-[#ac0053] text-white px-8 py-4 rounded-lg font-semibold flex items-center gap-2 hover:-translate-y-1 hover:shadow-xl transition-all shadow-lg shadow-pink-900/20"
             >
-              Create My Website
+              {user ? 'Complete Business Setup' : 'Log In to Continue'}
               <ArrowRight className="w-5 h-5" />
             </button>
             <button className="text-gray-600 font-medium hover:text-[#ac0053] transition-colors">See how it works</button>

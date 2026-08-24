@@ -128,7 +128,7 @@ export default function StepPublish({ data, setData, onNext, onPrev, onSave }: P
     const updated: SalonData = {
       ...data,
       websiteAppearance: appearance,
-      lastCompletedStep: Math.max(data.lastCompletedStep || 0, 10),
+      lastCompletedStep: Math.max(data.lastCompletedStep || 0, 8),
     };
     setData(updated);
     onSave?.(updated);
@@ -166,7 +166,7 @@ export default function StepPublish({ data, setData, onNext, onPrev, onSave }: P
               </span>
               <span className="text-xs font-medium text-[#ac0053]">Live Sync Active</span>
             </div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#ac0053]">Step 11 • Appearance</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#ac0053]">Step 9 • Appearance</span>
           </div>
           <h1 className="text-2xl md:text-4xl font-bold text-[#1a1c1c] mb-2">Make the Website Yours</h1>
           <p className="text-sm text-[#5f5e5e]">Tagline, colors, services and appearance update in the preview instantly.</p>

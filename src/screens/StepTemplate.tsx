@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import ThemeSelector from '../components/ThemeSelector';
+import TemplateConfigPanel from '../components/TemplateConfigPanel';
 import { normalizeThemeId } from '../lib/themeServices';
 import { CheckCircle2, ArrowRight, ArrowLeft, Eye, Layout, Monitor, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -102,7 +103,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
         </div>
 
         {/* ThemeSelector Component */}
-        <div className="pb-24">
+        <div className="pb-24 space-y-5">
           <ThemeSelector
             data={data}
             setData={setData}
@@ -110,6 +111,7 @@ export default function StepTemplate({ data, setData, onNext, onPrev, onSave, on
             onThemeChange={(id) => selectTemplate(id as any)}
             layout="grid"
           />
+          <TemplateConfigPanel data={data} setData={setData} onSave={onSave} />
         </div>
       </div>
 

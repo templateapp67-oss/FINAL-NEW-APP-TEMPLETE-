@@ -71,6 +71,7 @@
     "test:phase-4": "npm run validate:migrations && npm run test:phase-3b && tsx scripts/test-phase4-final.mjs",
     "test:phase4": "tsx scripts/test-phase4-final.mjs",
     "test:phase-1a-audit": "node scripts/test-phase1a-audit.mjs",
+    "test:phase-1b": "node scripts/test-phase1b-owner-flow.mjs",
     "test:phase1a-audit": "node scripts/test-phase1a-audit.mjs",
     "validate:main-website": "node scripts/validate-main-website-compat.mjs",
     "test:phase-10.6": "tsx scripts/test-phase-10.6.mjs",

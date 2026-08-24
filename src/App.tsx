@@ -32,6 +32,7 @@ import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsiteService';
 import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
+import { switchSalonTemplatePresentation } from './lib/templateConfig';
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
@@ -166,9 +167,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     if (provisionedFor.current === user.id) return;
     provisionedFor.current = user.id;
     let active = true;
-    const initialSlug = data.websiteSlug || suggestedWebsiteSlug(data);
+    const signupName = (() => {
+      try { return safeGetItem('nexora_signup_salon_name') || ''; } catch { return ''; }
+    })();
+    const salonName = (signupName || data.salonName || '').trim() || 'My Salon';
+    const initialSlug = data.websiteSlug || suggestedWebsiteSlug({ ...data, salonName });
     void resolveOrProvisionOwnerSalon({
-      salonName: data.salonName,
+      salonName,
       slug: initialSlug,
       templateKey: data.templateId,
     })
@@ -307,7 +312,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // fully reversible with no data loss.
   const handleThemeChange = (nextTheme: ThemeId) => {
     const requestId = ++templateSwitchSequence.current;
-    setData(prev => ({ ...prev, templateId: nextTheme }));
+    setData(prev => switchSalonTemplatePresentation(prev, nextTheme));
     if (!isSupabaseConfigured || !user) return;
     // Serialize writes so rapid changes cannot reach Supabase out of order.
     // Every accepted transition is presentation-only and the final queued RPC
@@ -320,13 +325,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         // restore if a later queued request fails.
         persistedTemplate.current = saved.templateId;
         if (templateSwitchSequence.current !== requestId) return;
-        setData(current => ({ ...current, templateId: saved.templateId }));
+        setData(current => switchSalonTemplatePresentation(current, saved.templateId));
       } catch (error) {
         if (templateSwitchSequence.current !== requestId) return;
         // Do not leave an optimistic template visible as though it were live
         // when Supabase rejected the presentation-only update.
         setData(current => current.templateId === nextTheme
-          ? { ...current, templateId: persistedTemplate.current }
+          ? switchSalonTemplatePresentation(current, persistedTemplate.current || current.templateId || nextTheme)
           : current);
         console.error('Failed to persist template switch:', error);
         showToast(
@@ -339,7 +344,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // Preview-only variant (Step 13 full preview): updates the live preview
   // without persisting; the explicit "Apply" path uses handleThemeChange.
   const handleThemeSwitchPreview = (nextTheme: ThemeId) => {
-    setData(prev => ({ ...prev, templateId: nextTheme }));
+    setData(prev => switchSalonTemplatePresentation(prev, nextTheme));
   };
 
   const nextStep = () => setStep(s => {

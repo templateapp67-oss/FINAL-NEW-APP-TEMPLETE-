@@ -360,6 +360,16 @@ export interface BookingRules {
 
 export type WebsiteAppearance = 'light' | 'dark';
 
+/** PHASE 1-B — presentation overlay stored in salon_public_websites.config. */
+export interface TemplateConfig {
+  appearance: WebsiteAppearance;
+  accentColor: string;
+  salonNameFont: string;
+  salonNameColor: string;
+  heroPosition: 'Top' | 'Center' | 'Bottom';
+  showOwnerPhoto: boolean;
+}
+
 export interface ReviewedContent {
   heroHeadline: string;
   tagline: string;
@@ -505,6 +515,8 @@ export interface SalonData {
   offers?: ServiceOffer[];
   team: TeamMember[];
   websiteAppearance?: WebsiteAppearance;
+  /** Presentation-only template overlay (config JSONB). */
+  templateConfig?: TemplateConfig;
   brandColor?: string;
   /** Brand identity: font preset id for the salon name (see SALON_NAME_FONTS). */
   salonNameFont?: string;

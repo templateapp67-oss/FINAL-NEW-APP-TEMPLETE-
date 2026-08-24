@@ -4,6 +4,7 @@ import { SalonData } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import { motion } from 'motion/react';
 import { useBrandConfig } from '../config/brandConfig';
+import { listOwnerTemplates, normalizeThemeId } from '../lib/templateConfig';
 import {
   OWNER_ROLES,
   OWNER_PHOTO_ACCEPT,
@@ -20,9 +21,10 @@ interface Props {
   onNext: () => void;
   onPrev: () => void;
   onSave?: () => void;
+  onThemeChange?: (id: import('../lib/themeServices').ThemeId) => void;
 }
 
-export default function StepDetails({ data, setData, onNext, onPrev, onSave }: Props) {
+export default function StepDetails({ data, setData, onNext, onPrev, onSave, onThemeChange }: Props) {
   const { platform } = useBrandConfig();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -91,6 +93,35 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave }: P
                     className="w-full px-4 py-3.5 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#d9006b] focus:ring-2 focus:ring-pink-100 outline-none transition-all"
                   />
                   <p className="text-xs text-gray-400 mt-2">This name will appear on your website.</p>
+                </div>
+
+                <div data-testid="owner-onboarding-templates">
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Choose a starting template
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    You can switch later. Business data is never deleted.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {listOwnerTemplates().map((theme) => {
+                      const active = normalizeThemeId(data.templateId) === theme.id;
+                      return (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          onClick={() => onThemeChange?.(theme.id)}
+                          className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                            active
+                              ? 'border-[#ac0053] bg-[#ffd9e1]/30'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <span className="block text-xs font-bold text-gray-900">{theme.name}</span>
+                          <span className="block text-[11px] text-gray-500 line-clamp-2">{theme.tagline}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div>
                   <div className="flex justify-between items-end mb-2">

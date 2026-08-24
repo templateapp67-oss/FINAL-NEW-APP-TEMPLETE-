@@ -33,6 +33,7 @@ import { resendConfirmationEmail, signUpWithPassword } from '../lib/useAuth';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
+import { safeSetItem } from '../lib/safeStorage';
 
 export default function SignUpPage() {
   const [salonName, setSalonName] = useState('');
@@ -112,6 +113,15 @@ export default function SignUpPage() {
       if (err) {
         setError(err);
         return;
+      }
+
+      const name = salonName.trim();
+      if (name) {
+        try {
+          safeSetItem('nexora_signup_salon_name', name);
+        } catch {
+          /* ignore */
+        }
       }
 
       // Track the referral at account creation: the code stays in

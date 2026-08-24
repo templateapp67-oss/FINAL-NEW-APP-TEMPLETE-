@@ -119,17 +119,26 @@ export default function TemplateRenderer({ data, mode }: Props) {
     return <NailLashStudioTemplateRenderer data={data} mode={mode} />;
   }
 
-  // Template-specific styling configurations (remaining themes)
-  const config = {
-    hair: {
-      navBg: 'bg-white text-gray-900 border-gray-100',
-      heroBg: 'bg-gray-900 text-white',
-      accentColor: '#ac0053',
-      headingFont: 'font-serif',
-      cardBg: 'bg-white border-gray-100 text-gray-900',
-      footerBg: 'bg-[#1a1c1c] text-white',
-    },
-  }[templateId];
+  // Template-specific styling configurations (remaining themes).
+  // The five canonical Phase 1 themes return their own dedicated renderer
+  // above; this block is the legacy generic fallback (formerly keyed by the
+  // retired 'hair' starter theme) and applies the same defaults for any
+  // unknown/legacy templateId.
+  const config: {
+    navBg: string;
+    heroBg: string;
+    accentColor: string;
+    headingFont: string;
+    cardBg: string;
+    footerBg: string;
+  } = {
+    navBg: 'bg-white text-gray-900 border-gray-100',
+    heroBg: 'bg-gray-900 text-white',
+    accentColor: '#ac0053',
+    headingFont: 'font-serif',
+    cardBg: 'bg-white border-gray-100 text-gray-900',
+    footerBg: 'bg-[#1a1c1c] text-white',
+  };
   const brandColor = data.brandColor || config.accentColor;
   const isDark = data.websiteAppearance === 'dark';
   const brandButtonStyle = {

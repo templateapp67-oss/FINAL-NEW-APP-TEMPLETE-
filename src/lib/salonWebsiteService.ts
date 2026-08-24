@@ -1,7 +1,8 @@
 import type { SalonData } from '../types';
 import { resolveOwnerSalonId } from './ownerSalon';
-import { isValidWebsiteSlug } from './publicWebsiteUrl';
+import { isValidWebsiteSlug, suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
 import { requireSupabase } from './supabaseClient';
+import { DEFAULT_THEME_ID, normalizeThemeId } from './themeServices';
 
 export const SALON_PUBLIC_WEBSITES_TABLE = 'salon_public_websites';
 
@@ -9,28 +10,61 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** Only website-copy/theme preferences belong in the public config JSON. */
+/**
+ * The full onboarding/website draft persisted to
+ * `salon_public_websites.config`. This is OWNER-PRIVATE until the site is
+ * published (RLS on salon_public_websites keeps drafts visible only to the
+ * owning salon; only is_published=true rows are publicly readable).
+ *
+ * It is the Supabase-side authority for "refresh must not lose progress":
+ * every onboarding field (business details, template, team, gallery, socials,
+ * location/hours, contact/booking rules and the theme-scoped service/package
+ * UI cache) is included. It is JSON-serializable (it round-trips through the
+ * database) and deliberately contains no auth tokens, user ids or salon ids
+ * beyond the row's own salon_id.
+ */
 export function websiteConfigFromSalonData(data: SalonData): Partial<SalonData> {
   return {
     templateId: data.templateId,
+    salonName: data.salonName,
     tagline: data.tagline,
     ownerName: data.ownerName,
     ownerRole: data.ownerRole,
+    ownerPhotoUrl: data.ownerPhotoUrl,
+    yearsOfExperience: data.yearsOfExperience,
+    happyCustomers: data.happyCustomers,
     about: data.about,
     phone: data.phone,
     email: data.email,
     whatsappPhone: data.whatsappPhone,
     contactOptions: data.contactOptions,
     bookingRules: data.bookingRules,
+    logoUrl: data.logoUrl,
+    heroImageUrl: data.heroImageUrl,
+    heroPosition: data.heroPosition,
+    gallery: data.gallery,
     socialProfiles: data.socialProfiles,
     socialVideos: data.socialVideos,
+    disabledThemeVideoIds: data.disabledThemeVideoIds,
+    address: data.address,
+    openingHours: data.openingHours,
     announcements: data.announcements,
     holidays: data.holidays,
+    services: data.services,
+    packages: data.packages,
+    offers: data.offers,
+    team: data.team,
     websiteAppearance: data.websiteAppearance,
     brandColor: data.brandColor,
     salonNameFont: data.salonNameFont,
     salonNameColor: data.salonNameColor,
     reviewedContent: data.reviewedContent,
+    websiteCopy: data.websiteCopy,
+    metaDescription: data.metaDescription,
+    socialShareImageUrl: data.socialShareImageUrl,
+    metaTitle: data.metaTitle,
+    metaKeywords: data.metaKeywords,
+    lastCompletedStep: data.lastCompletedStep,
   };
 }
 
@@ -83,10 +117,12 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
     .maybeSingle();
   if (readError) throw new Error('Unable to check the website draft.');
 
+  const templateKey = normalizeThemeId(data.templateId) || DEFAULT_THEME_ID;
+
   if (existing) {
     const { data: saved, error } = await client
       .from(SALON_PUBLIC_WEBSITES_TABLE)
-      .update({ config, template_key: data.templateId || 'hair' })
+      .update({ config, template_key: templateKey })
       .eq('salon_id', resolution.salonId)
       .select('slug,is_published')
       .single();
@@ -94,7 +130,14 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
     return { salonId: resolution.salonId, slug: saved.slug, isPublished: saved.is_published };
   }
 
-  const slug = data.websiteSlug?.trim().toLowerCase();
+  // The owner may not have chosen a public website address yet during early
+  // onboarding. Derive a stable, unique-enough draft slug from the salon name
+  // (the owner changes it before publishing); never hardcode one.
+  const slug =
+    data.websiteSlug?.trim().toLowerCase() ||
+    suggestedWebsiteSlug(data) ||
+    slugifySalonName(data.salonName) ||
+    `salon-${resolution.salonId.slice(0, 8)}`;
   if (!isValidWebsiteSlug(slug)) {
     throw new Error('Choose a valid website slug before saving this draft.');
   }
@@ -103,7 +146,7 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
     .insert({
       salon_id: resolution.salonId,
       slug,
-      template_key: data.templateId || 'hair',
+      template_key: templateKey,
       config,
       is_published: false,
       published_at: null,

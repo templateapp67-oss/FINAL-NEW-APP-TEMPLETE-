@@ -37,14 +37,25 @@ import { getBrandBaseHost, normalizeRouteSlug } from '../src/lib/salonRouting';
  * domain (no subdomain slug) no rewrite happens at all, so `/` still serves
  * the builder app.
  */
+// Core system routes that must NEVER be rewritten to a salon slug when served
+// from a salon subdomain. Static assets and /api are excluded separately below.
 const PROTECTED_PATHS = new Set([
   '/signup',
   '/auth/callback',
+  '/auth',
+  '/login',
   '/reset-password',
   '/dashboard',
   '/builder',
   '/nearby',
+  '/www',
+  '/favicon.ico',
+  '/robots.txt',
+  '/sitemap.xml',
 ]);
+
+/** Path prefixes reserved for the platform/app, not salon sites. */
+const PROTECTED_PREFIXES = ['/api/', '/assets/', '/auth/', '/www/'];
 
 /**
  * Extracts the salon slug from a request host (subdomain routing).
@@ -83,7 +94,10 @@ export function rewriteHostPath(
   const slug = resolveHostSlug(hostname, baseHostOverride);
   if (!slug) return path;
   // Never rewrite API/static/protected client routes.
-  if (PROTECTED_PATHS.has(path) || path.startsWith('/api/') || path.startsWith('/assets/')) {
+  if (
+    PROTECTED_PATHS.has(path) ||
+    PROTECTED_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ) {
     return path;
   }
   if (path === `/${slug}` || path.startsWith(`/${slug}/`)) return path;

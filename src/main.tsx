@@ -35,7 +35,13 @@ captureReferralFromUrl();
 function ProtectedApp() {
   const { user, loading } = useAuth();
   const { openAuth } = useAuthModal();
-  if (!isSupabaseConfigured) return <App />;
+  // /dashboard and /builder both open the authenticated owner workspace;
+  // /dashboard starts on the real Salon Owner Dashboard (screen 26).
+  const initialModule =
+    window.location.pathname.replace(/\/+$/, '') === '/builder'
+      ? 'wizard'
+      : 'owner-dashboard';
+  if (!isSupabaseConfigured) return <App initialModule={initialModule} />;
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">Verifying your session…</div>;
   }
@@ -46,12 +52,13 @@ function ProtectedApp() {
           <h1 className="text-xl font-bold">Log in to open your salon workspace</h1>
           <p className="mt-2 text-sm text-gray-600">Dashboard ownership is resolved from your authenticated Supabase account and organization membership.</p>
           <button onClick={() => openAuth('login')} className="mt-5 rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white">Log in</button>
-          <a href="/" className="mt-3 block text-sm font-semibold text-gray-600">Return to public site</a>
+          <a href="/signup" className="mt-3 block text-sm font-semibold text-[#ac0053]">Create an account</a>
+          <a href="/" className="mt-2 block text-sm font-semibold text-gray-600">Return to public site</a>
         </section>
       </main>
     );
   }
-  return <App />;
+  return <App initialModule={initialModule} />;
 }
 
 /**

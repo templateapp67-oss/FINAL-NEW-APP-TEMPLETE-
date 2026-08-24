@@ -14,15 +14,14 @@ export default function TemplateSelectionDashboard({ data, setData, onSave, onTh
   const currentTemplate = normalizeThemeId(data.templateId);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
 
-  const themes = [
-    {
-      id: 'hair' as ThemeId,
-      name: 'Hair & Unisex Salon',
-      tagline: 'Refined unisex hair styling, colouring and premium beauty care.',
-      accent: '#ac0053',
-      badgeBg: 'bg-[#ffd9e1]/50 text-[#ac0053]',
-      image: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?q=80&w=600&auto=format&fit=crop',
-    },
+  const themes: Array<{
+    id: ThemeId;
+    name: string;
+    tagline: string;
+    accent: string;
+    badgeBg: string;
+    image: string;
+  }> = [
     {
       id: 'barber_mens_grooming' as ThemeId,
       name: "Barber & Men's Grooming",
@@ -68,15 +67,13 @@ export default function TemplateSelectionDashboard({ data, setData, onSave, onTh
   const handleSelect = (id: ThemeId) => {
     if (id === currentTemplate) return;
     setSwitchingId(id);
+    // Template switching is presentation only — never clear business data
+    // (services, packages, bookings, etc.). The theme-scoped UI cache is
+    // rehydrated from the database by StepServices for the active theme.
     if (onThemeChange) {
       onThemeChange(id);
     } else {
-      setData(prev => ({
-        ...prev,
-        templateId: id,
-        services: [],
-        packages: [],
-      }));
+      setData(prev => ({ ...prev, templateId: id }));
     }
     if (onSave) {
       onSave(`Website theme switched to ${themes.find(t => t.id === id)?.name || id}`);

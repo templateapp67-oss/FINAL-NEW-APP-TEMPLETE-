@@ -380,6 +380,34 @@ for (const source of templates) {
 assert.equal(transitionCount, 25);
 ok('all 25 template transitions keep the same public URL and business data');
 
+// Exact release journey: publish → public URL → refresh → direct open →
+// Template 1 to Template 4 → reopen the SAME URL.
+await asRole('authenticated', ids.ownerA, async () => {
+  await db.query(`select * from public.set_owner_salon_template('barber_mens_grooming')`);
+});
+const openPublicUrl = async () => asRole('anon', '', async () => (
+  await db.query(`select slug,template_key,business_name,public_config,published_at
+    from public.get_public_salon_website('nexora-salon')`)
+).rows[0]);
+const firstOpen = await openPublicUrl();
+const refreshedOpen = await openPublicUrl();
+const directOpen = await openPublicUrl();
+for (const opened of [firstOpen, refreshedOpen, directOpen]) {
+  assert.equal(opened.slug, 'nexora-salon');
+  assert.equal(opened.template_key, 'barber_mens_grooming');
+  assert.equal(opened.business_name, 'Nexora Salon');
+  assert.deepEqual(opened.public_config, firstOpen.public_config);
+}
+await asRole('authenticated', ids.ownerA, async () => {
+  await db.query(`select * from public.set_owner_salon_template('family_full_service')`);
+});
+const reopenedAfterTemplateChange = await openPublicUrl();
+assert.equal(reopenedAfterTemplateChange.slug, 'nexora-salon');
+assert.equal(reopenedAfterTemplateChange.template_key, 'family_full_service');
+assert.equal(reopenedAfterTemplateChange.business_name, 'Nexora Salon');
+assert.deepEqual(reopenedAfterTemplateChange.public_config, firstOpen.public_config);
+ok('publish → URL → refresh → direct open → Template 1→4 → same URL lifecycle');
+
 await asRole('authenticated', ids.ownerA, async () => {
   const republished = (await db.query(`select * from public.publish_owner_salon_website(
     'changed-client-value','barber_mens_grooming','{"salonName":"Renamed Display"}'::jsonb

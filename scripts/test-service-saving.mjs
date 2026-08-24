@@ -211,13 +211,16 @@ await test('refresh load and management RPCs never accept relationship or tenant
   }
 });
 
-await test('theme switching clears snapshots, selections, forms, and stale saved data', async () => {
+await test('theme switching preserves business data while resetting transient service UI', async () => {
   const app = await readFile('src/App.tsx', 'utf8');
   const services = await readFile('src/screens/StepServices.tsx', 'utf8');
   assert.equal(app.includes('themeServiceSnapshots'), false);
+  assert.ok(app.includes('setOwnerTemplate(nextTheme)'));
   assert.ok(app.includes('templateId: nextTheme'));
-  assert.ok(app.includes('services: []'));
-  assert.ok(app.includes('packages: []'));
+  assert.doesNotMatch(app, /templateId:\s*nextTheme[^}]*services:\s*\[\]/,
+    'template update must not clear services');
+  assert.doesNotMatch(app, /templateId:\s*nextTheme[^}]*packages:\s*\[\]/,
+    'template update must not clear packages');
   assert.ok(services.includes('setLoadedCatalog(null)'));
   assert.ok(services.includes('setSelectedSuggested([])'));
   assert.ok(services.includes("setSuggestedFilter('All')"));

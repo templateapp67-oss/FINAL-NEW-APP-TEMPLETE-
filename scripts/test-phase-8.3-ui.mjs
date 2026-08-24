@@ -284,15 +284,13 @@ for (const theme of THEMES) {
 // ===========================================================================
 // PART 2 — THEME SWITCHING IN THE RENDERED UI
 // ===========================================================================
-runner.section('UI THEME SWITCHING (Existing → 5 → 5 → Existing)');
+runner.section('UI THEME SWITCHING (all current templates, repeated)');
 
 const SWITCH_SEQUENCE = [
-  'hair',
   'barber_mens_grooming', 'hair_studio_color_bar', 'beauty_skin_spa',
   'family_full_service', 'nail_lash_studio',
   'barber_mens_grooming', 'hair_studio_color_bar', 'beauty_skin_spa',
   'family_full_service', 'nail_lash_studio',
-  'hair',
 ];
 
 await runner.test('every switch renders only the new theme (no stale UI state)', async () => {
@@ -360,29 +358,6 @@ await runner.test('every switch renders only the new theme (no stale UI state)',
 
     previous = { themeId, categories: expectedCategories, chips: expectedChips };
   }
-});
-
-await runner.test('Existing theme keeps its local (non-database) behaviour', async () => {
-  const local = [{
-    id: 'local-1', name: 'Existing Local Service', category: 'Haircut',
-    description: 'Held in memory only.', price: 500, duration: 40,
-  }];
-  await mountFor('hair', local);
-
-  // Local rows render immediately — the DB guard must not hide them.
-  assert.ok(bodyText().includes('Existing Local Service'),
-    'Existing theme lost its local service');
-  assert.ok(/MY SERVICES \(1\)/.test(bodyText()));
-
-  // Its own suggested chips are shown, not a database theme's.
-  const chips = suggestedChips().map((b) => b.textContent.trim());
-  assert.deepEqual(chips, SUGGESTED_SERVICE_NAMES.hair);
-
-  // Nothing was written to the database for this theme.
-  const rows = await harness.admin(
-    `select count(*)::int c from public.services where business_id=$1 and name=$2`,
-    [IDS.businessA, 'Existing Local Service']);
-  assert.equal(rows.rows[0].c, 0, 'Existing theme must not persist to the database');
 });
 
 await runner.test('a returning visit re-hydrates saved services from the database', async () => {

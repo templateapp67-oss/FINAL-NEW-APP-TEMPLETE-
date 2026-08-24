@@ -49,16 +49,33 @@ function read(p) { return readFileSync(resolve(ROOT, p), 'utf8'); }
 
 {
   const login = read('src/components/LoginModal.tsx');
-  if (login.includes('completeOwnerAuthSession') && login.includes('enterOwnerDashboard')) {
-    pass('Login completes owner session then opens /dashboard');
-  } else fail('Login flow', 'missing session complete / dashboard enter');
+  if (login.includes('completeOwnerAuthSession') && login.includes('enterOwnerWorkspace')) {
+    pass('Login completes owner session then opens workspace');
+  } else fail('Login flow', 'missing session complete / workspace enter');
 }
 
 {
   const signup = read('src/components/SignUpPage.tsx');
-  if (signup.includes('signUpWithPassword') && signup.includes('salonName') && signup.includes('enterOwnerDashboard')) {
-    pass('Sign-up page provisions owner and enters dashboard');
+  if (signup.includes('signUpWithPassword') && signup.includes('salonName') && signup.includes('enterOwnerWorkspace')) {
+    pass('Sign-up page provisions owner and enters workspace');
   } else fail('Signup page', 'missing provision/redirect');
+}
+
+{
+  const session = read('src/lib/ownerSession.ts');
+  if (session.includes('OWNER_ONBOARDING_PATH') && session.includes("'/builder'") && session.includes('isPublished')) {
+    pass('Unpublished owners are sent to /builder onboarding');
+  } else fail('First-login route', 'missing unpublished → /builder');
+  if (session.includes('resumeWizardStep')) {
+    pass('Resume helper exists for lastCompletedStep');
+  } else fail('Resume', 'missing resumeWizardStep');
+}
+
+{
+  const app = read('src/App.tsx');
+  if (app.includes('resumeWizardStep') && app.includes('lastCompletedStep')) {
+    pass('App resumes wizard from saved lastCompletedStep');
+  } else fail('App resume', 'does not resume from DB lastCompletedStep');
 }
 
 {

@@ -34,6 +34,7 @@ import { loadOwnerWebsiteDraft, saveOwnerWebsiteDraft } from './lib/salonWebsite
 import { resolveOrProvisionOwnerSalon, setOwnerTemplate } from './lib/ownerProvisioning';
 import { switchSalonTemplatePresentation } from './lib/templateConfig';
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
+import { resumeWizardStep } from './lib/ownerSession';
 
 const STORAGE_KEY = 'nexora_onboarding_state';
 const DASHBOARD_TAB_KEY = 'nexora_dashboard_tab';
@@ -154,6 +155,25 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     setActiveModule('wizard');
     setStep(0);
   }, [authLoading, user]);
+
+  // First login: skip marketing hero. Resume Business Setup from
+  // salon_public_websites.config.lastCompletedStep. Unpublished owners stay
+  // in the wizard even if they opened /dashboard.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    if (backendHydratedFor.current !== user.id && isSupabaseConfigured) return;
+    const published = data.publishState === 'published' && !!data.publishedUrl;
+    if (published && initialModule === 'owner-dashboard') {
+      setActiveModule('owner-dashboard');
+      return;
+    }
+    if (!published) {
+      setActiveModule('wizard');
+      const resumeAt = resumeWizardStep(data.lastCompletedStep);
+      setStep((current) => (current === 0 || current < resumeAt ? resumeAt : current));
+      if ((data.lastCompletedStep || 0) > 0) setShowResumeBanner(true);
+    }
+  }, [authLoading, user, backendHydratedUser, data.lastCompletedStep, data.publishState, data.publishedUrl, initialModule]);
 
   // PHASE 1 — ensure the authenticated owner has a salon. A brand-new owner has
   // an auth.users + profiles row but no organization / owner membership / salon

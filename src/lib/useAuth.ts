@@ -213,11 +213,11 @@ export async function resendConfirmationEmail(
   }
 }
 
-export async function signInWithGoogle(next = '/dashboard'): Promise<{ error: string | null }> {
+export async function signInWithGoogle(next = '/builder'): Promise<{ error: string | null }> {
   if (!supabase || typeof window === 'undefined') {
     return { error: 'Authentication is not configured.' };
   }
-  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard';
+  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/builder';
   const redirectTo = oauthRedirect(safeNext);
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',

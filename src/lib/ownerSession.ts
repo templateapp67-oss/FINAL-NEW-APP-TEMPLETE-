@@ -19,8 +19,18 @@ import {
   type OwnerTemplateKey,
 } from './ownerProvisioning';
 import { suggestedWebsiteSlug } from './publicWebsiteUrl';
+import { loadOwnerWebsiteDraft } from './salonWebsiteService';
 
 export const OWNER_DASHBOARD_PATH = '/dashboard';
+export const OWNER_ONBOARDING_PATH = '/builder';
+
+/** Wizard index after login: Business Setup is step 1 (Hero is only for signed-out). */
+export function resumeWizardStep(lastCompletedStep?: number): number {
+  const done = typeof lastCompletedStep === 'number' && Number.isFinite(lastCompletedStep)
+    ? lastCompletedStep
+    : 0;
+  return Math.min(12, Math.max(1, Math.floor(done) + 1));
+}
 
 export interface OwnerAuthSession {
   userId: string;
@@ -37,9 +47,26 @@ export function isOwnerWorkspacePath(pathname?: string): boolean {
 
 /** Navigate to the real owner workspace after a live Supabase session exists. */
 export function enterOwnerDashboard(): void {
+  void enterOwnerWorkspace();
+}
+
+/**
+ * Sign Up → Login → Business Setup → Template → Customize → Preview → Publish.
+ * Unpublished owners open /builder. Published owners open /dashboard.
+ */
+export async function enterOwnerWorkspace(): Promise<void> {
   if (typeof window === 'undefined') return;
-  if (isOwnerWorkspacePath()) return;
-  window.location.assign(OWNER_DASHBOARD_PATH);
+  let published = false;
+  try {
+    const draft = await loadOwnerWebsiteDraft();
+    published = draft?.isPublished === true;
+  } catch {
+    published = false;
+  }
+  const target = published ? OWNER_DASHBOARD_PATH : OWNER_ONBOARDING_PATH;
+  const here = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (here === target) return;
+  window.location.assign(target);
 }
 
 export async function requireAuthenticatedUser(): Promise<{

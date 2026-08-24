@@ -34,7 +34,7 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { safeSetItem } from '../lib/safeStorage';
-import { completeOwnerAuthSession, enterOwnerDashboard } from '../lib/ownerSession';
+import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
 
 export default function SignUpPage() {
   const [salonName, setSalonName] = useState('');
@@ -147,9 +147,15 @@ export default function SignUpPage() {
         return;
       }
       setPassword('');
-      setNotice(
-        'Your account is ready. You can now log in to open your salon workspace.',
-      );
+      const session = await completeOwnerAuthSession({
+        salonName: salonName.trim() || undefined,
+      });
+      if ('error' in session) {
+        setError(session.error);
+        return;
+      }
+      setNotice('Opening business setup…');
+      await enterOwnerWorkspace();
     } catch (err: any) {
       setBusy(false);
       setError(err?.message || 'An unexpected error occurred. Please try again.');

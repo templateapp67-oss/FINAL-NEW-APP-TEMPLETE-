@@ -23,7 +23,7 @@ import {
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
-import { completeOwnerAuthSession, enterOwnerDashboard } from '../lib/ownerSession';
+import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
 import { safeGetItem } from '../lib/safeStorage';
 
 /**
@@ -156,7 +156,7 @@ export default function LoginModal({
   const handleGoogle = async () => {
     setBusy(true);
     setError(null);
-    const result = await signInWithGoogle('/dashboard');
+    const result = await signInWithGoogle('/builder');
     if (result.error) {
       setBusy(false);
       setError(result.error);
@@ -211,7 +211,7 @@ export default function LoginModal({
         }
         onSignedIn?.();
         onClose();
-        enterOwnerDashboard();
+        await enterOwnerWorkspace();
         return;
       }
 
@@ -249,7 +249,7 @@ export default function LoginModal({
       }
       onSignedIn?.();
       onClose();
-      enterOwnerDashboard();
+      await enterOwnerWorkspace();
     } catch (err: any) {
       setBusy(false);
       setError(err?.message || 'An unexpected error occurred. Please try again.');

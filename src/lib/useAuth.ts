@@ -135,6 +135,7 @@ export async function signInWithPassword(
 export async function signUpWithPassword(
   email: string,
   password: string,
+  extras?: { salonName?: string },
 ): Promise<{ error: string | null; needsConfirmation: boolean }> {
   if (!supabase) {
     return {
@@ -144,10 +145,19 @@ export async function signUpWithPassword(
   }
   try {
     const emailRedirectTo = signupConfirmationRedirect();
+    const salonName = extras?.salonName?.trim().slice(0, 120);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo },
+      options: {
+        emailRedirectTo,
+        // handle_new_user() reads signup_role. Owner pages request business_user.
+        // Admin/staff cannot be self-assigned (normalize_platform_role).
+        data: {
+          signup_role: 'business_user',
+          ...(salonName ? { full_name: salonName, salon_name: salonName } : {}),
+        },
+      },
     });
     if (error) {
       console.error('Sign-up failed:', error);

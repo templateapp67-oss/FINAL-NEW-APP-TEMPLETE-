@@ -14,7 +14,7 @@ export default function HeroSplit({ onNext }: { onNext: () => void }) {
       openAuth('login');
       return;
     }
-    onNext();
+    window.location.assign('/dashboard');
   };
   return (
     <div className="min-h-screen bg-[#f9f8f6] flex flex-col font-sans overflow-hidden">

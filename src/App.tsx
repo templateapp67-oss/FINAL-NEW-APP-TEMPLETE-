@@ -462,22 +462,18 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   );
 
   useEffect(() => {
-    if (
-      (activeModule === 'dashboard' || activeModule === 'owner-dashboard') &&
-      !hasAuthoritativePublishState
-    ) {
-      setActiveModule('wizard');
+    // Marketing dashboard (screens 18–25) still requires a published site.
+    // The authenticated owner dashboard is session-owned and must open after
+    // login even before the owner finishes the public-site publish wizard.
+    if (activeModule === 'dashboard' && !hasAuthoritativePublishState) {
+      setActiveModule(initialModule === 'owner-dashboard' ? 'owner-dashboard' : 'wizard');
     }
-  }, [activeModule, hasAuthoritativePublishState]);
+  }, [activeModule, hasAuthoritativePublishState, initialModule]);
 
   const changeActiveModule = (nextModule: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard') => {
-    if (
-      (nextModule === 'dashboard' || nextModule === 'owner-dashboard') &&
-      !hasAuthoritativePublishState
-    ) {
-      setActiveModule('wizard');
-      setStep(Math.min(step, 12));
-      showToast('Publish your website successfully before opening the dashboard.');
+    if (nextModule === 'dashboard' && !hasAuthoritativePublishState) {
+      setActiveModule('owner-dashboard');
+      showToast('Open your salon workspace. Publish later to unlock the public-site dashboard.');
       return;
     }
     setActiveModule(nextModule);
@@ -553,7 +549,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // PHASE 17.1 — SALON OWNER DASHBOARD (screen 26). Rendered inside the same
   // app chrome as every other module; it resolves its own salon from the
   // authenticated session and never receives a salon id from here.
-  if (activeModule === 'owner-dashboard' && hasAuthoritativePublishState) {
+  if (activeModule === 'owner-dashboard' && (!isSupabaseConfigured || !!user)) {
     return (
       <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
         <TopBar
@@ -690,7 +686,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       <main className="flex-1 flex overflow-hidden">
         <>
           {/* Complete Business Setup */}
-          {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
           {step === 2 && <StepServices data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 3 && (
             <StepTeam

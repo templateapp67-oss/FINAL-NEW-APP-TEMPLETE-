@@ -34,6 +34,7 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { safeSetItem } from '../lib/safeStorage';
+import { completeOwnerAuthSession, enterOwnerDashboard } from '../lib/ownerSession';
 
 export default function SignUpPage() {
   const [salonName, setSalonName] = useState('');
@@ -108,7 +109,9 @@ export default function SignUpPage() {
     setNotice(null);
 
     try {
-      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password);
+      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password, {
+        salonName: salonName.trim() || undefined,
+      });
       setBusy(false);
       if (err) {
         setError(err);

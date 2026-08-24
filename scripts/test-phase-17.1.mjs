@@ -245,14 +245,11 @@ await test('retry is offered only for transient failures', () => {
   assert.equal(ownerDashboardCanRetry('ambiguous'), false);
 });
 
-await test('loadOwnerDashboardContext falls back to the dev preview when Supabase is unconfigured', async () => {
+await test('loadOwnerDashboardContext refuses a fake salon when Supabase is unconfigured', async () => {
   setSupabaseConfiguredForTests(null);
   const context = await loadOwnerDashboardContext();
-  // Phase 17.1 deliberately ships a mock authorized salon for development
-  // preview when no backend is linked; the real refusal path is exercised
-  // through mapOwnerSalonResolution('not-configured') above.
-  assert.equal(context.access, 'authorized');
-  assert.ok(context.salon && context.salon.id === 'mock-salon-123');
+  assert.equal(context.access, 'not-configured');
+  assert.equal(context.salon, null);
   setSupabaseConfiguredForTests(true);
 });
 

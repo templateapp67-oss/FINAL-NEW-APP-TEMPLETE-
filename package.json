@@ -148,6 +148,7 @@
     "test:owner-session-persistence": "tsx scripts/test-owner-session-persistence.mjs",
     "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",
     "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
+    "test:public-template-rendering": "tsx scripts/test-public-template-rendering.mjs",
     "test:public-security": "tsx scripts/test-public-access-security.mjs"
   },
   "dependencies": {

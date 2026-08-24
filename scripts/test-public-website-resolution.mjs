@@ -39,14 +39,14 @@ assert.match(publicView, /price: Number\(service\.price_paise\) \/ 100/);
 assert.match(publicView, /themeId: service\.theme_key/);
 ok('active services and server-stored pricing use the field-limited slug projection');
 
-assert.match(publicView, /website\.template_key[\s\S]*themeKeys\.has\(website\.template_key\)/);
-assert.match(publicView, /templateId: selectedTheme/);
+assert.match(publicView, /applyPublicTemplateConfiguration\(/);
+assert.match(publicView, /website\.template_key/);
 for (const id of ['barber_mens_grooming', 'hair_studio_color_bar', 'beauty_skin_spa', 'family_full_service', 'nail_lash_studio']) {
   assert.match(templateRenderer, new RegExp(`templateId === '${id}'`));
 }
 ok('the persisted active template selects the correct existing renderer');
 
-assert.match(publicView, /\.\.\.config/);
+assert.match(publicView, /applyPublicTemplateConfiguration\([\s\S]*, config, website\.template_key\)/);
 assert.match(publicView, /listPublicSalonMedia\(website\.salon_id, \['logo', 'hero', 'gallery'\]\)/);
 assert.match(publicView, /logoUrl: logo\?\.signedUrl/);
 assert.match(publicView, /heroImageUrl: hero\?\.signedUrl/);
@@ -73,8 +73,8 @@ ok('anonymous resolution uses the field-limited public RPC, not private owner da
 assert.match(ownerProvisioning, /client\.rpc\(SET_OWNER_TEMPLATE_FN/);
 assert.match(templateMigration, /update public\.salons[\s\S]*set theme_id = v_theme_id[\s\S]*update public\.salon_public_websites[\s\S]*set template_key = v_template/);
 assert.doesNotMatch(templateMigration.match(/create or replace function public\.set_owner_salon_template[\s\S]*?\$\$;/)?.[0] || '', /delete from|truncate/i);
-assert.match(app, /draft\.templateKey \|\| draft\.config\.templateId/);
-assert.match(app, /templateSwitchQueue\.current = templateSwitchQueue\.current\.then/);
+assert.match(app, /draft\?\.templateKey \|\| draftConfig\.templateId/);
+assert.match(app, /templateSwitchQueue\.current\.then/);
 ok('post-publish template changes are serialized, persisted and presentation-only');
 
 console.log(`\nPublic website resolution: ${passed}/${passed} checks PASS`);

@@ -42,7 +42,8 @@ assert.match(app, /stale localStorage from bypassing the Login stage/);
 ok('cached steps and navigator cannot bypass configured authentication');
 
 assert.match(app, /hasAuthoritativePublishState/);
-assert.match(app, /Publish your website successfully before opening the dashboard/);
+assert.match(app, /Marketing dashboard \(screens 18–25\) still requires a published site/);
+assert.match(app, /Publish later to unlock the public-site dashboard/);
 assert.doesNotMatch(app, /data=\{\{[\s\S]{0,200}publishState: 'published'/);
 ok('dashboard access is not manufactured from local draft state');
 
@@ -64,8 +65,8 @@ assert.doesNotMatch(success, /suggestedWebsiteSlug|publicWebsiteUrl\(/);
 assert.match(success, /Never synthesize a success URL from draft data/);
 ok('success screen has no generated draft URL fallback');
 
-assert.match(app, /publishedUrl: draft\.isPublished && draft\.slug/);
-assert.match(app, /publishState: draft\.isPublished \? 'published' : 'draft'/);
+assert.match(app, /publishedUrl: draft\?\.isPublished && draft\.slug/);
+assert.match(app, /publishState: draft\?\.isPublished \? 'published' : 'draft'/);
 ok('refresh hydrates publish status and URL from Supabase');
 
 assert.match(publish, /setPublishError\(message\)/);

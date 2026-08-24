@@ -244,6 +244,7 @@ export async function updatePassword(password: string): Promise<{ error: string 
 }
 
 export async function signOut(): Promise<void> {
+  clearOwnerBrowserWorkspaceCache();
   if (!supabase) return;
   try {
     await supabase.auth.signOut();

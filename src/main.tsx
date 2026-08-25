@@ -37,8 +37,9 @@ function ProtectedApp() {
   const { openAuth } = useAuthModal();
   // /dashboard and /builder both open the authenticated owner workspace;
   // /dashboard starts on the real Salon Owner Dashboard (screen 26).
+  const protectedPath = window.location.pathname.replace(/\/+$/, '');
   const initialModule =
-    window.location.pathname.replace(/\/+$/, '') === '/builder'
+    protectedPath === '/builder' || protectedPath.startsWith('/builder/')
       ? 'wizard'
       : 'owner-dashboard';
   if (!isSupabaseConfigured) return <App initialModule={initialModule} />;
@@ -51,7 +52,10 @@ function ProtectedApp() {
         <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
           <h1 className="text-xl font-bold">Log in to open your salon workspace</h1>
           <p className="mt-2 text-sm text-gray-600">Dashboard ownership is resolved from your authenticated Supabase account and organization membership.</p>
-          <button onClick={() => openAuth('login')} className="mt-5 rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white">Log in</button>
+          <button
+            onClick={() => openAuth('login', { accountIntent: 'owner', returnTo: protectedPath || '/dashboard' })}
+            className="mt-5 rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
+          >Log in</button>
           <a href="/signup" className="mt-3 block text-sm font-semibold text-[#ac0053]">Create an account</a>
           <a href="/" className="mt-2 block text-sm font-semibold text-gray-600">Return to public site</a>
         </section>
@@ -123,7 +127,12 @@ function RootRouter() {
         setLoading(false);
         return;
       }
-      if (pathname === '/dashboard' || pathname === '/builder') {
+      if (
+        pathname === '/dashboard'
+        || pathname === '/builder'
+        || pathname.startsWith('/dashboard/')
+        || pathname.startsWith('/builder/')
+      ) {
         setRoute('protected_app');
         setLoading(false);
         return;

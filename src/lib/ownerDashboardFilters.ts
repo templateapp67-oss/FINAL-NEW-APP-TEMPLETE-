@@ -42,7 +42,7 @@ export type OwnerFilterOptionsResult =
   | { ok: false; reason: BookingManagePermission };
 
 const BOOKING_STATUS_ORDER: BookingStatus[] = [
-  'pending_payment', 'confirmed', 'pay_at_salon', 'completed', 'cancelled', 'failed',
+  'pending_payment', 'confirmed', 'pay_at_salon', 'completed', 'cancelled', 'no_show', 'failed',
 ];
 const PAYMENT_STATUS_ORDER: PaymentStatus[] = [
   'paid', 'pending', 'unpaid', 'failed', 'cancelled', 'refunded',

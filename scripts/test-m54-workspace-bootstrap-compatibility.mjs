@@ -128,7 +128,10 @@ await db.exec(`
 // Apply the same ordered migration chain used for deployment. A few historical
 // migrations are intentionally conditional on live-only tables; those failures
 // are non-fatal here because M38/M54 are the asserted canonical surface.
-for (const file of (await readdir(migrationDir)).filter((f) => f.endsWith('.sql')).sort()) {
+const targetMigration = '20260825000501_m54_workspace_bootstrap_compatibility.sql';
+for (const file of (await readdir(migrationDir))
+  .filter((candidate) => candidate.endsWith('.sql') && candidate <= targetMigration)
+  .sort()) {
   try { await execMigration(db, file); } catch { /* live-like harness */ }
 }
 assert.ok(

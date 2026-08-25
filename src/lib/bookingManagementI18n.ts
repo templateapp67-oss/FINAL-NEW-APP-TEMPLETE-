@@ -46,6 +46,7 @@ const EN = {
   'status.pay_at_salon': 'Confirmed · Pay at salon',
   'status.completed': 'Completed',
   'status.cancelled': 'Cancelled',
+  'status.no_show': 'No-show',
   'status.failed': 'Payment failed',
 
   'payment.paid': 'Paid',
@@ -108,6 +109,7 @@ const HI: Record<keyof typeof EN, string> = {
   'status.pay_at_salon': 'पक्की · सैलून पर भुगतान',
   'status.completed': 'पूर्ण',
   'status.cancelled': 'रद्द',
+  'status.no_show': 'उपस्थित नहीं',
   'status.failed': 'भुगतान विफल',
 
   'payment.paid': 'भुगतान हुआ',

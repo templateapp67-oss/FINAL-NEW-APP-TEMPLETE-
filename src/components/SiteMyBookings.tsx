@@ -44,6 +44,7 @@ import { useAuth } from '../lib/useAuth';
 import { useAuthModal } from './AuthModalProvider';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { fetchCustomerBookings, cancelCustomerBooking as apiCancelCustomerBooking, type CustomerBookingItem } from '../lib/authoritativeBooking';
+import { publicSalonAuthContinuation } from '../lib/authRedirect';
 
 interface Props {
   themeId: SiteHeaderThemeId;
@@ -62,6 +63,10 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
 
   const { user } = useAuth();
   const { openAuth } = useAuthModal();
+  const openCustomerAuth = (mode: 'login' | 'signup') => openAuth(mode, {
+    accountIntent: 'customer',
+    returnTo: publicSalonAuthContinuation(data.websiteSlug),
+  });
 
   const [version, setVersion] = useState(0);
   const [retry, setRetry] = useState(0);
@@ -232,7 +237,7 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
             <button
               type="button"
               data-testid="my-bookings-login-btn"
-              onClick={() => openAuth('login')}
+              onClick={() => openCustomerAuth('login')}
               className="text-[10px] font-bold px-2.5 py-1 rounded-md border inline-flex items-center gap-1"
               style={{ borderColor: s.accent, color: s.accent }}
             >
@@ -242,7 +247,7 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
             <button
               type="button"
               data-testid="my-bookings-signup-btn"
-              onClick={() => openAuth('signup')}
+              onClick={() => openCustomerAuth('signup')}
               className="text-[10px] font-bold px-2.5 py-1 rounded-md border inline-flex items-center gap-1"
               style={{ borderColor: s.accent, color: s.accent }}
             >

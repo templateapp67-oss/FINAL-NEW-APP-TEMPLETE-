@@ -83,12 +83,14 @@ async function runAllTests() {
     assert.ok(loginModalSrc.includes('setUnconfirmedEmail(mail)'), 'Unconfirmed email is not captured for the panel');
   });
 
-  await test('AuthCallbackPage celebrates a confirmed email instead of failing', () => {
+  await test('AuthCallbackPage distinguishes a validated signup callback from an authenticated session', () => {
     const callbackSrc = fs.readFileSync('src/components/AuthCallbackPage.tsx', 'utf8');
     assert.ok(callbackSrc.includes('Email confirmed!'), 'Missing email-confirmed success state');
-    assert.ok(callbackSrc.includes('email_confirmed_at'), 'Missing email_confirmed_at check');
+    assert.ok(callbackSrc.includes("context.codePresent && context.flow === 'signup'"), 'Missing validated signup-code fallback');
     assert.ok(callbackSrc.includes("Log in to your dashboard"), 'Missing dashboard CTA after confirmation');
-    assert.ok(callbackSrc.includes('/code verifier|pkce/i'), 'Missing cross-origin PKCE confirmation fallback');
+    assert.ok(/PKCE verifier/i.test(callbackSrc), 'Missing cross-origin PKCE confirmation fallback');
+    assert.ok(callbackSrc.includes('if (session)'), 'Missing shared-session success path');
+    assert.ok(!callbackSrc.includes('exchangeCodeForSession('), 'Callback page must not perform a second PKCE exchange');
   });
 
   await test('Email links use a stable public origin instead of localhost or preview hosts', async () => {
@@ -97,7 +99,7 @@ async function runAllTests() {
     const useAuthSrc = fs.readFileSync('src/lib/useAuth.ts', 'utf8');
     assert.ok(redirectSrc.includes('VITE_AUTH_REDIRECT_ORIGIN'), 'Missing auth redirect origin override');
     assert.ok(redirectSrc.includes("hostname.endsWith('.e2b.app')"), 'Arena preview hosts are not detected');
-    assert.ok(useAuthSrc.includes('signupConfirmationRedirect()'), 'Signup does not use stable redirect helper');
+    assert.ok(useAuthSrc.includes('signupConfirmationRedirect('), 'Signup does not use stable redirect helper');
     assert.ok(useAuthSrc.includes('options: { emailRedirectTo }'), 'Resend/signup redirect is not passed to Supabase');
     assert.ok(mainSrc.includes("pathname === '/' && hasAuthResponse"), 'Root Site URL auth fallback is not routed');
 
@@ -128,7 +130,7 @@ async function runAllTests() {
 
   await test('One root-level auth provider owns the modal across every screen', () => {
     assert.ok(mainSrc.includes('<AuthModalProvider>'), 'App is not wrapped in AuthModalProvider');
-    assert.ok(providerSrc.includes('<LoginModal open={open}'), 'Provider does not render LoginModal');
+    assert.ok(providerSrc.includes('<LoginModal') && providerSrc.includes('open={open}'), 'Provider does not render LoginModal');
     assert.ok(providerSrc.includes('setOpen(true)'), 'Provider cannot open the dialog');
     assert.ok(providerSrc.includes('setOpen(false)'), 'Provider cannot close the dialog');
   });

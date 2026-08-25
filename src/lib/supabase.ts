@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { NEXORA_PROJECT_REF } from '../../shared/supabaseProject';
+export { NEXORA_PROJECT_REF } from '../../shared/supabaseProject';
 
 /**
  * NEXORA SHARED SUPABASE CLIENT (single browser client — the only one).
@@ -18,8 +20,6 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  * browsers). No service_role key, no private secret, no token/password handling
  * lives here.
  */
-
-export const NEXORA_PROJECT_REF = 'qwaehqsmodekbgvnaavz';
 
 /**
  * Universal Nexora auth storage key. PKCE verifier + session are persisted

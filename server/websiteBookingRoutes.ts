@@ -446,13 +446,34 @@ export async function handleWebsiteBookingsList(request: Request, response: Resp
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(salonId)) {
       return sendError(response, 400, 'A valid salonId is required.');
     }
-    const { data, error } = await getSupabaseAdmin().rpc('get_website_bookings', { p_salon_id: salonId });
+    const { data, error } = await getSupabaseAdmin().rpc('get_website_bookings_for_actor', {
+      p_actor_user_id: user.id,
+      p_salon_id: salonId,
+    });
     if (error) throw error;
     response.json({ bookings: Array.isArray(data) ? data : [], viewerId: user.id });
   } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
-    sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to load bookings.');
+    const dbError = error && typeof error === 'object'
+      ? error as { code?: string; message?: string; details?: string; hint?: string }
+      : {};
+    const message = dbError.message || (error instanceof Error ? error.message : '');
+    const status = /bearer|session|authenticat/i.test(message) || dbError.code === '28000'
+      ? 401 : dbError.code === '42501' ? 403 : dbError.code === 'P0003' ? 409 : 500;
+    if (status === 500) {
+      console.error('Website booking list failed', {
+        operation: 'get_website_bookings_for_actor',
+        source: 'supabase',
+        code: dbError.code || null,
+        message: message || 'Unknown database error',
+        details: dbError.details || null,
+        hint: dbError.hint || null,
+      });
+    }
+    sendError(response, status,
+      status === 401 ? 'Authentication required.'
+        : status === 403 ? 'Permission denied for this salon.'
+          : status === 409 ? 'Multiple salons are linked to this account. Select one first.'
+            : 'Unable to load bookings.');
   }
 }
 

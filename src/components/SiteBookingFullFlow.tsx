@@ -21,6 +21,7 @@ import { createBookingAndPay } from '../lib/authoritativeBooking';
 import { useAuthModal } from './AuthModalProvider';
 import { useAuth } from '../lib/useAuth';
 import { formatCurrency } from '../lib/pricing';
+import { publicSalonAuthContinuation } from '../lib/authRedirect';
 import { CheckCircle2, Copy, Download, Calendar, Clock, CreditCard, IndianRupee, Shield, Building2, User, Phone, Mail, Bookmark, Receipt } from 'lucide-react';
 
 /**
@@ -244,6 +245,10 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
   const idempotencyKey = useRef<string | null>(null);
   const { user } = useAuth();
   const { openAuth } = useAuthModal();
+  const openCustomerAuth = (mode: 'login' | 'signup') => openAuth(mode, {
+    accountIntent: 'customer',
+    returnTo: publicSalonAuthContinuation(data.websiteSlug),
+  });
 
   // Calculate total and 25% advance for display
   const totalAmount = useMemo(() => {
@@ -265,7 +270,7 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
     }
     if (!user) {
       setError('Please log in or create an account to secure your booking.');
-      openAuth('login');
+      openCustomerAuth('login');
       return;
     }
     const [year, month, day] = summary.dateKey.split('-').map(Number);
@@ -335,8 +340,8 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
             <p className="font-bold mb-2">Customer Account Required</p>
             <p className="mb-3">Please log in or sign up with Supabase Auth to track and manage your booking.</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => openAuth('login')} className="px-3 py-1.5 bg-[#ac0053] text-white font-bold rounded-lg text-xs">Log in</button>
-              <button type="button" onClick={() => openAuth('signup')} className="px-3 py-1.5 bg-white border border-gray-300 font-bold rounded-lg text-xs text-gray-800">Sign up</button>
+              <button type="button" onClick={() => openCustomerAuth('login')} className="px-3 py-1.5 bg-[#ac0053] text-white font-bold rounded-lg text-xs">Log in</button>
+              <button type="button" onClick={() => openCustomerAuth('signup')} className="px-3 py-1.5 bg-white border border-gray-300 font-bold rounded-lg text-xs text-gray-800">Sign up</button>
             </div>
           </div>
         )}
@@ -345,7 +350,7 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
           <div role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
             <p>{error}</p>
             {/auth|log in|session/i.test(error) && (
-              <button type="button" onClick={() => openAuth('login')} className="mt-2 font-bold underline">Log in to continue</button>
+              <button type="button" onClick={() => openCustomerAuth('login')} className="mt-2 font-bold underline">Log in to continue</button>
             )}
           </div>
         )}

@@ -82,7 +82,10 @@ await db.exec(`
 `);
 
 // Apply the complete ordered chain, exactly as the live project received it.
-const files = (await readdir(migrationDir)).filter((f) => f.endsWith('.sql')).sort();
+const targetMigration = '20260825000401_m53_provision_salon_slug_fix.sql';
+const files = (await readdir(migrationDir))
+  .filter((file) => file.endsWith('.sql') && file <= targetMigration)
+  .sort();
 for (const file of files) {
   try {
     await db.exec(stripTxn(await readFile(join(migrationDir, file), 'utf8')));

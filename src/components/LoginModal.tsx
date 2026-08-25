@@ -26,6 +26,7 @@ import { isSupabaseConfigured, supabaseConfigError } from '../lib/supabaseClient
 import { readStoredReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
+import { safeAuthContinuation, type AuthAccountIntent } from '../lib/authRedirect';
 
 /**
  * Sign in / sign up against the existing Supabase Auth (email + password,
@@ -42,6 +43,8 @@ export interface LoginModalProps {
   onClose: () => void;
   onSignedIn?: () => void;
   initialMode?: AuthMode;
+  accountIntent?: AuthAccountIntent;
+  returnTo?: string;
 }
 
 export default function LoginModal({
@@ -49,6 +52,8 @@ export default function LoginModal({
   onClose,
   onSignedIn,
   initialMode = 'login',
+  accountIntent = 'owner',
+  returnTo = accountIntent === 'customer' ? '/' : '',
 }: LoginModalProps) {
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -78,7 +83,7 @@ export default function LoginModal({
     setUnconfirmedEmail(null);
     setResendBusy(false);
     setResendStatus(null);
-  }, [open, initialMode]);
+  }, [open, initialMode, accountIntent, returnTo]);
 
   // Handle Escape key
   useEffect(() => {
@@ -108,6 +113,21 @@ export default function LoginModal({
   if (!open || typeof document === 'undefined') return null;
 
   const isLogin = mode === 'login';
+  const isCustomer = accountIntent === 'customer';
+
+  const navigateAfterOwnerAuth = async () => {
+    const next = safeAuthContinuation(returnTo, '');
+    if (
+      next === '/dashboard'
+      || next === '/builder'
+      || next.startsWith('/dashboard/')
+      || next.startsWith('/builder/')
+    ) {
+      window.location.assign(next);
+      return;
+    }
+    await enterOwnerWorkspace();
+  };
 
   const switchMode = (newMode: AuthMode) => {
     setMode(newMode);
@@ -123,7 +143,10 @@ export default function LoginModal({
     if (!unconfirmedEmail) return;
     setResendBusy(true);
     setResendStatus(null);
-    const result = await resendConfirmationEmail(unconfirmedEmail);
+    const result = await resendConfirmationEmail(unconfirmedEmail, {
+      accountIntent,
+      returnTo,
+    });
     setResendBusy(false);
     setResendStatus(
       result.error
@@ -160,7 +183,7 @@ export default function LoginModal({
   const handleGoogle = async () => {
     setBusy(true);
     setError(null);
-    const result = await signInWithGoogle('/builder');
+    const result = await signInWithGoogle(returnTo, accountIntent);
     if (result.error) {
       setBusy(false);
       setError(result.error);
@@ -224,18 +247,25 @@ export default function LoginModal({
         }
         setPassword('');
         setPasswordConfirm('');
-        const session = await completeOwnerAuthSession();
-        if ('error' in session) {
-          setError(session.error);
-          return;
+        if (!isCustomer) {
+          const session = await completeOwnerAuthSession();
+          if ('error' in session) {
+            setError(session.error);
+            return;
+          }
         }
         onSignedIn?.();
         onClose();
-        await enterOwnerWorkspace();
+        // A public customer remains on the salon/booking journey. Owner entry
+        // points alone hydrate/provision and navigate to the owner workspace.
+        if (!isCustomer) await navigateAfterOwnerAuth();
         return;
       }
 
-      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password);
+      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password, {
+        accountIntent,
+        returnTo,
+      });
       setBusy(false);
       if (err) {
         setError(err);
@@ -245,7 +275,7 @@ export default function LoginModal({
       // Track the referral at account creation: if an invite code is stored
       // (captured from a `?ref=` link), record this new salon as Pending in
       // the referrer's Referral Dashboard registry.
-      const appliedReferralCode = readStoredReferralCode();
+      const appliedReferralCode = isCustomer ? null : readStoredReferralCode();
       if (appliedReferralCode) {
         recordReferralSignup({ email: mail, code: appliedReferralCode });
       }
@@ -261,16 +291,18 @@ export default function LoginModal({
         setMode('login');
         return;
       }
-      // Modal signup has no business-name field. Provisioning resolves the
-      // authenticated user's scoped metadata and otherwise uses “My Salon”.
-      const session = await completeOwnerAuthSession();
-      if ('error' in session) {
-        setError(session.error);
-        return;
+      if (!isCustomer) {
+        // Owner modal signup has no business-name field. Provisioning resolves
+        // this user's metadata and otherwise uses the neutral “My Salon”.
+        const session = await completeOwnerAuthSession();
+        if ('error' in session) {
+          setError(session.error);
+          return;
+        }
       }
       onSignedIn?.();
       onClose();
-      await enterOwnerWorkspace();
+      if (!isCustomer) await navigateAfterOwnerAuth();
     } catch (err: any) {
       setBusy(false);
       setError(err?.message || 'An unexpected error occurred. Please try again.');
@@ -303,12 +335,18 @@ export default function LoginModal({
             </div>
             <div>
               <h2 id="auth-modal-title" className="text-base font-bold text-[#1a1c1c]">
-                {isLogin ? 'Log in to your shop' : 'Create your shop account'}
+                {isCustomer
+                  ? (isLogin ? 'Log in to continue booking' : 'Create your customer account')
+                  : (isLogin ? 'Log in to your shop' : 'Create your shop account')}
               </h2>
               <p className="text-xs text-gray-500">
-                {isLogin
-                  ? 'Access your salon website, bookings & dashboard.'
-                  : 'Get started with your AI-powered salon website.'}
+                {isCustomer
+                  ? (isLogin
+                    ? 'View your bookings and continue securely.'
+                    : 'Use one secure account for bookings and confirmations.')
+                  : (isLogin
+                    ? 'Access your salon website, bookings & dashboard.'
+                    : 'Get started with your AI-powered salon website.')}
               </p>
             </div>
           </div>
@@ -481,7 +519,7 @@ export default function LoginModal({
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@salon.com"
+                placeholder={isCustomer ? 'you@example.com' : 'you@salon.com'}
                 disabled={busy}
                 className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
               />

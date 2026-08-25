@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react';
 import { Check, CheckCircle2, Loader2, ShieldAlert, XCircle } from 'lucide-react';
 import {
   ownerAllowedTransitionsForRecord,
-  ownerUpdateBookingStatus,
+  ownerUpdateBookingStatusThroughAuthority,
 } from '../lib/bookingManagement';
 import type { BookingActorContext, BookingUpdateFailure } from '../lib/bookingManagement';
 import type { TodayAppointment } from '../lib/ownerTodayAppointments';
@@ -61,11 +61,7 @@ export default function OwnerBookingStatusControls({ actor, row, palette, t, tes
     setBusy(nextStatus);
     setFeedback(null);
 
-    // Yield once so assistive technology and the browser can paint the loading
-    // state before the synchronous local-store adapter completes. A database
-    // adapter can replace this call without changing this UI contract.
-    await Promise.resolve();
-    const result = ownerUpdateBookingStatus(
+    const result = await ownerUpdateBookingStatusThroughAuthority(
       actor,
       row.businessId,
       row.themeId,
@@ -84,7 +80,7 @@ export default function OwnerBookingStatusControls({ actor, row, palette, t, tes
               ? t('status.success.completed')
               : t('status.success.confirmed'),
         }
-      : { kind: 'error', message: failureMessage(result.reason, t) });
+      : { kind: 'error', message: result.message || failureMessage(result.reason, t) });
   };
 
   const buttonStyle = (primary = false) => ({

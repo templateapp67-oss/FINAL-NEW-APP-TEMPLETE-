@@ -29,6 +29,7 @@ import { useAuth, signOut } from '../lib/useAuth';
 import { useAuthModal } from './AuthModalProvider';
 import { openSiteBooking } from '../lib/siteBooking';
 import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
+import { publicSalonAuthContinuation } from '../lib/authRedirect';
 import { useIsOwnerPreview } from './SiteRenderContext';
 import { LogIn, LogOut, User as UserIcon, CalendarCheck2 } from 'lucide-react';
 import {
@@ -576,6 +577,10 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
   const [activeKey, setActiveKey] = useState<string>('home');
   const { user } = useAuth();
   const { openAuth } = useAuthModal();
+  const openCustomerAuth = (authMode: 'login' | 'signup') => openAuth(authMode, {
+    accountIntent: 'customer',
+    returnTo: publicSalonAuthContinuation(data.websiteSlug),
+  });
 
   const items = useMemo(() => buildSiteNavItems(themeId, data), [themeId, data]);
   const labels = (key: SiteNavItem['key']) => SITE_NAV_LABELS[key][locale];
@@ -722,7 +727,7 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
                   data-testid="site-header-login"
                   className={design.linkClass}
                   style={design.linkStyle(appearance, false)}
-                  onClick={() => openAuth('login')}
+                  onClick={() => openCustomerAuth('login')}
                 >
                   {locale === 'hi' ? 'लॉग इन' : 'Login'}
                 </button>
@@ -731,7 +736,7 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
                   data-testid="site-header-signup"
                   className={design.linkClass}
                   style={design.linkStyle(appearance, false)}
-                  onClick={() => openAuth('signup')}
+                  onClick={() => openCustomerAuth('signup')}
                 >
                   {locale === 'hi' ? 'साइन अप' : 'Sign Up'}
                 </button>
@@ -834,7 +839,7 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
                     data-testid="site-drawer-login"
                     className={design.drawerRowClass}
                     style={design.drawerRowStyle(appearance, false)}
-                    onClick={() => { setMenuOpen(false); openAuth('login'); }}
+                    onClick={() => { setMenuOpen(false); openCustomerAuth('login'); }}
                   >
                     <span className="flex items-center gap-2">
                       <LogIn className="w-3.5 h-3.5" />
@@ -846,7 +851,7 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
                     data-testid="site-drawer-signup"
                     className={design.drawerRowClass}
                     style={design.drawerRowStyle(appearance, false)}
-                    onClick={() => { setMenuOpen(false); openAuth('signup'); }}
+                    onClick={() => { setMenuOpen(false); openCustomerAuth('signup'); }}
                   >
                     <span className="flex items-center gap-2">
                       <UserIcon className="w-3.5 h-3.5" />

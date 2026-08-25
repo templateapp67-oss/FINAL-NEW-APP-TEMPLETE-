@@ -1,109 +1,61 @@
 #!/usr/bin/env node
 /**
- * Apply Nexora migrations to the LIVE Supabase project programmatically —
- * no SQL editor, no manual `supabase gen types`.
+ * Guarded live migration utility.
  *
- * It calls the Supabase Management API "database query" endpoint
- * (`POST /v1/projects/{ref}/database/query`) which executes arbitrary SQL on
- * the project's database using ONLY a Management API access token
- * (`SUPABASE_ACCESS_TOKEN`, the `sbp_...` secret).
+ * Bulk migration application is disabled. The repository has mutually
+ * exclusive Design-A and canonical Design-B histories, so this tool can only:
+ *   - print/introspect an explicit manifest (never apply it), or
+ *   - apply one explicitly named reviewed additive migration.
  *
- * Usage:
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live            # M28 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m38        # M38 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m40        # M40 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m46        # M46 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M54
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --m54 --verify
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --verify
- *
- * Env:
- *   SUPABASE_ACCESS_TOKEN  (required)  Management API access token (starts with sbp_)
- *   SUPABASE_PROJECT_REF   (optional)  overrides supabase/config.toml project_id
- *
- * The migration files are idempotent and fail-closed, so re-running is safe.
+ * Prefer the official Supabase migration workflow so its ledger is updated.
+ * This Management API path exists for already-reviewed emergency additions and
+ * requires an explicit canonical-project confirmation.
  */
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NEXORA_PROJECT_REF } from '../shared/supabaseProject.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATIONS_DIR = join(root, 'supabase', 'migrations');
 const CONFIG_PATH = join(root, 'supabase', 'config.toml');
+const MANIFEST_DIR = join(root, 'supabase', 'manifests');
 
-const CHAIN_M28_TO_M54 = [
-  '20260821000101_m28_phase1a_unified_salon_foundation.sql',
-  '20260821000201_m29_phase1a_razorpay_foundation.sql',
-  '20260821000301_m30_phase1a_storage_foundation.sql',
-  '20260821000401_m31_phase1a_authoritative_booking_creation.sql',
-  '20260821000501_m32_phase2_canonical_foundation.sql',
-  '20260821000601_m33_phase2a_hardening.sql',
-  '20260821000701_m34_phase2b_final_hardening.sql',
-  '20260821000801_m35_phase2c_canonical_theme_slugs.sql',
-  '20260821000901_m36_phase3a_auth_profiles_roles.sql',
-  '20260821001001_m37_phase3b_multitenant_rls.sql',
-  '20260822000101_m38_reconciliation_fix.sql',
-  '20260822000201_m39_owner_publish_website.sql',
-  '20260822000301_m40_service_catalog_commerce_rpc.sql',
-  '20260823000101_m41_website_guest_bookings.sql',
-  '20260823000201_m42_owner_self_provisioning.sql',
-  '20260823000301_m43_rls_isolation_verify.sql',
-  '20260823000401_phase1_whitelabel_provisioning.sql',
-  '20260824000101_m44_business_publishing.sql',
-  '20260824000201_m45_business_slug_hardening.sql',
-  '20260824000301_m46_public_access_security.sql',
-  '20260824000401_m47_phase3_customer_booking_advance.sql',
-  '20260824000501_m48_template_switch_isolation.sql',
-  '20260824000601_m49_public_template_config.sql',
-  '20260825000101_m50_publish_readiness_validation.sql',
-  '20260825000201_m51_slug_collision_hardening.sql',
-  '20260825000301_m52_public_resolution_hardening.sql',
-  '20260825000401_m53_provision_salon_slug_fix.sql',
-  '20260825000501_m54_workspace_bootstrap_compatibility.sql',
-];
-
-const M38 = '20260822000101_m38_reconciliation_fix.sql';
-const M40 = '20260822000301_m40_service_catalog_commerce_rpc.sql';
-const M45 = '20260824000201_m45_business_slug_hardening.sql';
-const M46 = '20260824000301_m46_public_access_security.sql';
-const M53 = '20260825000401_m53_provision_salon_slug_fix.sql';
-const M54 = '20260825000501_m54_workspace_bootstrap_compatibility.sql';
-
-const VERIFY_SQL = `
-select check_name, ok, detail
-from public.verify_m38_reconciliation()
-order by check_name;
-`.trim();
-
-const VERIFY_SQL_M40 = `
-select check_name, ok, detail
-from public.verify_m40_service_catalog()
-order by check_name;
-`.trim();
-
-const VERIFY_SQL_M45 = `
-select check_name, ok, detail
-from public.verify_m45_business_slug_hardening()
-order by check_name;
-`.trim();
-
-const VERIFY_SQL_M53 = `
-select check_name, ok, detail
-from public.verify_m53_provision_salon_slug()
-order by check_name;
-`.trim();
-
-const VERIFY_SQL_M54 = `
-select check_name, ok, detail
-from public.verify_m54_workspace_bootstrap()
-order by check_name;
-`.trim();
-
-const VERIFY_SQL_M46 = `
-select check_name, ok, detail
-from public.verify_m46_public_access_security()
-order by check_name;
-`.trim();
+const TARGETS = {
+  m38: {
+    file: '20260822000101_m38_reconciliation_fix.sql',
+    verifier: 'verify_m38_reconciliation',
+  },
+  m40: {
+    file: '20260822000301_m40_service_catalog_commerce_rpc.sql',
+    verifier: 'verify_m40_service_catalog',
+  },
+  m45: {
+    file: '20260824000201_m45_business_slug_hardening.sql',
+    verifier: 'verify_m45_business_slug_hardening',
+  },
+  m46: {
+    file: '20260824000301_m46_public_access_security.sql',
+    verifier: 'verify_m46_public_access_security',
+  },
+  m53: {
+    file: '20260825000401_m53_provision_salon_slug_fix.sql',
+    verifier: 'verify_m53_provision_salon_slug',
+  },
+  m54: {
+    file: '20260825000501_m54_workspace_bootstrap_compatibility.sql',
+    verifier: 'verify_m54_workspace_bootstrap',
+  },
+  m55: {
+    file: '20260825000601_m55_actor_bound_booking_authorization.sql',
+    verifier: 'verify_m55_actor_bound_booking_authorization',
+  },
+  m56: {
+    file: '20260825000701_m56_owner_profile_theme_preflight.sql',
+    verifier: 'verify_m56_owner_profile_theme_preflight',
+  },
+};
 
 function parseProjectRef(configText) {
   const match = configText.match(/^project_id\s*=\s*["']?([A-Za-z0-9_-]+)["']?/m);
@@ -111,49 +63,32 @@ function parseProjectRef(configText) {
 }
 
 async function resolveProjectRef() {
-  if (process.env.SUPABASE_PROJECT_REF?.trim()) return process.env.SUPABASE_PROJECT_REF.trim();
-  try {
+  let ref = process.env.SUPABASE_PROJECT_REF?.trim();
+  if (!ref) {
     const text = await readFile(CONFIG_PATH, 'utf8');
-    const ref = parseProjectRef(text);
-    if (ref) return ref;
-  } catch {
-    /* fall through */
+    ref = parseProjectRef(text);
   }
-  throw new Error(
-    'Could not resolve the Supabase project reference. Set SUPABASE_PROJECT_REF ' +
-    'or ensure supabase/config.toml has a `project_id`.',
-  );
+  if (!ref) throw new Error('Could not resolve the Supabase project reference.');
+  if (ref !== NEXORA_PROJECT_REF) {
+    throw new Error(`Refusing project ${ref}; this checkout is pinned to ${NEXORA_PROJECT_REF}.`);
+  }
+  return ref;
 }
 
-function resolveFiles(argv) {
-  if (
-    argv.includes('--verify') &&
-    !argv.includes('--m38') && !argv.includes('--m40') &&
-    !argv.includes('--m45') && !argv.includes('--m46') &&
-    !argv.includes('--m53') && !argv.includes('--m54') && !argv.includes('--all')
-  ) return [];
-  if (argv.includes('--m38')) return [M38];
-  if (argv.includes('--m40')) return [M40];
-  if (argv.includes('--m45')) return [M45];
-  if (argv.includes('--m46')) return [M46];
-  if (argv.includes('--m53')) return [M53];
-  if (argv.includes('--m54')) return [M54];
-  if (argv.includes('--all')) return CHAIN_M28_TO_M54;
-  return [CHAIN_M28_TO_M54[0]];
+function selectedTarget(argv) {
+  const selected = Object.entries(TARGETS).filter(([key]) => argv.includes(`--${key}`));
+  if (selected.length > 1) throw new Error('Select exactly one migration target.');
+  return selected[0]?.[1] ?? null;
 }
 
-function verifySqlFor(files) {
-  if (files.includes(M54)) return VERIFY_SQL_M54;
-  if (files.includes(M53)) return VERIFY_SQL_M53;
-  if (files.includes(M46)) return VERIFY_SQL_M46;
-  if (files.includes(M45)) return VERIFY_SQL_M45;
-  if (files.includes(M40)) return VERIFY_SQL_M40;
-  return VERIFY_SQL;
+function argumentValue(argv, name) {
+  const prefix = `${name}=`;
+  return argv.find((value) => value.startsWith(prefix))?.slice(prefix.length) || null;
 }
 
 async function runSql(accessToken, projectRef, sql) {
   const url = `https://api.supabase.com/v1/projects/${encodeURIComponent(projectRef)}/database/query`;
-  const res = await fetch(url, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -161,103 +96,122 @@ async function runSql(accessToken, projectRef, sql) {
     },
     body: JSON.stringify({ query: sql }),
   });
-  if (!res.ok) {
-    const detail = (await res.text()).slice(0, 2000);
-    throw new Error(`Management API ${res.status}: ${detail}`);
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 2000);
+    throw new Error(`Management API ${response.status}: ${detail}`);
   }
-  return res.json();
+  return response.json();
+}
+
+function resultRows(result) {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.result)) return result.result;
+  if (Array.isArray(result?.data)) return result.data;
+  return [];
 }
 
 function printVerify(result, fnName) {
-  const rows = Array.isArray(result) ? result : result?.result || result?.data || [];
-  if (!Array.isArray(rows) || rows.length === 0) {
-    console.log(`${fnName}(): (no rows returned)`);
-    console.log(JSON.stringify(result, null, 2).slice(0, 1500));
-    return false;
-  }
+  const rows = resultRows(result);
+  if (rows.length === 0) throw new Error(`${fnName}() returned no verification rows.`);
   let allOk = true;
   console.log(`${fnName}():`);
   for (const row of rows) {
-    const ok = row.ok === true || row.ok === 't' || row.ok === 'true';
-    if (!ok) allOk = false;
-    console.log(`  ${ok ? 'PASS' : 'FAIL'} ${row.check_name} — ${row.detail || ''}`);
+    const passed = row.ok === true || row.ok === 't' || row.ok === 'true';
+    allOk &&= passed;
+    console.log(`  ${passed ? 'PASS' : 'FAIL'} ${row.check_name} — ${row.detail || ''}`);
   }
-  return allOk;
+  if (!allOk) throw new Error(`${fnName}() reported one or more failed checks.`);
+}
+
+async function printManifestPlan(id, argv) {
+  const filename = id === 'clean-bootstrap'
+    ? 'clean-bootstrap.json'
+    : id === 'existing-project' ? 'existing-project-reconciliation.json' : null;
+  if (!filename) throw new Error('Manifest must be clean-bootstrap or existing-project.');
+  const manifest = JSON.parse(await readFile(join(MANIFEST_DIR, filename), 'utf8'));
+  console.log(JSON.stringify(manifest, null, 2));
+
+  if (!argv.includes('--introspect')) {
+    console.log('\nPlan only. No database request was made and no SQL was applied.');
+    return;
+  }
+
+  const token = process.env.SUPABASE_ACCESS_TOKEN?.trim();
+  if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is required for read-only introspection.');
+  const projectRef = await resolveProjectRef();
+  const snapshotSql = `
+    select json_build_object(
+      'tables', coalesce((
+        select json_agg(t.table_name order by t.table_name)
+        from information_schema.tables t
+        where t.table_schema = 'public'
+      ), '[]'::json),
+      'columns', coalesce((
+        select json_agg(
+          json_build_object('table', c.table_name, 'column', c.column_name, 'type', c.data_type)
+          order by c.table_name, c.ordinal_position
+        )
+        from information_schema.columns c
+        where c.table_schema = 'public'
+      ), '[]'::json),
+      'routines', coalesce((
+        select json_agg(r.routine_name order by r.routine_name)
+        from information_schema.routines r
+        where r.routine_schema in ('public','private')
+      ), '[]'::json),
+      'migrationLedgerPresent', to_regclass('supabase_migrations.schema_migrations') is not null
+    ) as snapshot;
+  `;
+  const response = await runSql(token, projectRef, snapshotSql);
+  const snapshot = resultRows(response)[0]?.snapshot ?? response;
+  const fingerprint = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+  console.log('\nREAD-ONLY LIVE INTROSPECTION');
+  console.log(JSON.stringify({ projectRef, fingerprint, snapshot }, null, 2));
+  console.log('\nNo SQL was applied. Review and preserve this fingerprint with the deployment record.');
 }
 
 async function main() {
-  const accessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
-  if (!accessToken) {
-    console.error(
-      '\nSUPABASE_ACCESS_TOKEN is not set. This script applies the migration to the live\n' +
-      'project, which requires a Supabase Management API token (starts with "sbp_").\n' +
-      'The token is a live secret that must be supplied by the deployment environment;\n' +
-      'it is never stored in this repository.\n',
+  const argv = process.argv.slice(2);
+  if (argv.includes('--all')) {
+    throw new Error('Bulk migration application is disabled. Use --manifest=existing-project for a non-applying plan.');
+  }
+
+  const manifestId = argumentValue(argv, '--manifest');
+  if (manifestId) {
+    await printManifestPlan(manifestId, argv);
+    return;
+  }
+
+  const target = selectedTarget(argv);
+  if (!target) {
+    throw new Error(
+      'No migration selected. Use --manifest=existing-project, or one reviewed target such as --m55/--m56.',
     );
-    process.exit(2);
   }
 
   const projectRef = await resolveProjectRef();
-  const files = resolveFiles(process.argv);
-  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40) || files.includes(M45) || files.includes(M46) || files.includes(M53) || files.includes(M54);
-  const verifySql = verifySqlFor(files);
-  const verifyFnName = files.includes(M54)
-    ? 'verify_m54_workspace_bootstrap'
-    : files.includes(M53)
-    ? 'verify_m53_provision_salon_slug'
-    : files.includes(M46)
-    ? 'verify_m46_public_access_security'
-    : files.includes(M45)
-      ? 'verify_m45_business_slug_hardening'
-    : files.includes(M40) ? 'verify_m40_service_catalog' : 'verify_m38_reconciliation';
+  const verifyOnly = argv.includes('--verify-only');
+  const confirmation = argumentValue(argv, '--confirm-project');
+  if (!verifyOnly && confirmation !== projectRef) {
+    throw new Error(`Refusing write. Re-run with --confirm-project=${projectRef} after reviewing live introspection.`);
+  }
+  const accessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
+  if (!accessToken) throw new Error('SUPABASE_ACCESS_TOKEN is required for a live migration.');
 
   console.log(`Target project: ${projectRef}`);
-  if (files.length) {
-    console.log(`Files to apply (${files.length}):`);
-    for (const f of files) console.log(`  - ${f}`);
-  } else {
-    console.log('No migration files selected (verify-only).');
+  console.log(`Reviewed additive file: ${target.file}`);
+  if (!verifyOnly) {
+    const sql = await readFile(join(MIGRATIONS_DIR, target.file), 'utf8');
+    await runSql(accessToken, projectRef, sql);
+    console.log('Migration SQL applied.');
   }
 
-  let applied = 0;
-  for (const file of files) {
-    const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8');
-    process.stdout.write(`Applying ${file} ... `);
-    try {
-      await runSql(accessToken, projectRef, sql);
-      console.log('OK');
-      applied += 1;
-    } catch (err) {
-      console.log('FAILED');
-      console.error(err instanceof Error ? err.message : err);
-      console.error('\nStopping before applying the remaining files.');
-      process.exit(1);
-    }
-  }
-
-  if (files.length) {
-    console.log(`\nDone. ${applied}/${files.length} migration file(s) applied to ${projectRef}.`);
-  }
-
-  if (wantVerify) {
-    process.stdout.write(`\nRunning ${verifyFnName}() ... `);
-    try {
-      const result = await runSql(accessToken, projectRef, verifySql);
-      console.log('OK');
-      const allOk = printVerify(result, verifyFnName);
-      if (!allOk) {
-        console.error('\nOne or more live verification checks failed.');
-        process.exit(1);
-      }
-    } catch (err) {
-      console.log('FAILED');
-      console.error(err instanceof Error ? err.message : err);
-      process.exit(1);
-    }
-  }
+  const verifySql = `select check_name, ok, detail from public.${target.verifier}() order by check_name;`;
+  const verification = await runSql(accessToken, projectRef, verifySql);
+  printVerify(verification, target.verifier);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });

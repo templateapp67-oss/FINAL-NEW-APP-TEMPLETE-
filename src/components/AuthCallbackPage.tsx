@@ -1,95 +1,85 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MailCheck, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
-import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
-
-function safeNext(value: string | null): string {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/builder';
-}
+import { useAuth } from '../lib/useAuth';
+import { completeOwnerAuthSession } from '../lib/ownerSession';
+import {
+  normalizeAuthIntent,
+  safeAuthContinuation,
+  type AuthAccountIntent,
+} from '../lib/authRedirect';
 
 type CallbackState =
   | { kind: 'loading' }
   | { kind: 'confirmed' }
   | { kind: 'error'; message: string };
 
+/**
+ * Supabase's single shared client owns PKCE URL detection/exchange. This page
+ * only observes the validated shared session; it must never call
+ * exchangeCodeForSession a second time.
+ */
 export default function AuthCallbackPage() {
-  const started = useRef(false);
+  const { session, loading } = useAuth();
+  const processing = useRef(false);
   const [state, setState] = useState<CallbackState>({ kind: 'loading' });
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    const run = async () => {
-      if (!supabase) {
-        setState({ kind: 'error', message: 'Authentication is not configured.' });
-        return;
-      }
-      const params = new URLSearchParams(window.location.search);
-      const providerError = params.get('error_description') || params.get('error');
-      if (providerError) {
-        setState({ kind: 'error', message: providerError.replace(/\+/g, ' ') });
-        return;
-      }
-      const code = params.get('code');
-      let exchangeErrorMessage: string | null = null;
-      if (code) {
-        try {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError && !/already.*exchang/i.test(exchangeError.message)) {
-            exchangeErrorMessage = exchangeError.message;
-            // A confirmation email can be requested in a preview but opened on
-            // the canonical domain. In that case the PKCE verifier remains in
-            // preview-domain storage even though Supabase already confirmed the
-            // email before redirecting here.
-            console.error('Code exchange failed:', exchangeError.message);
-          }
-        } catch (exchangeError) {
-          exchangeErrorMessage =
-            exchangeError instanceof Error ? exchangeError.message : 'Code exchange failed.';
-          console.error('Code exchange failed:', exchangeErrorMessage);
-        }
-      }
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      if (!sessionError && data.session) {
-        const session = await completeOwnerAuthSession();
-        if (!('error' in session)) {
-          await enterOwnerWorkspace();
-          return;
-        }
-        window.location.replace(safeNext(params.get('next')));
-        return;
-      }
-
-      // A cross-origin preview → canonical-domain confirmation cannot reuse the
-      // preview's PKCE verifier. Supabase has already consumed the email token
-      // before issuing this code, so show the confirmed/log-in state rather
-      // than rejecting the user because no session could be created here.
-      const isSignupCallback =
-        params.get('flow') === 'signup' || window.location.pathname === '/';
-      if (
-        code &&
-        isSignupCallback &&
-        exchangeErrorMessage &&
-        /code verifier|pkce/i.test(exchangeErrorMessage)
-      ) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setState({ kind: 'confirmed' });
-        return;
-      }
-
-      // No session: the most common benign case is that the user just clicked
-      // the email confirmation link. If their email is now confirmed, welcome
-      // them back to the login screen instead of showing a dead-end error.
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData?.user;
-      if (user && (user.email_confirmed_at || user.confirmed_at)) {
-        setState({ kind: 'confirmed' });
-        return;
-      }
-      setState({ kind: 'error', message: 'The authentication callback is invalid or expired.' });
+  const context = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const intent: AuthAccountIntent = normalizeAuthIntent(params.get('intent'));
+    const fallback = intent === 'customer' ? '/' : '/builder';
+    return {
+      intent,
+      next: safeAuthContinuation(params.get('next'), fallback),
+      flow: params.get('flow') || '',
+      codePresent: Boolean(params.get('code')),
+      providerError: params.get('error_description') || params.get('error'),
     };
-    void run();
   }, []);
+
+  useEffect(() => {
+    if (processing.current) return;
+    if (context.providerError) {
+      processing.current = true;
+      setState({
+        kind: 'error',
+        message: context.providerError.replace(/\+/g, ' '),
+      });
+      return;
+    }
+    if (loading) return;
+
+    if (session) {
+      processing.current = true;
+      const finish = async () => {
+        if (context.intent === 'owner') {
+          const owner = await completeOwnerAuthSession();
+          if ('error' in owner) {
+            setState({ kind: 'error', message: owner.error });
+            return;
+          }
+        }
+        window.location.replace(context.next);
+      };
+      void finish();
+      return;
+    }
+
+    processing.current = true;
+    // If a signup email was opened on a different origin, its PKCE verifier is
+    // correctly unavailable here. Supabase has nevertheless validated the
+    // email before redirecting with an authorization code. Do not claim a
+    // session; explicitly send the user through login on this origin.
+    if (context.codePresent && context.flow === 'signup') {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setState({ kind: 'confirmed' });
+      return;
+    }
+
+    setState({ kind: 'error', message: 'The authentication callback is invalid or expired.' });
+  }, [context, loading, session]);
+
+  const loginHref = `/auth/login?intent=${context.intent}&next=${encodeURIComponent(context.next)}`;
+  const isCustomer = context.intent === 'customer';
 
   return (
     <main className="min-h-screen bg-[#fcfcfc] flex items-center justify-center p-6">
@@ -100,7 +90,7 @@ export default function AuthCallbackPage() {
             <h1 className="mt-4 text-lg font-bold">Sign-in could not be completed</h1>
             <p className="mt-2 text-sm text-gray-600">{state.message}</p>
             <a
-              href="/"
+              href={loginHref}
               className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
             >
               Return to login
@@ -111,14 +101,15 @@ export default function AuthCallbackPage() {
             <MailCheck className="mx-auto h-10 w-10 text-emerald-600" />
             <h1 className="mt-4 text-lg font-bold">Email confirmed!</h1>
             <p className="mt-2 text-sm text-gray-600">
-              Your account is active. You can now log in and start building your
-              salon website.
+              {isCustomer
+                ? 'Your customer account is active. Log in to return to the salon and continue your booking.'
+                : 'Your account is active. Log in to continue setting up your salon workspace.'}
             </p>
             <a
-              href="/auth/login"
+              href={loginHref}
               className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
             >
-              Log in to your dashboard
+              {isCustomer ? 'Log in and return to the salon' : 'Log in to your dashboard'}
             </a>
           </>
         ) : (

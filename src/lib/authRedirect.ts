@@ -7,6 +7,34 @@ const env: Record<string, string | undefined> =
       ? (process.env as Record<string, string | undefined>)
       : {};
 
+export type AuthAccountIntent = 'owner' | 'customer';
+
+export function normalizeAuthIntent(value: unknown): AuthAccountIntent {
+  return value === 'customer' ? 'customer' : 'owner';
+}
+
+/**
+ * Auth continuations are local paths only. Reject protocol-relative URLs,
+ * backslashes/control characters and auth endpoints that could loop back into
+ * a consumed callback. This value is navigation context, never authorization.
+ */
+export function safeAuthContinuation(
+  value: unknown,
+  fallback: string,
+): string {
+  if (typeof value !== 'string') return fallback;
+  const path = value.trim();
+  if (
+    !path.startsWith('/')
+    || path.startsWith('//')
+    || path.includes('\\')
+    || /[\u0000-\u001f\u007f]/.test(path)
+  ) return fallback;
+  const pathname = path.split(/[?#]/, 1)[0].replace(/\/+$/, '') || '/';
+  if (pathname === '/auth/callback' || pathname === '/reset-password') return fallback;
+  return path;
+}
+
 function validHttpOrigin(value: string | undefined): string | null {
   if (!value) return null;
   try {
@@ -57,14 +85,44 @@ function authUrl(path: string, params?: Record<string, string>): string {
   return url.toString();
 }
 
-export function signupConfirmationRedirect(next = '/builder'): string {
-  return authUrl('/auth/callback', { flow: 'signup', next });
+export function signupConfirmationRedirect(
+  next = '/builder',
+  intent: AuthAccountIntent = 'owner',
+): string {
+  const fallback = intent === 'customer' ? '/' : '/builder';
+  return authUrl('/auth/callback', {
+    flow: 'signup',
+    intent,
+    next: safeAuthContinuation(next, fallback),
+  });
 }
 
-export function oauthRedirect(next = '/builder'): string {
-  return authUrl('/auth/callback', { flow: 'oauth', next });
+export function oauthRedirect(
+  next = '/builder',
+  intent: AuthAccountIntent = 'owner',
+): string {
+  const fallback = intent === 'customer' ? '/' : '/builder';
+  return authUrl('/auth/callback', {
+    flow: 'oauth',
+    intent,
+    next: safeAuthContinuation(next, fallback),
+  });
 }
 
 export function passwordResetRedirect(): string {
   return authUrl('/reset-password', { flow: 'recovery' });
+}
+
+/**
+ * Stable path-form continuation for a public salon. This also preserves the
+ * salon when Auth starts on a custom/subdomain host but the allow-listed
+ * callback runs on the canonical app origin.
+ */
+export function publicSalonAuthContinuation(slug?: string): string {
+  const normalizedSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+  if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalizedSlug)) return `/${normalizedSlug}`;
+  if (typeof window !== 'undefined') {
+    return safeAuthContinuation(window.location.pathname, '/');
+  }
+  return '/';
 }

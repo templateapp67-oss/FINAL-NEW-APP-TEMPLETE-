@@ -18,6 +18,12 @@ import {
   sanitizeTemplateConfigForTemplate,
   templateSupportsConfig,
 } from './templateConfig';
+import {
+  diagnosticFromError,
+  logWorkspaceFailure,
+  workspaceUserMessage,
+  WorkspaceInitializationError,
+} from './workspaceDiagnostics';
 
 export const SALON_PUBLIC_WEBSITES_TABLE = 'salon_public_websites';
 
@@ -162,13 +168,33 @@ export async function loadOwnerWebsiteDraft(): Promise<{
   isPublished: boolean;
 } | null> {
   const resolution = await resolveOwnerSalonId();
-  if (resolution.status !== 'resolved') return null;
+  if (resolution.status !== 'resolved') {
+    if (resolution.status === 'error' || resolution.status === 'permission-denied') {
+      const diagnostic = resolution.diagnostic || diagnosticFromError({
+        operation: 'workspace.website_read',
+        stage: 'ownership',
+        error: { code: 'WORKSPACE_OWNERSHIP_UNAVAILABLE', message: 'Owner salon resolution failed.' },
+      });
+      logWorkspaceFailure(diagnostic);
+      throw new WorkspaceInitializationError(diagnostic, workspaceUserMessage(diagnostic));
+    }
+    return null;
+  }
   const { data, error } = await requireSupabase()
     .from(SALON_PUBLIC_WEBSITES_TABLE)
     .select('salon_id,slug,template_key,config,is_published')
     .eq('salon_id', resolution.salonId)
     .maybeSingle();
-  if (error) throw new Error('Unable to load the saved website draft.');
+  if (error) {
+    const diagnostic = diagnosticFromError({
+      operation: 'workspace.website_read',
+      stage: 'website-read',
+      error,
+      authenticatedUserExists: true,
+    });
+    logWorkspaceFailure(diagnostic);
+    throw new WorkspaceInitializationError(diagnostic, workspaceUserMessage(diagnostic));
+  }
   if (!data) return {
     salonId: resolution.salonId,
     slug: null,

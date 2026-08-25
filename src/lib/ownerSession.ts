@@ -12,7 +12,8 @@
  *     → salons
  */
 
-import { isSupabaseConfigured, requireSupabase } from './supabaseClient';
+import { isSupabaseConfigured } from './supabaseClient';
+import { getAuthoritativeAuthIdentity } from './authIdentity';
 import { getAuthenticatedUserId, resolveOwnerSalonId } from './ownerSalon';
 import {
   resolveOrProvisionOwnerSalon,
@@ -21,6 +22,11 @@ import {
 import { suggestedWebsiteSlug } from './publicWebsiteUrl';
 import { loadOwnerWebsiteDraft } from './salonWebsiteService';
 import { STEP_BUSINESS_SETUP_START, STEP_PUBLISH } from './ownerFlow';
+import {
+  diagnosticFromError,
+  logWorkspaceFailure,
+  WorkspaceInitializationError,
+} from './workspaceDiagnostics';
 
 export const OWNER_DASHBOARD_PATH = '/dashboard';
 export const OWNER_ONBOARDING_PATH = '/builder';
@@ -66,7 +72,19 @@ export async function enterOwnerWorkspace(): Promise<void> {
   try {
     const draft = await loadOwnerWebsiteDraft();
     published = draft?.isPublished === true;
-  } catch {
+  } catch (error) {
+    // Keep navigation resilient, but do not discard the failing Supabase
+    // operation. The protected App hydration boundary will revalidate and show
+    // the same failure; this log preserves the first failure from login.
+    if (!(error instanceof WorkspaceInitializationError)) {
+      const diagnostic = diagnosticFromError({
+        operation: 'owner.enter_workspace',
+        stage: 'workspace-hydration',
+        error,
+        authenticatedUserExists: true,
+      });
+      logWorkspaceFailure(diagnostic);
+    }
     published = false;
   }
   const target = published ? OWNER_DASHBOARD_PATH : OWNER_ONBOARDING_PATH;
@@ -93,14 +111,12 @@ export async function requireAuthenticatedUser(): Promise<{
     return { error: 'Authentication is not configured.' };
   }
   try {
-    const { data, error } = await requireSupabase().auth.getUser();
-    if (error || !data.user?.id) {
-      return { error: 'Please log in to continue.' };
-    }
+    const identity = await getAuthoritativeAuthIdentity('owner.authenticated_user');
+    if (!identity) return { error: 'Please log in to continue.' };
     return {
-      userId: data.user.id,
-      email: data.user.email ?? null,
-      salonName: ownerSalonNameFromMetadata(data.user),
+      userId: identity.user.id,
+      email: identity.user.email ?? null,
+      salonName: ownerSalonNameFromMetadata(identity.user),
     };
   } catch {
     return { error: 'Please log in to continue.' };

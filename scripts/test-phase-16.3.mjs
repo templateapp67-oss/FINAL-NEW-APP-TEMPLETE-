@@ -53,6 +53,7 @@ const React = (await import('react')).default;
 const { render, cleanup, act, fireEvent } = await import('@testing-library/react');
 
 const SiteBookingFlow = (await import('../src/components/SiteBookingFlow.tsx')).default;
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
 const { initialData } = await import('../src/types.ts');
 const { setSalonClockForTests } = await import('../src/lib/salonStatus.ts');
 const { setSiteAppearance, setSiteLocale } = await import('../src/lib/siteNavigation.ts');
@@ -236,13 +237,17 @@ function resetState() {
 function renderFlow(themeId, extras = {}) {
   const toasts = [];
   const utils = render(
-    React.createElement(SiteBookingFlow, {
-      themeId,
-      data: richData(themeId, extras),
-      onBackToWebsite: () => {},
-      // PHASE 16.9 — typed notices; the harness keeps the message text.
-      onShowToast: (msg) => toasts.push(typeof msg === 'string' ? msg : msg.message),
-    }),
+    React.createElement(
+      AuthModalProvider,
+      null,
+      React.createElement(SiteBookingFlow, {
+        themeId,
+        data: richData(themeId, extras),
+        onBackToWebsite: () => {},
+        // PHASE 16.9 — typed notices; the harness keeps the message text.
+        onShowToast: (msg) => toasts.push(typeof msg === 'string' ? msg : msg.message),
+      }),
+    ),
   );
   return { utils, toasts };
 }

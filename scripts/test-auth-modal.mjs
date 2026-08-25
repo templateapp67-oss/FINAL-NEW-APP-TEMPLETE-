@@ -157,9 +157,11 @@ async function runAllTests() {
   const useAuthSrc = fs.readFileSync('src/lib/useAuth.ts', 'utf8');
   const supabaseClientSrc = fs.readFileSync('src/lib/supabaseClient.ts', 'utf8');
 
-  await test('useAuth has try-catch error handling and timeout safety', () => {
-    assert.ok(useAuthSrc.includes('timeoutId') || useAuthSrc.includes('timeoutTimer'), 'Missing session timeout fallback');
+  await test('useAuth validates auth state without an arbitrary timeout fallback', () => {
+    assert.ok(useAuthSrc.includes('getAuthoritativeAuthIdentity'), 'Missing authoritative session/user validation');
+    assert.ok(useAuthSrc.includes('auth.getUser') || useAuthSrc.includes('getAuthoritativeAuthIdentity'), 'Missing Supabase Auth user validation');
     assert.ok(useAuthSrc.includes('try {') && useAuthSrc.includes('catch'), 'Missing try-catch in useAuth');
+    assert.ok(!useAuthSrc.includes('timeoutId') && !useAuthSrc.includes('timeoutTimer'), 'Auth lifecycle must not use an arbitrary timeout');
   });
 
   await test('Supabase client uses only public anon key, never service_role', () => {

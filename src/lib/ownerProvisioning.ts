@@ -5,7 +5,7 @@
  * no organization / owner membership / salon yet. The ONLY sanctioned way to
  * create that tenant — and bind it to a LIVE public website slug — is the
  * SECURITY DEFINER RPC `public.provision_owner_salon(name, slug, template_id)`
- * (migration 20260823000401).
+ * (M54 compatibility replacement, following migration 20260823000401).
  *
  * The browser never inserts into organizations / organization_members /
  * salons / salon_public_websites directly (RLS + the M36 membership guard
@@ -19,8 +19,17 @@
  */
 
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
+import { getAuthoritativeAuthIdentity } from './authIdentity';
 import { resolveOwnerSalonId } from './ownerSalon';
 import { suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
+import {
+  diagnosticError,
+  diagnosticFromError,
+  logWorkspaceFailure,
+  workspaceUserMessage,
+  type WorkspaceDiagnostic,
+  WorkspaceInitializationError,
+} from './workspaceDiagnostics';
 
 export const PROVISION_OWNER_SALON_FN = 'provision_owner_salon';
 export const SET_OWNER_TEMPLATE_FN = 'set_owner_salon_template';
@@ -102,6 +111,19 @@ export async function ensureOwnerSalon(input?: {
   if (!isSupabaseConfigured) return null;
   const client = requireSupabase();
 
+  // Validate the current browser session immediately before the RPC. The RPC
+  // still derives authorization from auth.uid(); this check prevents a
+  // logout/login race from showing the previous user's provisioning result.
+  const identity = await getAuthoritativeAuthIdentity('workspace.provision');
+  if (!identity) {
+    throw diagnosticError({
+      operation: 'workspace.provision',
+      stage: 'auth-session',
+      error: { code: '28000', message: 'No authenticated Supabase session.' },
+      authenticatedUserExists: false,
+    }, 'Please log in to set up your salon.');
+  }
+
   const name = input?.salonName?.trim().slice(0, 120) || 'My Salon';
   const slug = deriveSlug(input);
   const templateKey = isOwnerTemplateKey(input?.templateKey)
@@ -115,13 +137,29 @@ export async function ensureOwnerSalon(input?: {
   });
 
   if (error) {
-    console.error('Owner provisioning failed:', error);
-    throw new Error(sanitizeProvisionError(error.message));
+    const diagnostic = diagnosticFromError({
+      operation: 'workspace.provision',
+      stage: 'provision',
+      error,
+      authenticatedUserExists: true,
+      userId: identity.user.id,
+    });
+    logWorkspaceFailure(diagnostic);
+    throw new WorkspaceInitializationError(diagnostic, sanitizeProvisionError(error.message, error.code));
   }
 
   const row = firstRow(data as ProvisionRpcRow | ProvisionRpcRow[] | null);
   if (!row?.out_salon_id || !row.out_organization_id || !row.out_slug) {
-    throw new Error('Could not set up your salon website. Please try again.');
+    throw diagnosticError({
+      operation: 'workspace.provision',
+      stage: 'provision',
+      error: {
+        code: 'WORKSPACE_RPC_INVALID_RESULT',
+        message: 'Provisioning RPC returned no complete salon result.',
+      },
+      authenticatedUserExists: true,
+      userId: identity.user.id,
+    }, 'Could not set up your salon website. Please try again.');
   }
 
   return {
@@ -144,7 +182,10 @@ export async function resolveOrProvisionOwnerSalon(input?: {
   salonName?: string;
   slug?: string;
   templateKey?: OwnerTemplateKey | string;
-}): Promise<{ salonId: string; slug?: string; provisioned: boolean } | { error: string }> {
+}): Promise<
+  | { salonId: string; slug?: string; provisioned: boolean }
+  | { error: string; diagnostic?: WorkspaceDiagnostic }
+> {
   if (!isSupabaseConfigured) {
     return { error: 'Authentication is not configured.' };
   }
@@ -160,7 +201,23 @@ export async function resolveOrProvisionOwnerSalon(input?: {
     return { error: 'Multiple salons are linked to your account. Please contact support.' };
   }
   if (resolution.status === 'permission-denied') {
-    return { error: 'You do not have permission to access this salon.' };
+    return {
+      error: resolution.diagnostic
+        ? workspaceUserMessage(resolution.diagnostic)
+        : 'You do not have permission to access this salon.',
+      diagnostic: resolution.diagnostic,
+    };
+  }
+  if (resolution.status === 'error') {
+    return {
+      error: resolution.diagnostic
+        ? workspaceUserMessage(resolution.diagnostic)
+        : 'Unable to determine your salon. Please try again.',
+      diagnostic: resolution.diagnostic,
+    };
+  }
+  if (resolution.status === 'not-configured') {
+    return { error: 'Authentication is not configured.' };
   }
   if (resolution.status !== 'no-membership') {
     return { error: 'Unable to determine your salon. Please try again.' };
@@ -175,8 +232,20 @@ export async function resolveOrProvisionOwnerSalon(input?: {
       provisioned: !provisioned.alreadyExisted,
     };
   } catch (err) {
+    const diagnostic = err instanceof WorkspaceInitializationError
+      ? err.diagnostic
+      : diagnosticFromError({
+        operation: 'workspace.provision',
+        stage: 'provision',
+        error: err,
+        authenticatedUserExists: true,
+      });
+    if (!(err instanceof WorkspaceInitializationError)) logWorkspaceFailure(diagnostic);
     return {
-      error: err instanceof Error ? err.message : 'Could not set up your salon.',
+      error: err instanceof WorkspaceInitializationError
+        ? err.message
+        : workspaceUserMessage(diagnostic),
+      diagnostic,
     };
   }
 }
@@ -215,8 +284,8 @@ export async function setOwnerTemplate(
   };
 }
 
-function sanitizeProvisionError(message: string | undefined): string {
-  const msg = (message || '').toLowerCase();
+function sanitizeProvisionError(message: string | undefined, code?: string): string {
+  const msg = `${code || ''} ${message || ''}`.toLowerCase();
   if (/please log in|not authenticated|28000/.test(msg)) {
     return 'Please log in to set up your salon.';
   }
@@ -237,7 +306,7 @@ function sanitizeProvisionError(message: string | undefined): string {
   // again", so we must not tell them to. Surfaced as a support-path message
   // without leaking SQL, table names or any database internals.
   if (
-    /23502|not-null|null value in column|42703|42883|42501|undefined column|undefined function|does not exist|violates/.test(
+    /23502|not-null|null value in column|42703|42883|428c9|pgrst202|generated column|undefined column|undefined function|does not exist|violates/.test(
       msg,
     )
   ) {

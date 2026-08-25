@@ -12,7 +12,45 @@ import {
  * Thin wrapper over the existing Supabase Auth (email/password, which the
  * live project has enabled). No second auth system, no manual token or
  * password handling, no service_role.
+ *
+ * Exactly ONE `onAuthStateChange` listener is registered (the requirement —
+ * never add a second one). It handles the four universal Nexora events:
+ *   INITIAL_SESSION   — hydrate the persisted session (storageKey
+ *                       nexora.auth.qwaehqsmodekbgvnaavz, persistSession true)
+ *   SIGNED_IN         — a new session began (PKCE callback or login form)
+ *   SIGNED_OUT        — session cleared; guarded redirect to /auth/login
+ *   TOKEN_REFRESHED   — auto-refresh kept the session alive (autoRefreshToken)
+ * Sessions stay persisted by the client itself (persistSession/autoRefreshToken
+ * on the shared client); this hook only mirrors the latest session into React
+ * state and owns the invalid-session redirect.
  */
+
+/** The single login destination for invalid/expired sessions. */
+export const AUTH_LOGIN_PATH = '/auth/login';
+
+/**
+ * True only for routes that require an authenticated owner workspace.
+ * The public site, signup, password reset and the login page itself are
+ * never redirected — this is the redirect-loop guard.
+ */
+function isProtectedRoute(pathname: string): boolean {
+  return (
+    pathname === '/dashboard' ||
+    pathname === '/builder' ||
+    pathname.startsWith('/dashboard/') ||
+    pathname.startsWith('/builder/')
+  );
+}
+
+/** Navigate away from a protected route to /auth/login exactly once. */
+function redirectToLoginIfProtected(): void {
+  if (typeof window === 'undefined') return;
+  const pathname = window.location.pathname;
+  if (!isProtectedRoute(pathname)) return;
+  if (pathname === AUTH_LOGIN_PATH) return; // already there — never loop
+  if (window.location.search.includes('code=') || window.location.search.includes('error=')) return; // PKCE callback in flight
+  window.location.replace(`${AUTH_LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
+}
 
 export interface AuthState {
   user: User | null;
@@ -20,60 +58,103 @@ export interface AuthState {
   loading: boolean;
 }
 
-export function useAuth(): AuthState {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    session: null,
-    loading: isSupabaseConfigured,
-  });
+/*
+ * Module-scoped shared auth store: exactly ONE onAuthStateChange subscription
+ * exists for the whole app no matter how many components call useAuth().
+ * React hook instances are just subscribers to this store (with the timeout
+ * safety net and invalid-session redirect owned by the store).
+ */
 
-  useEffect(() => {
-    if (!supabase) {
-      setState({ user: null, session: null, loading: false });
-      return;
-    }
+type AuthStateListener = (next: AuthState) => void;
 
-    let active = true;
+const authListeners = new Set<AuthStateListener>();
+let authState: AuthState | null = null;
+let authSyncStarted = false;
+let authSubscription: { subscription: { unsubscribe: () => void } } | null = null;
+let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    // Safety fallback: ensure loading never hangs if getSession stalls
-    const timeoutId = setTimeout(() => {
-      if (active) {
-        setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
+function emitAuthState(next: AuthState): void {
+  authState = next;
+  for (const listener of Array.from(authListeners)) listener(next);
+}
+
+function applySession(session: Session | null, loading: boolean): void {
+  emitAuthState({ user: session?.user ?? null, session, loading });
+  // An absent/invalid session on a protected route (expired refresh token,
+  // revoked user, SIGNED_OUT) lands on /auth/login — guarded so the login
+  // page never bounces back to itself.
+  if (!session && !loading) redirectToLoginIfProtected();
+}
+
+/** Lazily starts the ONE shared Supabase auth listener (idempotent). */
+function startAuthSync(): void {
+  if (authSyncStarted) return;
+  authSyncStarted = true;
+
+  if (!supabase) {
+    emitAuthState({ user: null, session: null, loading: false });
+    return;
+  }
+
+  authState = { user: null, session: null, loading: true };
+
+  // Safety fallback: ensure loading never hangs if getSession stalls.
+  timeoutId = setTimeout(() => {
+    if (authState?.loading) applySession(authState.session, false);
+  }, 4000);
+
+  supabase.auth
+    .getSession()
+    .then(({ data, error }) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (error) {
+        console.error('Supabase getSession error:', error);
+        applySession(null, false);
+        return;
       }
-    }, 4000);
-
-    supabase.auth
-      .getSession()
-      .then(({ data, error }) => {
-        if (!active) return;
-        clearTimeout(timeoutId);
-        if (error) {
-          console.error('Supabase getSession error:', error);
-          setState({ user: null, session: null, loading: false });
-          return;
-        }
-        setState({
-          user: data.session?.user ?? null,
-          session: data.session ?? null,
-          loading: false,
-        });
-      })
-      .catch((err) => {
-        if (!active) return;
-        clearTimeout(timeoutId);
-        console.error('Supabase getSession exception:', err);
-        setState({ user: null, session: null, loading: false });
-      });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active) return;
-      setState({ user: session?.user ?? null, session: session ?? null, loading: false });
+      applySession(data.session ?? null, false);
+    })
+    .catch((err) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      console.error('Supabase getSession exception:', err);
+      applySession(null, false);
     });
 
+  // Exactly one listener for the whole app (see startAuthSync guard).
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    // INITIAL_SESSION: hydration completed (mirrors getSession result).
+    // TOKEN_REFRESHED: autoRefreshToken kept the session valid — keep it.
+    // SIGNED_IN: PKCE callback / login form produced a session.
+    // SIGNED_OUT: session cleared — invalid-session redirect (guarded).
+    switch (event) {
+      case 'INITIAL_SESSION':
+      case 'SIGNED_IN':
+      case 'TOKEN_REFRESHED':
+      case 'SIGNED_OUT':
+        applySession(session ?? null, false);
+        break;
+      default:
+        // PASSWORD_RECOVERY and any other event still reflect the latest
+        // session; never manufacture one (no session beats a stale session).
+        applySession(session ?? null, false);
+    }
+  });
+  authSubscription = data;
+}
+
+export function useAuth(): AuthState {
+  const [state, setState] = useState<AuthState>(
+    () => authState ?? { user: null, session: null, loading: isSupabaseConfigured },
+  );
+
+  useEffect(() => {
+    // Subscribes to the shared store; the underlying Supabase listener is
+    // started once, regardless of how many components use this hook.
+    startAuthSync();
+    if (authState) setState(authState);
+    authListeners.add(setState);
     return () => {
-      active = false;
-      clearTimeout(timeoutId);
-      sub.subscription.unsubscribe();
+      authListeners.delete(setState);
     };
   }, []);
 

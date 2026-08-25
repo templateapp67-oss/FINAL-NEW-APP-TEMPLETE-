@@ -28,6 +28,7 @@ import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
+import { useLocationSync } from './hooks/useLocationSync';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
@@ -140,6 +141,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [showResumeBanner, setShowResumeBanner] = useState(false);
+
+  // Authenticated Nexora location synchronization. Starts only once a real
+  // session exists (no-op for the public site), owns ONE shared watcher for
+  // the whole app, resolves the owner salon from the authenticated account,
+  // writes through the RLS-gated salonLocationService, and cleans up on
+  // logout. Existing StepLocation editing stays untouched.
+  useLocationSync(user, data.address ?? null);
 
   useUsageTracking({
     activeModule,

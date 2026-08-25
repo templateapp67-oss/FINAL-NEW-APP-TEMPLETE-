@@ -8,6 +8,7 @@ import NotFound from './components/NotFound.tsx';
 import AuthCallbackPage from './components/AuthCallbackPage.tsx';
 import PasswordResetPage from './components/PasswordResetPage.tsx';
 import SignUpPage from './components/SignUpPage.tsx';
+import AuthLoginPage from './components/AuthLoginPage.tsx';
 import { AuthModalProvider, useAuthModal } from './components/AuthModalProvider.tsx';
 import { useAuth } from './lib/useAuth.ts';
 import { applyBrandConfigToDocument } from './config/brandConfig.ts';
@@ -69,7 +70,7 @@ function ProtectedApp() {
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
-  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
+  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'auth_login' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
 
   // NOTE: slug resolution is fed by `location.pathname` and (when present)
   // `location.hostname` (subdomain). Query parameters (e.g. `?ref=NX-ROYAL-2026`)
@@ -104,6 +105,13 @@ function RootRouter() {
       }
       if (pathname === '/reset-password') {
         setRoute('reset_password');
+        setLoading(false);
+        return;
+      }
+      // Invalid/expired session destination — the ONLY auth login route.
+      // Never redirected back to itself (see useAuth redirect guard).
+      if (pathname === '/auth/login') {
+        setRoute('auth_login');
         setLoading(false);
         return;
       }
@@ -201,6 +209,8 @@ function RootRouter() {
   switch (route) {
     case 'auth_callback':
       return <AuthCallbackPage />;
+    case 'auth_login':
+      return <AuthLoginPage />;
     case 'reset_password':
       return <PasswordResetPage />;
     case 'signup':

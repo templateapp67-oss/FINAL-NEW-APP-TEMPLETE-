@@ -1,9 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { KeyRound, Loader2, TriangleAlert } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
-import { updatePassword } from '../lib/useAuth';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { useAuth, updatePassword } from '../lib/useAuth';
 
 export default function PasswordResetPage() {
+  // ONE shared auth listener (useAuth). Recovery/sign-in sessions surface
+  // through the shared hook, so this page registers no second
+  // onAuthStateChange and no duplicate auth system.
+  const { session, loading } = useAuth();
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -12,23 +16,15 @@ export default function PasswordResetPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!supabase) {
+    if (!isSupabaseConfigured) {
       setError('Authentication is not configured.');
-      return;
     }
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (active) setReady(Boolean(data.session));
-    });
-    const { data } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!active) return;
-      if (event === 'PASSWORD_RECOVERY' || session) setReady(true);
-    });
-    return () => {
-      active = false;
-      data.subscription.unsubscribe();
-    };
   }, []);
+
+  // Enable the form once the shared hook reports a valid (recovery) session.
+  useEffect(() => {
+    if (!loading && session) setReady(true);
+  }, [session, loading]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

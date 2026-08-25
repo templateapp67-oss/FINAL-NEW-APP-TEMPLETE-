@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { publicWebsiteUrl } from '../src/lib/publicWebsiteUrl.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const migrationDir = join(root, 'supabase', 'migrations');
@@ -367,7 +368,20 @@ const renamedRow = (await db.query(
 )).rows[0];
 assert.equal(renamedRow.slug, 'sin-city-salon');
 assert.equal(renamedRow.name, 'Sin City Studio');
-ok('republish updates content but preserves the allocated public URL');
+// The business-name change lands on the SAME public URL — an old bookmark or
+// shared link keeps resolving, now showing the new name (req 7).
+const nameChangedUrl = publicWebsiteUrl(republished.slug);
+assert.equal(nameChangedUrl, publicWebsiteUrl(published.slug), 'public URL must be byte-identical after rename');
+session.uid = '';
+session.role = 'anon';
+const { data: renamedPublicRows } = await requireSupabase().rpc(
+  'get_public_salon_website', { p_slug: 'sin-city-salon' },
+);
+assert.equal(Array.isArray(renamedPublicRows) ? renamedPublicRows.length : 0, 1, 'old URL must still resolve');
+assert.equal(renamedPublicRows[0].business_name, 'Sin City Studio');
+session.uid = ids.ownerA;
+session.role = 'authenticated';
+ok('rename applies under the same immutable public URL — the old/shared link still resolves');
 
 // 5. Unpublish flips the persisted state while keeping the reservation.
 const publishedAtBefore = (await db.query(

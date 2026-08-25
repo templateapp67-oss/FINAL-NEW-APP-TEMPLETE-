@@ -61,6 +61,20 @@ Duplicate business names never produce duplicate public URLs — uniqueness is d
 
 Verified end-to-end: `A/B/C = nexora-salon / nexora-salon-1 / nexora-salon-2`, each resolving to exactly its own business; a direct duplicate insert is rejected by the DB (no frontend decision); `NEXORA-SALON` and `Nexora Salon!` are rejected; the 4th duplicate gets `nexora-salon-3`.
 
+## Business name change after publishing
+
+**Strategy implemented: immutable slug after publication** (the canonical M39/M44/M45/M51 architecture — no alias/redirect table, no second URL system).
+
+| Moment | Behavior |
+|---|---|
+| First publish | Allocates the slug from the business name and sets `published_at` — the permanent URL allocation |
+| Rename → republish | `published_at is not null` ⇒ `v_slug := v_existing.slug`; the URL never moves. `salons.name`/org name are updated from the draft config, and `get_public_salon_website` reads `business_name` from `salons.name` — so the **old/shared bookmark keeps resolving** at the same URL and now shows the new name |
+| Unpublish → rename → republish | `published_at` and the slug survive unpublish; the same URL comes back live |
+| Rename before the first publish | New slug is allowed — no public link existed yet, so nothing needs preserving |
+| Template switch / visual config / draft autosave | Never write slug or name (M48 body guards + `saveOwnerWebsiteDraft` updates `config` only) |
+
+Nothing silently changes a published public URL; there is no redirect because the slug never changes after publication.
+
 ## Public journey
 
 `/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → template + config → renderer. Unpublished / inactive / deleted → 404. Anon cannot SELECT draft tables.
@@ -77,6 +91,7 @@ npm run test:owner-publish-flow
 npm run test:owner-publish-real   # app publish path → real persisted row (PGlite)
 npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://nexora-salon.nexora.site
 npm run test:slug-collision                       # A/B/C → nexora-salon / -1 / -2, DB-enforced uniqueness
+npm run test:business-name-change                 # rename keeps the immutable public URL
 npm run lint
 npm run build
 ```

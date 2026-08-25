@@ -1,8 +1,26 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-25** (workspace bootstrap hardening — canonical idempotent provisioning is now the first post-auth initialization operation; no pre-bootstrap ownership read can block profile/membership repair. M54 remains the required live database compatibility migration for the status/generated `organization_members.is_active` failure).
+> Last updated: **2026-08-25** (cache-clear auth recovery — a missing/invalid browser session now clears disposable owner cache and routes to the owner login instead of surfacing the salon-workspace failure card).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
+
+## Cache/cookie/localStorage clear recovery (this PR)
+
+- `src/App.tsx` and the protected root in `src/main.tsx` now require both a
+  validated user and a structurally complete session before starting or
+  rendering the owner workspace. Empty storage can no longer feed a null
+  session into workspace provisioning/hydration.
+- `src/lib/workspaceDiagnostics.ts` narrowly classifies missing, expired and
+  invalid-session diagnostics separately from retryable network failures.
+  If site data disappears during an in-flight workspace load, `useAuth` clears
+  disposable owner cache and routes to `/auth/login` rather than rendering
+  “We couldn’t load your salon workspace”.
+- `src/lib/ownerDashboard.ts` maps the same auth-session condition to
+  `not-authenticated`, so the workspace hook never attempts a salon/profile
+  read with an absent identity or workspace id.
+- Regression: `npm run test:cache-clear-auth`; also verified with
+  `test:owner-session-persistence`, `test:auth-intent`, `npm run lint`,
+  `node verify-22-screens.js`, and `npm run build`.
 
 ## Legacy public site interactive fixes (this PR)
 

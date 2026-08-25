@@ -140,3 +140,26 @@ export function workspaceUserMessage(diagnostic: WorkspaceDiagnostic): string {
   }
   return 'We could not load your salon workspace. Please try again.';
 }
+
+/**
+ * True when workspace initialization failed because the browser no longer has
+ * a usable auth session (for example after site data/localStorage is cleared).
+ * This deliberately excludes generic network failures, which remain retryable.
+ */
+export function isMissingAuthSessionDiagnostic(
+  diagnostic: WorkspaceDiagnostic | null | undefined,
+): boolean {
+  if (!diagnostic || diagnostic.stage !== 'auth-session') return false;
+  const code = (diagnostic.code || '').toUpperCase();
+  const raw = diagnostic.message.toLowerCase();
+  return (
+    code === '28000'
+    || code === 'AUTH_SESSION_INVALID'
+    || code === 'AUTH_USER_MISSING'
+    || code === 'AUTH_SESSION_USER_MISMATCH'
+    || /auth session missing|no authenticated|not authenticated|please log in/.test(raw)
+    || /session.*(?:missing|invalid|expired)/.test(raw)
+    || /refresh token.*(?:missing|not found|invalid)/.test(raw)
+    || /(?:invalid|expired) jwt/.test(raw)
+  );
+}

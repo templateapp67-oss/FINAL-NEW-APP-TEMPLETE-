@@ -33,7 +33,7 @@ applyBrandConfigToDocument();
 captureReferralFromUrl();
 
 function ProtectedApp() {
-  const { user, loading } = useAuth();
+  const { user, session, loading } = useAuth();
   const { openAuth } = useAuthModal();
   // /dashboard and /builder both open the authenticated owner workspace;
   // /dashboard starts on the real Salon Owner Dashboard (screen 26).
@@ -46,7 +46,7 @@ function ProtectedApp() {
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">Verifying your session…</div>;
   }
-  if (!user) {
+  if (!user || !session?.access_token || !session.user?.id) {
     return (
       <main className="min-h-screen bg-[#fcfcfc] flex items-center justify-center p-6">
         <section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">

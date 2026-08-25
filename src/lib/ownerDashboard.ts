@@ -37,7 +37,11 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { resolveOwnerSalonId, SALON_TABLE_NAME } from './ownerSalon';
 import type { OwnerSalonResolution } from './ownerSalon';
 import { completeOwnerAuthSession } from './ownerSession';
-import { diagnosticFromError, logWorkspaceFailure } from './workspaceDiagnostics';
+import {
+  diagnosticFromError,
+  isMissingAuthSessionDiagnostic,
+  logWorkspaceFailure,
+} from './workspaceDiagnostics';
 
 /* ------------------------------------------------------------------ */
 /* Section registry — the dashboard's navigation structure             */
@@ -226,6 +230,10 @@ export function mapOwnerSalonResolution(
       return 'ambiguous';
     case 'permission-denied':
       return 'permission-denied';
+    case 'error':
+      return isMissingAuthSessionDiagnostic(resolution.diagnostic)
+        ? 'not-authenticated'
+        : 'error';
     default:
       return 'error';
   }

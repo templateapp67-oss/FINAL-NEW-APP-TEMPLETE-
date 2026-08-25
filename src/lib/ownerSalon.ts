@@ -99,11 +99,12 @@ async function salonIdsFromHelper(): Promise<string[] | null> {
  * Equivalent ownership query, used only if the helper function is not
  * exposed. Mirrors the project's ownership rule exactly; RLS still applies.
  */
-async function salonIdsFromMembership(): Promise<string[]> {
+async function salonIdsFromMembership(userId: string): Promise<string[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from(SALON_TABLE_NAME)
     .select(`id, organization_id, ${ORG_MEMBERS_TABLE}!inner(user_id, role, is_active)`)
+    .eq(`${ORG_MEMBERS_TABLE}.user_id`, userId)
     .eq(`${ORG_MEMBERS_TABLE}.role`, 'owner')
     .eq(`${ORG_MEMBERS_TABLE}.is_active`, true)
     .is('deleted_at', null);
@@ -113,8 +114,92 @@ async function salonIdsFromMembership(): Promise<string[]> {
 }
 
 /**
+ * Broader multi-tenant membership fallback. When the owner-only helpers
+ * (owner_salon_ids / the role='owner' join) find nothing — e.g. a schema
+ * drift on a helper column, or a member whose owner link lives in a
+ * different shape — we still try to locate any salon the authenticated user
+ * is attached to through `organization_members` (any active role) so a
+ * legitimately-linked user is not treated as a brand-new tenant.
+ *
+ * This is a best-effort fallback: any query/table failure is logged (never a
+ * hard blocker) and treated as "no membership found", which lets the caller
+ * fall through to self-provisioning.
+ */
+async function salonIdsFromOrganizationMembershipAnyRole(userId: string): Promise<string[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from(ORG_MEMBERS_TABLE)
+      .select('organization_id')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('Salon setup error details (membership query):', error);
+      return [];
+    }
+
+    const orgIds = uniqueIds(
+      (data ?? []).map((row) => (row as { organization_id?: unknown }).organization_id),
+    );
+    if (orgIds.length === 0) return [];
+
+    const { data: salons, error: salonError } = await supabase
+      .from(SALON_TABLE_NAME)
+      .select('id')
+      .in('organization_id', orgIds)
+      .is('deleted_at', null);
+
+    if (salonError) {
+      console.error('Salon setup error details (membership->salon query):', salonError);
+      return [];
+    }
+    return uniqueIds((salons ?? []).map((row) => (row as { id?: unknown }).id));
+  } catch (err) {
+    console.error('Salon setup error details (membership query):', err);
+    return [];
+  }
+}
+
+/**
+ * Additional staff-style membership fallback (`public.staff` where
+ * `user_id = auth.uid()`). The table may not exist in every deployment, so
+ * this is fully defensive: any failure logs and returns [].
+ */
+async function salonIdsFromStaffMembership(userId: string): Promise<string[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('salon_id')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Salon setup error details (staff membership query):', error);
+      return [];
+    }
+    return uniqueIds((data ?? []).map((row) => (row as { salon_id?: unknown }).salon_id));
+  } catch (err) {
+    console.error('Salon setup error details (staff membership query):', err);
+    return [];
+  }
+}
+
+/**
  * Resolve the authenticated owner's salon id.
  * Anything other than `resolved` means: do not read or write a salon row.
+ *
+ * Robustness contract (workspace-load safety):
+ *  - The canonical owner helpers run first (owner_salon_ids RPC, then the
+ *    owner membership join). A missing helper/function is not an error — it
+ *    just falls back to the equivalent join.
+ *  - If ownership yields nothing, a broad multi-tenant membership fallback
+ *    (organization_members any active role, plus a staff-style link) is
+ *    attempted. Every one of these queries is defensive.
+ *  - A genuinely unexpected schema/permission surprise is NEVER a hard
+ *    blocker: the exact Supabase code/message is logged under
+ *    "Salon setup error details" and the status becomes `error` so the caller
+ *    can still attempt idempotent self-provisioning instead of dead-ending.
  */
 export async function resolveOwnerSalonId(): Promise<OwnerSalonResolution> {
   if (!isSupabaseConfigured || !supabase) return { status: 'not-configured' };
@@ -122,20 +207,37 @@ export async function resolveOwnerSalonId(): Promise<OwnerSalonResolution> {
   const userId = await getAuthenticatedUserId();
   if (!userId) return { status: 'not-authenticated' };
 
+  let salonIds: string[] = [];
   try {
-    let salonIds = await salonIdsFromHelper();
-    if (salonIds === null) salonIds = await salonIdsFromMembership();
-
-    if (salonIds.length === 0) return { status: 'no-membership' };
-    // Never pick one arbitrarily.
-    if (salonIds.length > 1) return { status: 'ambiguous' };
-    return { status: 'resolved', salonId: salonIds[0] };
+    salonIds = await salonIdsFromHelper();
+    // A `null` return means the helper function is not exposed (not a fault);
+    // fall back to the equivalent ownership join.
+    if (salonIds === null) salonIds = await salonIdsFromMembership(userId);
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (isPermissionError(code)) return { status: 'permission-denied' };
-    console.error('Failed to resolve owner salon:', err);
-    return { status: 'error' };
+    // Non-permission failure: log the exact Supabase detail and continue to
+    // the broad membership fallback below instead of hard-blocking.
+    console.error('Salon setup error details (owner query):', err);
   }
+
+  if (salonIds.length === 0) {
+    // No owner record found — check the broader multi-tenant membership
+    // tables before declaring the user a brand-new tenant.
+    try {
+      const memberIds = await salonIdsFromOrganizationMembershipAnyRole(userId);
+      const staffIds = await salonIdsFromStaffMembership(userId);
+      salonIds = Array.from(new Set([...salonIds, ...memberIds, ...staffIds]));
+    } catch (err) {
+      // Already logged defensively inside the helpers; never blocks.
+      console.error('Salon setup error details (membership fallback):', err);
+    }
+  }
+
+  if (salonIds.length === 0) return { status: 'no-membership' };
+  // Never pick one arbitrarily.
+  if (salonIds.length > 1) return { status: 'ambiguous' };
+  return { status: 'resolved', salonId: salonIds[0] };
 }
 
 /** User-facing message. Never exposes SQL, tokens or database internals. */

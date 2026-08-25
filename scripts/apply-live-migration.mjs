@@ -58,6 +58,7 @@ const CHAIN_M28_TO_M53 = [
   '20260825000201_m51_slug_collision_hardening.sql',
   '20260825000301_m52_public_resolution_hardening.sql',
   '20260825000401_m53_provision_salon_slug_fix.sql',
+  '20260825000501_m54_workspace_rls_verify.sql',
 ];
 
 const M38 = '20260822000101_m38_reconciliation_fix.sql';
@@ -65,6 +66,7 @@ const M40 = '20260822000301_m40_service_catalog_commerce_rpc.sql';
 const M45 = '20260824000201_m45_business_slug_hardening.sql';
 const M46 = '20260824000301_m46_public_access_security.sql';
 const M53 = '20260825000401_m53_provision_salon_slug_fix.sql';
+const M54 = '20260825000501_m54_workspace_rls_verify.sql';
 
 const VERIFY_SQL = `
 select check_name, ok, detail
@@ -96,6 +98,12 @@ from public.verify_m46_public_access_security()
 order by check_name;
 `.trim();
 
+const VERIFY_SQL_M54 = `
+select check_name, ok, detail
+from public.verify_m54_workspace_rls()
+order by check_name;
+`.trim();
+
 function parseProjectRef(configText) {
   const match = configText.match(/^project_id\s*=\s*["']?([A-Za-z0-9_-]+)["']?/m);
   return match ? match[1] : null;
@@ -121,18 +129,20 @@ function resolveFiles(argv) {
     argv.includes('--verify') &&
     !argv.includes('--m38') && !argv.includes('--m40') &&
     !argv.includes('--m45') && !argv.includes('--m46') &&
-    !argv.includes('--m53') && !argv.includes('--all')
+    !argv.includes('--m53') && !argv.includes('--m54') && !argv.includes('--all')
   ) return [];
   if (argv.includes('--m38')) return [M38];
   if (argv.includes('--m40')) return [M40];
   if (argv.includes('--m45')) return [M45];
   if (argv.includes('--m46')) return [M46];
   if (argv.includes('--m53')) return [M53];
+  if (argv.includes('--m54')) return [M54];
   if (argv.includes('--all')) return CHAIN_M28_TO_M53;
   return [CHAIN_M28_TO_M53[0]];
 }
 
 function verifySqlFor(files) {
+  if (files.includes(M54)) return VERIFY_SQL_M54;
   if (files.includes(M53)) return VERIFY_SQL_M53;
   if (files.includes(M46)) return VERIFY_SQL_M46;
   if (files.includes(M45)) return VERIFY_SQL_M45;
@@ -188,9 +198,11 @@ async function main() {
 
   const projectRef = await resolveProjectRef();
   const files = resolveFiles(process.argv);
-  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40) || files.includes(M45) || files.includes(M46) || files.includes(M53);
+  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40) || files.includes(M45) || files.includes(M46) || files.includes(M53) || files.includes(M54);
   const verifySql = verifySqlFor(files);
-  const verifyFnName = files.includes(M53)
+  const verifyFnName = files.includes(M54)
+    ? 'verify_m54_workspace_rls'
+    : files.includes(M53)
     ? 'verify_m53_provision_salon_slug'
     : files.includes(M46)
     ? 'verify_m46_public_access_security'

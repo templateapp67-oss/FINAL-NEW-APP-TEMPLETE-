@@ -115,7 +115,10 @@ export async function ensureOwnerSalon(input?: {
   });
 
   if (error) {
-    console.error('Owner provisioning failed:', error);
+    // Surface the EXACT Supabase code/message for diagnosis. The user-facing
+    // message below stays sanitized (no SQL/table/column internals leaked).
+    console.error('Salon setup error details:', error);
+    console.error('Owner provisioning RPC failed:', error);
     throw new Error(sanitizeProvisionError(error.message));
   }
 
@@ -162,8 +165,16 @@ export async function resolveOrProvisionOwnerSalon(input?: {
   if (resolution.status === 'permission-denied') {
     return { error: 'You do not have permission to access this salon.' };
   }
-  if (resolution.status !== 'no-membership') {
-    return { error: 'Unable to determine your salon. Please try again.' };
+
+  // 'no-membership' AND 'error' (schema drift / transient query failure) both
+  // fall through to self-provisioning. `provision_owner_salon` is idempotent:
+  // if the user actually already has a salon it is returned unchanged, so a
+  // failed resolution is never a dead-end — the workspace is created or the
+  // existing one is loaded. Genuine provisioning faults are surfaced below.
+  if (resolution.status === 'error') {
+    console.error(
+      'Salon setup error details: resolution failed, attempting idempotent self-provisioning instead of blocking.',
+    );
   }
 
   try {
@@ -175,6 +186,7 @@ export async function resolveOrProvisionOwnerSalon(input?: {
       provisioned: !provisioned.alreadyExisted,
     };
   } catch (err) {
+    console.error('Salon setup error details:', err);
     return {
       error: err instanceof Error ? err.message : 'Could not set up your salon.',
     };

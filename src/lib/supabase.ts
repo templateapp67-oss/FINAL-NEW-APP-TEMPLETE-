@@ -52,6 +52,39 @@ export const isSupabaseConfigured = Boolean(
 );
 
 /**
+ * Human-readable diagnosis of why the Supabase client is NOT configured.
+ * Returns null when everything is wired up. Used to surface a clear,
+ * developer-friendly message (instead of a generic workspace error) when
+ * VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are missing or placeholders in
+ * the Vercel build.
+ */
+export const supabaseConfigIssue: string | null = (() => {
+  if (!url) {
+    return 'VITE_SUPABASE_URL is missing. Set it in your Vercel project environment variables (a fresh build + deploy is required).';
+  }
+  if (!anonKey) {
+    return 'VITE_SUPABASE_ANON_KEY is missing. Set it in your Vercel project environment variables (a fresh build + deploy is required).';
+  }
+  if (projectRef(url) === 'invalid') {
+    return `VITE_SUPABASE_URL looks invalid ("${url}"). It must be a full URL such as https://<project-ref>.supabase.co.`;
+  }
+  if (url.includes('your-project.supabase.co')) {
+    return 'VITE_SUPABASE_URL is still the placeholder "https://your-project.supabase.co". Replace it with your real Supabase project URL in Vercel.';
+  }
+  if (anonKey.includes('your-anon-public-key')) {
+    return 'VITE_SUPABASE_ANON_KEY is still the placeholder "your-anon-public-key". Replace it with your project anon key in Vercel.';
+  }
+  return null;
+})();
+
+if (typeof console !== 'undefined' && supabaseConfigIssue) {
+  // One clear, developer-friendly console alert in every build where the
+  // client is not configured (e.g. Vercel env vars not wired). This prevents
+  // a confusing "couldn't load your salon workspace" from being the only sign.
+  console.error('[Supabase] Workspace backend is not configured:', supabaseConfigIssue);
+}
+
+/**
  * Shared Supabase client configured exactly for the universal Nexora PKCE
  * flow:
  *   storageKey: 'nexora.auth.qwaehqsmodekbgvnaavz'

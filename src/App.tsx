@@ -30,7 +30,7 @@ import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useLocationSync } from './hooks/useLocationSync';
 import { useAuth } from './lib/useAuth';
-import { isSupabaseConfigured } from './lib/supabaseClient';
+import { isSupabaseConfigured, supabaseConfigIssue } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
 import { persistOwnerBusinessSetup, loadOwnerSalonRow, mergeSalonRowIntoDraft } from './lib/ownerBusinessSetup';
 import {
@@ -52,6 +52,13 @@ import {
   MAX_OWNER_STEP_INDEX,
   TOTAL_OWNER_STEPS,
 } from './lib/ownerFlow';
+
+// True only in a production build (e.g. Vercel). Used to surface a clear,
+// developer-friendly configuration banner when Supabase env vars are missing,
+// WITHOUT interfering with local-development demo mode (which is intentionally
+// unconfigured).
+const IS_PRODUCTION_BUILD =
+  typeof import.meta !== 'undefined' && !!import.meta.env?.PROD;
 
 const STORAGE_KEY = OWNER_ONBOARDING_CACHE_KEY;
 const DASHBOARD_TAB_KEY = OWNER_DASHBOARD_TAB_CACHE_KEY;
@@ -162,6 +169,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const didResumeFromBackend = useRef(false);
   const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
   const [ownerHydrationError, setOwnerHydrationError] = useState('');
+  // Raw Supabase detail (code/message) kept for the developer expandable
+  // block — never shown as the primary user-facing text.
+  const [ownerHydrationErrorDetail, setOwnerHydrationErrorDetail] = useState('');
   const [ownerHydrationRetry, setOwnerHydrationRetry] = useState(0);
   const templateSwitchQueue = useRef<Promise<void>>(Promise.resolve());
   const latestData = useRef(data);
@@ -216,6 +226,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     backendHydratedFor.current = user.id;
     setBackendHydratedUser(null);
     setOwnerHydrationError('');
+    setOwnerHydrationErrorDetail('');
     setData(emptyOwnerSalonData());
 
     let active = true;
@@ -279,10 +290,15 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     })().catch((error: unknown) => {
       if (!active) return;
       backendHydratedFor.current = null;
-      setOwnerHydrationError(
-        error instanceof Error ? error.message : 'Unable to load your salon workspace.',
+      const message = error instanceof Error ? error.message : 'Unable to load your salon workspace.';
+      // Surface the EXACT Supabase code/message so the failure is diagnosable
+      // from the console (never a swallowed null).
+      console.error('Salon setup error details:', error);
+      console.error('Owner provisioning or hydration failed:', message);
+      setOwnerHydrationError(message);
+      setOwnerHydrationErrorDetail(
+        error instanceof Error && error.message ? error.message : String(error),
       );
-      console.error('Owner provisioning or hydration failed:', error);
     });
 
     return () => { active = false; };
@@ -564,6 +580,27 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // Compute current screen for TopBar
   const currentScreen = getCurrentScreen();
 
+  // Missing/invalid Supabase env vars in a PRODUCTION build (Vercel): surface a
+  // clear developer-friendly alert instead of a confusing "couldn't load your
+  // salon workspace" — the app has no backend to connect to. In local dev this
+  // banner never renders (demo mode is intentionally unconfigured).
+  if (IS_PRODUCTION_BUILD && supabaseConfigIssue) {
+    return (
+      <div className="h-screen bg-[#f9f9f9] flex items-center justify-center px-6 font-sans text-gray-900">
+        <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center shadow-sm">
+          <h1 className="text-lg font-extrabold text-amber-900">Supabase is not configured</h1>
+          <p role="alert" className="mt-2 text-sm text-amber-800">{supabaseConfigIssue}</p>
+          <p className="mt-3 text-xs text-amber-700">
+            Set <code className="font-mono">VITE_SUPABASE_URL</code> and{' '}
+            <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> in your Vercel project
+            environment variables, then redeploy. The salon workspace requires the Supabase
+            backend.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Fail closed before rendering any owner module. This also blocks the
   // universal navigator and stale localStorage from bypassing the Login stage.
   if (isSupabaseConfigured && (authLoading || !user)) {
@@ -591,10 +628,30 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         data-testid="owner-workspace-hydration-boundary"
       >
         <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-          {ownerHydrationError ? (
+          {ownerHydrationError || supabaseConfigIssue ? (
             <>
-              <h1 className="text-lg font-extrabold">We couldn’t load your salon workspace</h1>
-              <p role="alert" className="mt-2 text-sm text-gray-600">{ownerHydrationError}</p>
+              <h1 className="text-lg font-extrabold">
+                {supabaseConfigIssue
+                  ? 'Supabase is not configured'
+                  : 'We couldn’t load your salon workspace'}
+              </h1>
+              <p role="alert" className="mt-2 text-sm text-gray-600">
+                {supabaseConfigIssue
+                  ? `${supabaseConfigIssue} The app is running without a backend — the full salon workspace requires it.`
+                  : ownerHydrationError}
+              </p>
+              {!supabaseConfigIssue && ownerHydrationErrorDetail && (
+                // Developer-only diagnostics: expandable so the exact Supabase
+                // code/message is visible without leaking it into the primary UI.
+                <details className="mt-3 text-left rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-gray-500">
+                    Developer details
+                  </summary>
+                  <pre className="mt-2 overflow-x-auto text-[11px] leading-relaxed text-gray-600 whitespace-pre-wrap break-words">
+                    {ownerHydrationErrorDetail}
+                  </pre>
+                </details>
+              )}
               <button
                 type="button"
                 onClick={() => setOwnerHydrationRetry((current) => current + 1)}

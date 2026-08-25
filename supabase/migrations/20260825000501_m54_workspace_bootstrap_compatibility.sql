@@ -423,6 +423,11 @@ begin
       values (v_salon_id, v_slug, v_template, '{}'::jsonb, false, null);
       exit;
     exception when unique_violation then
+      -- The block rolls back a just-inserted salon together with the
+      -- colliding website write. Re-arm the fresh-salon path before choosing
+      -- the next candidate; otherwise the next retry would update a row that
+      -- no longer exists and then fail its website foreign key.
+      v_salon_id := null;
       if v_attempt >= 50 then raise; end if;
     end;
   end loop;

@@ -1,6 +1,6 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-23** (session `arena/01a02e78-final-new-app-templete`, legacy public site fix — navigation/section IDs + smooth scrolling, interactive Reels & Styling Videos player, booking-flow validation + offline save, white-label dynamic copy, and host/subdomain dynamic routing).
+> Last updated: **2026-08-25** (workspace bootstrap hardening — canonical idempotent provisioning is now the first post-auth initialization operation; no pre-bootstrap ownership read can block profile/membership repair. M54 remains the required live database compatibility migration for the status/generated `organization_members.is_active` failure).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 

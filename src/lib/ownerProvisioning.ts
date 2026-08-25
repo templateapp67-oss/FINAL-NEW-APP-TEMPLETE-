@@ -20,7 +20,6 @@
 
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { getAuthoritativeAuthIdentity } from './authIdentity';
-import { resolveOwnerSalonId } from './ownerSalon';
 import { suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
 import {
   diagnosticError,
@@ -190,39 +189,16 @@ export async function resolveOrProvisionOwnerSalon(input?: {
     return { error: 'Authentication is not configured.' };
   }
 
-  const resolution = await resolveOwnerSalonId();
-  if (resolution.status === 'resolved') {
-    return { salonId: resolution.salonId, provisioned: false };
-  }
-  if (resolution.status === 'not-authenticated') {
-    return { error: 'Please log in to continue.' };
-  }
-  if (resolution.status === 'ambiguous') {
-    return { error: 'Multiple salons are linked to your account. Please contact support.' };
-  }
-  if (resolution.status === 'permission-denied') {
-    return {
-      error: resolution.diagnostic
-        ? workspaceUserMessage(resolution.diagnostic)
-        : 'You do not have permission to access this salon.',
-      diagnostic: resolution.diagnostic,
-    };
-  }
-  if (resolution.status === 'error') {
-    return {
-      error: resolution.diagnostic
-        ? workspaceUserMessage(resolution.diagnostic)
-        : 'Unable to determine your salon. Please try again.',
-      diagnostic: resolution.diagnostic,
-    };
-  }
-  if (resolution.status === 'not-configured') {
-    return { error: 'Authentication is not configured.' };
-  }
-  if (resolution.status !== 'no-membership') {
-    return { error: 'Unable to determine your salon. Please try again.' };
-  }
-
+  // Bootstrap through the canonical idempotent RPC first. Do not perform an
+  // ownership read and then decide whether to create a workspace: a brand-new
+  // account legitimately has no membership yet, and an older account may be
+  // missing its profile/membership because signup was interrupted. The
+  // preflight ownership query made those two cases indistinguishable from an
+  // RLS/schema failure and could stop bootstrap before the repair-capable RPC
+  // ran. `provision_owner_salon` derives auth.uid(), reuses an existing tenant,
+  // repairs the supported partial state, and serializes concurrent retries.
+  // This is also a single authoritative path for existing and new owners;
+  // calling it again after refresh is safe and cannot create duplicates.
   try {
     const provisioned = await ensureOwnerSalon(input);
     if (!provisioned) return { error: 'Authentication is not configured.' };

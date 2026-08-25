@@ -1,7 +1,7 @@
 /**
  * Requirement 8 — public website resolution chain.
  *
- * A customer visiting `business-name.nexora.site` (or `/<slug>`) must resolve
+ * A customer visiting `final-new-app-templete.vercel.app/<business-name>` must resolve
  *   Hostname/Slug → Published Business → Active Template
  *   → Template Configuration → Public Business Data
  * for the CORRECT business and nothing else.
@@ -200,12 +200,19 @@ assert.ok(selfChecks.every((rows) => rows.every((r) => r.ok === true)), JSON.str
 ok('M38 → M52 apply cleanly; M45 + M51 + M52 verifiers are green');
 
 // ---- Hostname/Slug resolution, client and server agree --------------------
-assert.equal(getBrandBaseHost(), 'nexora.site');
-assert.equal(extractSubdomainSlug('nexora-salon.nexora.site'), 'nexora-salon');
-assert.equal(resolveHostSlug('nexora-salon.nexora.site'), 'nexora-salon');
-assert.equal(rewriteHostPath('nexora-salon.nexora.site', '/'), '/nexora-salon');
+assert.equal(getBrandBaseHost(), 'final-new-app-templete.vercel.app');
+// Live Vercel deployment: the apex host never yields a slug — business
+// sites resolve through `/<slug>` path form. Wildcard subdomain routing
+// still works on custom white-label domains.
+assert.equal(extractSubdomainSlug('final-new-app-templete.vercel.app'), '');
+assert.equal(extractSubdomainSlug('/NEXORA-SALON/'.replace('/','')), '');
+assert.equal(resolveHostSlug('final-new-app-templete.vercel.app'), '');
+assert.equal(resolveHostSlug('nexora-salon.salonhub.example', 'salonhub.example'), 'nexora-salon');
+assert.equal(resolveHostSlug('nexora-salon.final-new-app-templete.vercel.app'), '');
+assert.equal(rewriteHostPath('nexora-salon.salonhub.example', '/', 'salonhub.example'), '/nexora-salon');
+assert.equal(rewriteHostPath('final-new-app-templete.vercel.app', '/nexora-salon'), '/nexora-salon');
 assert.equal(normalizeRouteSlug('/NEXORA-SALON/'), 'nexora-salon');
-ok('hostname → slug: client and server resolve nexora-salon.nexora.site identically');
+ok('hostname → slug: Vercel base uses path form; client + server agree on custom domains');
 
 // ---- Tenant bootstrap: two published businesses, different templates ------
 const ids = {

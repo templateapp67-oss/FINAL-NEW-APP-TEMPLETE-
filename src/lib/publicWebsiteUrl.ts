@@ -56,12 +56,18 @@ export function websiteHost(baseUrl?: string): string {
 
 function canUseSubdomain(host: string): boolean {
   const hostname = host.split(':')[0];
+  // Vercel's `*.vercel.app` hosts do NOT support arbitrary wildcard
+  // subdomains (only fixed Vercel-managed subdomains exist), so business
+  // sites there must use the path form `base/<slug>` — never
+  // `<slug>.project.vercel.app`.
+  if (hostname.endsWith('.vercel.app')) return false;
   return hostname.includes('.') && hostname !== 'localhost' && !/^\d+(?:\.\d+){3}$/.test(hostname);
 }
 
 /**
- * Existing white-label URL shape. Production hosts use `<slug>.<base-host>`;
- * localhost/IP development hosts keep the existing `base/<slug>` fallback.
+ * Existing white-label URL shape. Hosts that support wildcard subdomains
+ * use `<slug>.<base-host>`; localhost/IP and `*.vercel.app` deployment
+ * hosts keep the `base/<slug>` fallback.
  */
 export function publicWebsiteHref(slug: string | undefined | null, baseUrl?: string): string {
   const host = websiteHost(baseUrl);

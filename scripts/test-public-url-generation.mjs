@@ -1,10 +1,10 @@
 /**
  * Phase 1-B public URL generation (NO second URL/domain system).
  *
- * Business "Nexora Salon" must resolve to:
+ * Business "Nexora Salon" must resolve to (live deployment on Vercel):
  *   slug:  nexora-salon
- *   href:  nexora-salon.nexora.site
- *   url:   https://nexora-salon.nexora.site
+ *   href:  final-new-app-templete.vercel.app/nexora-salon
+ *   url:   https://final-new-app-templete.vercel.app/nexora-salon
  *
  * Everything reads the existing phase-1B helpers in
  * `src/lib/publicWebsiteUrl.ts` (client slugifier + white-label URL builder)
@@ -40,13 +40,13 @@ const ok = (label) => {
 };
 
 // ---- 1. The exact example: business name → slug → white-label URL ---------
-assert.equal(getBrandBaseHost(), 'nexora.site');
+assert.equal(getBrandBaseHost(), 'final-new-app-templete.vercel.app');
 assert.equal(slugifySalonName('Nexora Salon'), 'nexora-salon');
 assert.equal(suggestedWebsiteSlug({ salonName: 'Nexora Salon' }), 'nexora-salon');
 assert.equal(isValidWebsiteSlug('nexora-salon'), true);
-assert.equal(publicWebsiteHref('nexora-salon'), 'nexora-salon.nexora.site');
-assert.equal(publicWebsiteUrl('nexora-salon'), 'https://nexora-salon.nexora.site');
-ok('Nexora Salon → nexora-salon → https://nexora-salon.nexora.site');
+assert.equal(publicWebsiteHref('nexora-salon'), 'final-new-app-templete.vercel.app/nexora-salon');
+assert.equal(publicWebsiteUrl('nexora-salon'), 'https://final-new-app-templete.vercel.app/nexora-salon');
+ok('Nexora Salon → nexora-salon → https://final-new-app-templete.vercel.app/nexora-salon');
 
 // ---- 2. Slug generation edge parity with the database rules ----------------
 assert.equal(slugifySalonName('  Nexora   Salon!!!  '), 'nexora-salon');
@@ -55,21 +55,28 @@ assert.equal(slugifySalonName('ab'), 'ab-salon', 'short names stay resolvable');
 assert.equal(slugifySalonName(''), 'salon', 'empty names fall back like the DB allocator');
 ok('client slugifier mirrors nexora_business_slug normalization and reserved rules');
 
-// ---- 3. White-label subdomain resolution: client AND server parity --------
-assert.equal(extractSubdomainSlug('nexora-salon.nexora.site'), 'nexora-salon');
-assert.equal(resolveHostSlug('nexora-salon.nexora.site'), 'nexora-salon');
+// ---- 3. Live Vercel host: path routing only (no wildcard subdomains) ------
+// Vercel `*.vercel.app` cannot host arbitrary business subdomains, so the
+// apex/vercel host NEVER yields a slug and published sites resolve via
+// `base/<slug>`. Client + server agree; custom wildcard domains keep working.
+assert.equal(extractSubdomainSlug('nexora-salon.final-new-app-templete.vercel.app'), '');
+assert.equal(resolveHostSlug('nexora-salon.final-new-app-templete.vercel.app'), '');
+assert.equal(extractSubdomainSlug('final-new-app-templete.vercel.app'), '');
+assert.equal(resolveHostSlug('final-new-app-templete.vercel.app'), '');
 assert.equal(normalizeRouteSlug('/Nexora-Salon/'), 'nexora-salon');
 assert.equal(normalizeRouteSlug('/NEXORA-SALON'), 'nexora-salon');
-// Apex / www / unknown preview hosts are never misread as a business slug,
-// and server + client agree on every host (existing Phase 1-B parity).
-for (const host of ['nexora-site.nexora.site', 'nexora-salon.nexora.site', 'www.nexora.site']) {
+for (const host of [
+  'final-new-app-templete.vercel.app',
+  'www.final-new-app-templete.vercel.app',
+  'nexora-salon.final-new-app-templete.vercel.app',
+  'app.e2b.app',
+]) {
   assert.equal(resolveHostSlug(host), extractSubdomainSlug(host), `host parity: ${host}`);
 }
-assert.equal(extractSubdomainSlug('nexora.site'), '');
-assert.equal(extractSubdomainSlug('www.nexora.site'), '');
-assert.equal(resolveHostSlug('nexora.site'), '');
-assert.equal(resolveHostSlug('app.e2b.app'), '');
-ok('subdomain + path resolution agree and never claim apex/platform hosts');
+// Custom wildcard domains (future white-label) still route by subdomain.
+assert.equal(resolveHostSlug('foo.yourdomain.com', 'yourdomain.com'), 'foo');
+assert.equal(resolveHostSlug('www.yourdomain.com', 'yourdomain.com'), '');
+ok('Vercel base uses path form only; custom-domain subdomain routing kept and in parity');
 
 // ---- 4. Dev/preview-safe URL shape (same helper, one system) --------------
 assert.equal(
@@ -88,9 +95,9 @@ const draft = {
   salonName: 'Nexora Salon',
   websiteSlug: 'nexora-salon',
 };
-assert.equal(buildCanonicalUrl(draft), 'https://nexora-salon.nexora.site');
+assert.equal(buildCanonicalUrl(draft), 'https://final-new-app-templete.vercel.app/nexora-salon');
 const nameOnly = { ...emptyOwnerSalonData(), salonName: 'Nexora Salon' };
-assert.equal(buildCanonicalUrl(nameOnly), 'https://nexora-salon.nexora.site');
+assert.equal(buildCanonicalUrl(nameOnly), 'https://final-new-app-templete.vercel.app/nexora-salon');
 ok('canonical SEO URL is produced by the same slug + URL helpers');
 
 // ---- 6. No second URL/domain system in the application source -------------

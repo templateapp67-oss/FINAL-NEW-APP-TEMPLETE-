@@ -33,7 +33,7 @@ Drafts are never public. Duplicate names get `name-2`. First `published_at` perm
 
 ## Public URL generation (single slug/URL system)
 
-`Nexora Salon` → `nexora-salon` → `https://nexora-salon.nexora.site`.
+`Nexora Salon` → `nexora-salon` → `https://final-new-app-templete.vercel.app/nexora-salon` (the live Vercel deployment).
 
 One authority only:
 
@@ -41,8 +41,8 @@ One authority only:
 |---|---|
 | Slug normalization (browser) | `slugifySalonName` + `suggestedWebsiteSlug` (`src/lib/publicWebsiteUrl.ts`) |
 | Slug allocation (DB) | `private.nexora_business_slug` / `private.nexora_allocate_business_slug` (M44/M45) |
-| White-label URL | `publicWebsiteHref` / `publicWebsiteUrl` — `<slug>.<base-host>`; `base/<slug>` fallback on localhost/IP |
-| Subdomain → path | `extractSubdomainSlug` (client) / `resolveHostSlug` (server), identical results |
+| White-label URL | `publicWebsiteHref` / `publicWebsiteUrl` — `base/<slug>` path form on the live `*.vercel.app` host and on localhost/IP; `<slug>.<base-host>` form on wildcard custom domains |
+| Subdomain → path | `extractSubdomainSlug` (client) / `resolveHostSlug` (server), identical results (both refuse `*.vercel.app` bases — Vercel has no wildcard business subdomains) |
 
 All six template renderers and the SEO canonical URL (`buildCanonicalUrl`) consume these helpers — no local `slugify` forks, no inline URL regexes, no second URL/domain system. `buildCanonicalUrl` prefers the RPC-allocated `publishedUrl`, then falls back to `publicWebsiteUrl(suggestedWebsiteSlug(data), brand.platform.websiteUrl)`.
 
@@ -77,7 +77,7 @@ Nothing silently changes a published public URL; there is no redirect because th
 
 ## Public website resolution (M52)
 
-Customer → `business-name.nexora.site` → **Hostname/Slug → Published Business → Active Template → Template Configuration → Public Business Data**, for the correct business only:
+Customer → `final-new-app-templete.vercel.app/<business-name>` (path form) → **Hostname/Slug → Published Business → Active Template → Template Configuration → Public Business Data**, for the correct business only:
 
 | Step | Authority |
 |---|---|
@@ -91,7 +91,7 @@ Failures resolve to zero rows and the client shows **"Salon not found"** — the
 
 ## Public journey
 
-`/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → active template + config → renderer. Unpublished / inactive / deleted / templateless → 404. Anon cannot SELECT draft tables.
+`/<slug>` (live Vercel deployment) or `<slug>.<custom-domain>` (wildcard domain) → same slug → field-limited RPC → active template + config → renderer. Unpublished / inactive / deleted / templateless → 404. Anon cannot SELECT draft tables.
 
 ## Verification
 
@@ -103,7 +103,7 @@ npm run test:public-template-rendering
 npm run test:publish-readiness
 npm run test:owner-publish-flow
 npm run test:owner-publish-real   # app publish path → real persisted row (PGlite)
-npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://nexora-salon.nexora.site
+npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://final-new-app-templete.vercel.app/nexora-salon
 npm run test:slug-collision                       # A/B/C → nexora-salon / -1 / -2, DB-enforced uniqueness
 npm run test:business-name-change                 # rename keeps the immutable public URL
 npm run test:public-resolution-chain              # hostname → business → active template → config → data

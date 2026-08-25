@@ -223,7 +223,7 @@ assert.equal(slugifySalonName('  Nexora Salon!!!  '), 'nexora-salon');
 assert.equal(slugifySalonName('Foo___---@@ Bar'), 'foo-bar');
 assert.equal(slugifySalonName('!!!'), 'salon');
 assert.equal(slugifySalonName('admin'), 'admin-salon');
-assert.equal(publicWebsiteUrl('nexora-salon'), 'https://nexora-salon.nexora.site');
+assert.equal(publicWebsiteUrl('nexora-salon'), 'https://final-new-app-templete.vercel.app/nexora-salon');
 ok('business-name normalization mirrors the white-label subdomain rules');
 
 const verify = (await db.query('select check_name, ok from public.verify_phase2_business_publishing()')).rows;

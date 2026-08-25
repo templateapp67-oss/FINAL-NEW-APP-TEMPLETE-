@@ -237,7 +237,7 @@ assert.equal(new Set(slugs).size, 3, 'slugs must be unique');
 assert.equal(new Set(urls).size, 3, 'public URLs must be unique');
 for (const slug of slugs) {
   assert.match(slug, /^[a-z0-9]+(-[a-z0-9]+)*$/, `URL-safe chars expected: ${slug}`);
-  assert.equal(publicWebsiteUrl(slug), `https://${slug}.nexora.site`);
+  assert.equal(publicWebsiteUrl(slug), `https://final-new-app-templete.vercel.app/${slug}`);
 }
 ok('all three slugs are URL-safe and produce three distinct public URLs');
 

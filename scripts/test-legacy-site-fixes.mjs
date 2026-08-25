@@ -531,34 +531,45 @@ await tick(20);
 /* ------------------------------------------------------------------ */
 const { extractSubdomainSlug, getBrandBaseHost } = await import('../src/lib/salonRouting.ts');
 const BASE = getBrandBaseHost();
+// The live deployment is hosted on Vercel (`*.vercel.app` does not support
+// wildcard business subdomains), so subdomain routing examples below use an
+// explicit custom white-label domain; the vercel base itself never yields a
+// slug and business sites resolve at `base/<slug>` paths.
+const CUSTOM_BASE = 'yourdomain.com';
 await test('resolveHostSlug extracts the salon slug from the subdomain', async () => {
-  assert.equal(resolveHostSlug(`royal-hair-studio.${BASE}`), 'royal-hair-studio');
+  assert.equal(BASE, 'final-new-app-templete.vercel.app');
   assert.equal(resolveHostSlug(`${BASE}`), '');
-  assert.equal(resolveHostSlug(`www.${BASE}`), '');
+  assert.equal(resolveHostSlug(`royal-hair-studio.${BASE}`), '',
+    'vercel.app base never produces a business slug');
   assert.equal(resolveHostSlug('localhost:3000'), '');
   assert.equal(resolveHostSlug('preview.abc.e2b.app'), '');
+  assert.equal(resolveHostSlug(`royal-hair-studio.${CUSTOM_BASE}`, CUSTOM_BASE), 'royal-hair-studio');
+  assert.equal(resolveHostSlug(`www.${CUSTOM_BASE}`, CUSTOM_BASE), '');
   assert.equal(resolveHostSlug('foo.yourdomain.com', 'yourdomain.com'), 'foo');
-  // Server and client slug resolution must agree for the same host.
-  for (const host of [`royal-hair-studio.${BASE}`, `${BASE}`, `www.${BASE}`, `my.cool-salon.${BASE}`]) {
+  // Server and client slug resolution must agree on the live Vercel base
+  // (both refuse subdomain slugs there) and on unknown/preview hosts.
+  for (const host of [`royal-hair-studio.${BASE}`, BASE, `www.${BASE}`, `my.cool-salon.${BASE}`, 'preview.abc.e2b.app']) {
     assert.equal(resolveHostSlug(host), extractSubdomainSlug(host), `server/client slug mismatch for ${host}`);
   }
 });
 
 await test('rewriteHostPath rewrites to /<slug> and preserves the path', async () => {
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/'), '/royal-hair-studio');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/team'), '/royal-hair-studio/team');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/royal-hair-studio'), '/royal-hair-studio');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/', CUSTOM_BASE), '/royal-hair-studio');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/team', CUSTOM_BASE), '/royal-hair-studio/team');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/royal-hair-studio', CUSTOM_BASE), '/royal-hair-studio');
+  assert.equal(rewriteHostPath(`${CUSTOM_BASE}`, '/royal-hair-studio', CUSTOM_BASE), '/royal-hair-studio');
+  // Vercel deployment: path-form business URL passes through untouched.
   assert.equal(rewriteHostPath(`${BASE}`, '/royal-hair-studio'), '/royal-hair-studio');
 });
 
 await test('rewriteHostPath never touches /api, /assets or client app routes', async () => {
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/api/health'), '/api/health');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/api/bookings'), '/api/bookings');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/assets/index.js'), '/assets/index.js');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/signup'), '/signup');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/nearby'), '/nearby');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/dashboard'), '/dashboard');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${BASE}`, '/auth/callback'), '/auth/callback');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/api/health', CUSTOM_BASE), '/api/health');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/api/bookings', CUSTOM_BASE), '/api/bookings');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/assets/index.js', CUSTOM_BASE), '/assets/index.js');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/signup', CUSTOM_BASE), '/signup');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/nearby', CUSTOM_BASE), '/nearby');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/dashboard', CUSTOM_BASE), '/dashboard');
+  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/auth/callback', CUSTOM_BASE), '/auth/callback');
 });
 
 unmount();

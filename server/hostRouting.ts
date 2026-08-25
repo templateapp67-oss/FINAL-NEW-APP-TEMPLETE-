@@ -71,6 +71,9 @@ export function resolveHostSlug(
   const host = (hostname || '').split(':')[0].toLowerCase();
   const base = (baseHostOverride || process.env.NEXORA_BASE_HOST || getBrandBaseHost()).toLowerCase();
   if (!host || !base || !base.includes('.')) return '';
+  // Vercel `*.vercel.app` deployments cannot host wildcard business
+  // subdomains; published sites there resolve through `base/<slug>` paths.
+  if (base.endsWith('.vercel.app')) return '';
   if (host === base || !host.endsWith(`.${base}`)) return '';
   const prefix = host.slice(0, -(base.length + 1));
   if (!prefix || prefix === 'www') return '';

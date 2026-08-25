@@ -1,7 +1,8 @@
 -- ===========================================================================
 -- M52 — public website resolution hardening: Business → Active Template
 -- ===========================================================================
--- Requirement 8: `business-name.nexora.site` (or `/<slug>`) must resolve
+-- Requirement 8: `final-new-app-templete.vercel.app/<business-name>` (or
+-- `business-name.<custom-domain>` on a wildcard domain) must resolve
 --   Hostname/Slug → Published Business → Active Template → Template Config
 --   → Public Business Data, for the CORRECT business only.
 --

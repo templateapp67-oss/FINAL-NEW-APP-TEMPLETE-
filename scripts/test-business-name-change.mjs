@@ -258,8 +258,8 @@ assert.deepEqual(
   { slug: 'nexora-salon', published: true },
 );
 const firstUrl = publicWebsiteUrl(first.slug);
-assert.equal(firstUrl, 'https://nexora-salon.nexora.site');
-ok('first publish of "Nexora Salon" → nexora-salon → https://nexora-salon.nexora.site');
+assert.equal(firstUrl, 'https://final-new-app-templete.vercel.app/nexora-salon');
+ok('first publish of "Nexora Salon" → nexora-salon → https://final-new-app-templete.vercel.app/nexora-salon');
 
 // Rename once and republish: same slug, same URL, new public name.
 const renamedOnce = await publish(t, 'Nexora Studio');
@@ -300,7 +300,7 @@ const fresh = tenants.firstPublish;
 // Never published (no website row → no public link to break).
 const renamedFirst = await publish(fresh, 'New Name Salon');
 assert.equal(renamedFirst.slug, 'new-name-salon');
-assert.equal(publicWebsiteUrl(renamedFirst.slug), 'https://new-name-salon.nexora.site');
+assert.equal(publicWebsiteUrl(renamedFirst.slug), 'https://final-new-app-templete.vercel.app/new-name-salon');
 assert.equal((await publicRow('new-name-salon'))[0].business_name, 'New Name Salon');
 assert.equal((await publicRow('old-name-salon')).length, 0);
 ok('rename before the FIRST publish safely allocates the new name — no old link exists');

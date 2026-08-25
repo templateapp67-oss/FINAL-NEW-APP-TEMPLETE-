@@ -29,7 +29,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useLocationSync } from './hooks/useLocationSync';
-import { useAuth } from './lib/useAuth';
+import { redirectToOwnerLoginForSessionLoss, useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
 import { persistOwnerBusinessSetup, loadOwnerSalonRow, mergeSalonRowIntoDraft } from './lib/ownerBusinessSetup';
@@ -50,6 +50,7 @@ import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession
 import { emptyOwnerSalonData } from './lib/ownerPreview';
 import {
   diagnosticFromError,
+  isMissingAuthSessionDiagnostic,
   logWorkspaceFailure,
   workspaceUserMessage,
   WorkspaceInitializationError,
@@ -82,7 +83,8 @@ interface AppProps {
 }
 
 export default function App({ initialModule = 'wizard' }: AppProps = {}) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, session, loading: authLoading } = useAuth();
+  const hasSession = Boolean(session?.access_token && session.user?.id);
   const [step, setStep] = useState<number>(() => {
     // Configured deployments resume only from salon_public_websites.config.
     // localStorage is not tenant-scoped and is never the refresh authority.
@@ -180,7 +182,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // development remains usable for visual work, but publishing still fails
   // closed because it requires Supabase.
   useEffect(() => {
-    if (!isSupabaseConfigured || authLoading || user) return;
+    if (!isSupabaseConfigured || authLoading || (user && hasSession)) return;
     backendHydratedFor.current = null;
     didResumeFromBackend.current = false;
     setBackendHydratedUser(null);
@@ -189,13 +191,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     setActiveModule('wizard');
     setStep(0);
     setShowResumeBanner(false);
-  }, [authLoading, user]);
+  }, [authLoading, hasSession, user]);
 
   // First login: skip marketing hero. Resume Business Setup from
   // salon_public_websites.config.lastCompletedStep. Unpublished owners stay
   // in the wizard even if they opened /dashboard.
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || !hasSession) return;
     if (isSupabaseConfigured && backendHydratedUser !== user.id) return;
     const published = data.publishState === 'published' && !!data.publishedUrl;
     if (published && initialModule === 'owner-dashboard') {
@@ -210,14 +212,14 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         if ((data.lastCompletedStep || 0) > 0) setShowResumeBanner(true);
       }
     }
-  }, [authLoading, user, backendHydratedUser, data.lastCompletedStep, data.publishState, data.publishedUrl, initialModule]);
+  }, [authLoading, hasSession, user, backendHydratedUser, data.lastCompletedStep, data.publishState, data.publishedUrl, initialModule]);
 
   // Provision first, then hydrate this exact authenticated tenant. Keeping the
   // sequence in one effect prevents a first-login draft read from racing the
   // salon-creation RPC. Owner modules remain blocked until the final merged
   // record is ready; no local/sample record can render or autosave meanwhile.
   useEffect(() => {
-    if (!isSupabaseConfigured || authLoading || !user) return;
+    if (!isSupabaseConfigured || authLoading || !user || !hasSession) return;
     if (backendHydratedFor.current === user.id) return;
     backendHydratedFor.current = user.id;
     setBackendHydratedUser(null);
@@ -298,6 +300,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           authenticatedUserExists: true,
           userId: user.id,
         });
+      // Site-data clearing can invalidate Supabase storage before the shared
+      // React auth snapshot drops its user. Treat that as a signed-out state,
+      // not as a broken salon workspace.
+      if (isMissingAuthSessionDiagnostic(diagnostic)) {
+        redirectToOwnerLoginForSessionLoss();
+        return;
+      }
       if (!(error instanceof WorkspaceInitializationError)) logWorkspaceFailure(diagnostic);
       setOwnerHydrationError(
         error instanceof WorkspaceInitializationError
@@ -307,7 +316,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     });
 
     return () => { active = false; };
-  }, [authLoading, ownerHydrationRetry, user?.id]);
+  }, [authLoading, hasSession, ownerHydrationRetry, user?.id]);
 
   // Persist dashboard tab
   useEffect(() => {
@@ -587,7 +596,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
 
   // Fail closed before rendering any owner module. This also blocks the
   // universal navigator and stale localStorage from bypassing the Login stage.
-  if (isSupabaseConfigured && (authLoading || !user)) {
+  if (isSupabaseConfigured && (authLoading || !user || !hasSession)) {
     return (
       <div className="h-screen bg-[#f9f9f9] flex flex-col font-sans text-gray-900 overflow-hidden relative">
         <TopBar

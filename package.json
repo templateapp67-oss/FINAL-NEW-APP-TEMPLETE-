@@ -151,6 +151,7 @@
     "test:owner-publish-real": "tsx scripts/test-owner-publish-persists.mjs",
     "test:publish-readiness": "tsx scripts/test-publish-readiness.mjs",
     "test:owner-session-persistence": "tsx scripts/test-owner-session-persistence.mjs",
+    "test:cache-clear-auth": "tsx scripts/test-cache-clear-auth-recovery.mjs",
     "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",
     "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
     "test:public-template-rendering": "tsx scripts/test-public-template-rendering.mjs",

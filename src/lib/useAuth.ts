@@ -49,9 +49,23 @@ function redirectToLoginIfProtected(): void {
   if (typeof window === 'undefined') return;
   const pathname = window.location.pathname;
   if (!isProtectedRoute(pathname)) return;
+  redirectToOwnerLoginForSessionLoss(pathname);
+}
+
+/**
+ * Leave an owner workspace after its authoritative session disappears.
+ * Workspace hydration uses this when React still has a stale user for one
+ * render after browser cookies/site storage have been cleared.
+ */
+export function redirectToOwnerLoginForSessionLoss(nextPath?: string): void {
+  clearOwnerBrowserWorkspaceCache();
+  if (typeof window === 'undefined') return;
+  const pathname = window.location.pathname;
   if (pathname === AUTH_LOGIN_PATH) return; // already there — never loop
   if (window.location.search.includes('code=') || window.location.search.includes('error=')) return; // PKCE callback in flight
-  window.location.replace(`${AUTH_LOGIN_PATH}?intent=owner&next=${encodeURIComponent(pathname)}`);
+  const candidate = nextPath || pathname;
+  const next = isProtectedRoute(candidate) ? candidate : '/dashboard';
+  window.location.replace(`${AUTH_LOGIN_PATH}?intent=owner&next=${encodeURIComponent(next)}`);
 }
 
 export interface AuthState {
@@ -94,7 +108,10 @@ function applyIdentity(
   // An absent/invalid session on a protected route (expired refresh token,
   // revoked user, SIGNED_OUT) lands on /auth/login — guarded so the login
   // page never bounces back to itself.
-  if (!session && !loading) redirectToLoginIfProtected();
+  if (!session && !loading) {
+    clearOwnerBrowserWorkspaceCache();
+    redirectToLoginIfProtected();
+  }
 }
 
 /**

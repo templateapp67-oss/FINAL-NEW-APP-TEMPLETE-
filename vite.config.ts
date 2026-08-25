@@ -5,6 +5,9 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // This Vite app accepts the historical NEXT_PUBLIC_* Supabase env aliases
+    // used by earlier Nexora deployments in addition to the native VITE_* names.
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

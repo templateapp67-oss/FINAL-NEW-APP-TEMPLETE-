@@ -29,8 +29,13 @@ import {
   LogIn,
   Gift,
 } from 'lucide-react';
-import { resendConfirmationEmail, signUpWithPassword } from '../lib/useAuth';
-import { isSupabaseConfigured } from '../lib/supabaseClient';
+import {
+  resendConfirmationEmail,
+  signUpWithPassword,
+  normalizeAuthEmail,
+  isValidAuthEmail,
+} from '../lib/useAuth';
+import { isSupabaseConfigured, supabaseConfigError } from '../lib/supabaseClient';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
@@ -39,6 +44,7 @@ export default function SignUpPage() {
   const [salonName, setSalonName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,18 +93,35 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const mail = email.trim();
+    if (busy) return;
+    const mail = normalizeAuthEmail(email);
+    if (!salonName.trim()) {
+      setError('Enter your salon or business name.');
+      return;
+    }
     if (!mail || !password) {
       setError('Enter your email and password.');
+      return;
+    }
+    if (!isValidAuthEmail(mail)) {
+      setError('Enter a valid email address.');
       return;
     }
     if (password.length < 6) {
       setError('Password must be at least 6 characters.');
       return;
     }
+    if (!passwordConfirm) {
+      setError('Confirm your password.');
+      return;
+    }
+    if (password !== passwordConfirm) {
+      setError('Passwords do not match.');
+      return;
+    }
     if (!isSupabaseConfigured) {
       setError(
-        'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+        supabaseConfigError || 'Authentication is not configured. Please set VITE_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY.',
       );
       return;
     }
@@ -141,6 +164,7 @@ export default function SignUpPage() {
         return;
       }
       setPassword('');
+      setPasswordConfirm('');
       const session = await completeOwnerAuthSession({
         salonName: salonName.trim() || undefined,
       });
@@ -416,6 +440,27 @@ export default function SignUpPage() {
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="signup-password-confirm-input" className="mb-1 block text-xs font-semibold">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      id="signup-password-confirm-input"
+                      name="passwordConfirm"
+                      data-testid="signup-password-confirm-input"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      value={passwordConfirm}
+                      onChange={(e) => setPasswordConfirm(e.target.value)}
+                      placeholder="Re-enter password"
+                      disabled={busy}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
+                    />
                   </div>
                 </div>
 

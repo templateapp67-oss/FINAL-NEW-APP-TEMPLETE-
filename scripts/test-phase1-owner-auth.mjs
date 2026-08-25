@@ -358,7 +358,11 @@ const themeHandlerMatch = appSource.match(/const handleThemeChange[\s\S]*?\n  \}
 assert.ok(themeHandlerMatch, 'handleThemeChange not found');
 assert.ok(!/services:\s*\[\]/.test(themeHandlerMatch[0]), 'handleThemeChange must not clear services');
 assert.ok(!/packages:\s*\[\]/.test(themeHandlerMatch[0]), 'handleThemeChange must not clear packages');
-assert.ok(/templateId:\s*nextTheme/.test(themeHandlerMatch[0]), 'handleThemeChange must set templateId');
+assert.ok(
+  /templateId:\s*nextTheme/.test(themeHandlerMatch[0])
+    || /switchSalonTemplatePresentation\([^\n]*appliedTheme/.test(themeHandlerMatch[0]),
+  'handleThemeChange must apply the selected presentation template',
+);
 ok('template switching updates only presentation (services/packages preserved)');
 
 console.log(`\nPhase 1 owner auth: ${passed}/${passed} checks PASS`);

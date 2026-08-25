@@ -37,6 +37,7 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { resolveOwnerSalonId, SALON_TABLE_NAME } from './ownerSalon';
 import type { OwnerSalonResolution } from './ownerSalon';
 import { completeOwnerAuthSession } from './ownerSession';
+import { diagnosticFromError, logWorkspaceFailure } from './workspaceDiagnostics';
 
 /* ------------------------------------------------------------------ */
 /* Section registry — the dashboard's navigation structure             */
@@ -317,7 +318,13 @@ export async function fetchOwnerSalonSummary(
       .maybeSingle();
 
     if (error) {
-      console.error('Owner dashboard: failed to load salon:', error);
+      const diagnostic = diagnosticFromError({
+        operation: 'dashboard.salon_read',
+        stage: 'salon-read',
+        error,
+        authenticatedUserExists: true,
+      });
+      logWorkspaceFailure(diagnostic);
       if (isPermissionError((error as { code?: string }).code)) {
         return { status: 'permission-denied' };
       }
@@ -326,7 +333,13 @@ export async function fetchOwnerSalonSummary(
     if (!data) return { status: 'error' };
     return { status: 'ready', salon: mapOwnerSalonRow(data as unknown as OwnerSalonRow) };
   } catch (err) {
-    console.error('Owner dashboard: salon read failed:', err);
+    const diagnostic = diagnosticFromError({
+      operation: 'dashboard.salon_read',
+      stage: 'salon-read',
+      error: err,
+      authenticatedUserExists: true,
+    });
+    logWorkspaceFailure(diagnostic);
     return { status: 'error' };
   }
 }

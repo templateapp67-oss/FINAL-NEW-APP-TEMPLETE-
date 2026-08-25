@@ -62,7 +62,7 @@ dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 globalThis.HTMLElement.prototype.scrollIntoView = dom.window.HTMLElement.prototype.scrollIntoView;
 
 const React = (await import('react')).default;
-const { render, cleanup, act, fireEvent } = await import('@testing-library/react');
+const { render: testingRender, cleanup, act, fireEvent } = await import('@testing-library/react');
 
 const SiteBookingFullFlow = (await import('../src/components/SiteBookingFullFlow.tsx')).default;
 const SiteBookingFlow = (await import('../src/components/SiteBookingFlow.tsx')).default;
@@ -142,6 +142,16 @@ const { paymentFlowText } = await import('../src/lib/siteBookingPaymentI18n.ts')
 const { bookingManagementText } = await import('../src/lib/bookingManagementI18n.ts');
 const { setBookingNoticeDurationForTests } = await import('../src/lib/siteBookingNotices.ts');
 const { themeVideoCatalog } = await import('../src/lib/siteVideoCatalog.ts');
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
+
+function render(ui, options) {
+  const wrap = (child) => React.createElement(AuthModalProvider, null, child);
+  const utils = testingRender(wrap(ui), options);
+  return {
+    ...utils,
+    rerender: (nextUi) => utils.rerender(wrap(nextUi)),
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Harness                                                             */
@@ -1300,6 +1310,7 @@ section('J. Static hygiene — no secrets, placeholder env, no invented stores')
       'nexora_site_review_store', // safeStorage purge list — legacy review store key (disposable)
       'nexora_site_reviews',
       'nexora_usage_analytics', // useUsageTracking — wizard/dashboard analytics (never identity)
+      'nexora_publish_missing_items', // migration helper name in publish-readiness documentation, not a client store
       'nexora_video_likes',
     ]);
     const files = (await readdir('src', { recursive: true })).filter((f) => /\.(ts|tsx)$/.test(f));

@@ -49,6 +49,12 @@ import { safeSetItem, safeGetItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
 import {
+  diagnosticFromError,
+  logWorkspaceFailure,
+  workspaceUserMessage,
+  WorkspaceInitializationError,
+} from './lib/workspaceDiagnostics';
+import {
   MAX_OWNER_STEP_INDEX,
   TOTAL_OWNER_STEPS,
 } from './lib/ownerFlow';
@@ -231,7 +237,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         slug: initialSlug,
         templateKey: emptyOwnerSalonData().templateId,
       });
-      if ('error' in provisioned) throw new Error(provisioned.error);
+      if ('error' in provisioned) {
+        throw provisioned.diagnostic
+          ? new WorkspaceInitializationError(provisioned.diagnostic, provisioned.error)
+          : new Error(provisioned.error);
+      }
       if (!active) return;
 
       const [draft, salonRow] = await Promise.all([
@@ -279,10 +289,21 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     })().catch((error: unknown) => {
       if (!active) return;
       backendHydratedFor.current = null;
+      const diagnostic = error instanceof WorkspaceInitializationError
+        ? error.diagnostic
+        : diagnosticFromError({
+          operation: 'workspace.hydration',
+          stage: 'workspace-hydration',
+          error,
+          authenticatedUserExists: true,
+          userId: user.id,
+        });
+      if (!(error instanceof WorkspaceInitializationError)) logWorkspaceFailure(diagnostic);
       setOwnerHydrationError(
-        error instanceof Error ? error.message : 'Unable to load your salon workspace.',
+        error instanceof WorkspaceInitializationError
+          ? error.message
+          : workspaceUserMessage(diagnostic),
       );
-      console.error('Owner provisioning or hydration failed:', error);
     });
 
     return () => { active = false; };
@@ -597,7 +618,14 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
               <p role="alert" className="mt-2 text-sm text-gray-600">{ownerHydrationError}</p>
               <button
                 type="button"
-                onClick={() => setOwnerHydrationRetry((current) => current + 1)}
+                onClick={() => {
+                  // A retry starts a fresh auth/session + ownership resolution;
+                  // it never reuses the failed provision/read result.
+                  backendHydratedFor.current = null;
+                  setBackendHydratedUser(null);
+                  setOwnerHydrationError('');
+                  setOwnerHydrationRetry((current) => current + 1);
+                }}
                 className="mt-5 rounded-xl bg-[#ac0053] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#8d0044]"
               >
                 Try again

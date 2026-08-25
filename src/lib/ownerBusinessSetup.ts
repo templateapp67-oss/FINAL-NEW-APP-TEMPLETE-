@@ -16,6 +16,12 @@ import { resolveOwnerSalonId } from './ownerSalon';
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { saveOwnerWebsiteDraft } from './salonWebsiteService';
 import { saveSalonLocation } from './salonLocationService';
+import {
+  diagnosticFromError,
+  logWorkspaceFailure,
+  workspaceUserMessage,
+  WorkspaceInitializationError,
+} from './workspaceDiagnostics';
 
 export const SALONS_TABLE = 'salons';
 export const ORGANIZATIONS_TABLE = 'organizations';
@@ -40,13 +46,46 @@ export async function loadOwnerSalonRow(): Promise<{
 } | null> {
   if (!isSupabaseConfigured) return null;
   const resolution = await resolveOwnerSalonId();
-  if (resolution.status !== 'resolved') return null;
+  if (resolution.status !== 'resolved') {
+    if (resolution.status === 'error' || resolution.status === 'permission-denied') {
+      const diagnostic = resolution.diagnostic || diagnosticFromError({
+        operation: 'workspace.salon_read',
+        stage: 'ownership',
+        error: { code: 'WORKSPACE_OWNERSHIP_UNAVAILABLE', message: 'Owner salon resolution failed.' },
+      });
+      throw new WorkspaceInitializationError(diagnostic, workspaceUserMessage(diagnostic));
+    }
+    return null;
+  }
   const { data, error } = await requireSupabase()
     .from(SALONS_TABLE)
     .select('id, organization_id, name, address, city')
     .eq('id', resolution.salonId)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    const diagnostic = diagnosticFromError({
+      operation: 'workspace.salon_read',
+      stage: 'salon-read',
+      error,
+      authenticatedUserExists: true,
+      userId: null,
+    });
+    logWorkspaceFailure(diagnostic);
+    throw new WorkspaceInitializationError(diagnostic, workspaceUserMessage(diagnostic));
+  }
+  if (!data) {
+    const diagnostic = diagnosticFromError({
+      operation: 'workspace.salon_read',
+      stage: 'salon-read',
+      error: {
+        code: 'WORKSPACE_SALON_MISSING',
+        message: 'Owner membership resolved to a salon that could not be read.',
+      },
+      authenticatedUserExists: true,
+    });
+    logWorkspaceFailure(diagnostic);
+    throw new WorkspaceInitializationError(diagnostic, workspaceUserMessage(diagnostic));
+  }
   return {
     salonId: String(data.id),
     organizationId: data.organization_id ? String(data.organization_id) : null,

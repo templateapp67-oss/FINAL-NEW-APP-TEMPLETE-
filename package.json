@@ -159,7 +159,9 @@
     "test:business-name-change": "tsx scripts/test-business-name-change.mjs",
     "test:public-resolution-chain": "tsx scripts/test-public-resolution-chain.mjs",
     "test:m53": "tsx scripts/test-m53-provision-salon-slug.mjs",
-    "db:apply:live:m53": "node scripts/apply-live-migration.mjs --m53 --verify"
+    "test:m54": "tsx scripts/test-m54-workspace-bootstrap-compatibility.mjs",
+    "db:apply:live:m53": "node scripts/apply-live-migration.mjs --m53 --verify",
+    "db:apply:live:m54": "node scripts/apply-live-migration.mjs --m54 --verify"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

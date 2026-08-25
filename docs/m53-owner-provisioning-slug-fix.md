@@ -1,5 +1,11 @@
 # M53 — "We couldn't load your salon workspace" / "Could not set up your salon"
 
+> **Follow-up:** M54 (`docs/m54-workspace-bootstrap-compatibility.md`) supersedes
+> the provisioning function from M53 for live databases whose
+> `organization_members.is_active` is a generated column backed by `status`.
+> Apply M54 after M53; M53 fixes the `salons.slug` NOT NULL defect, while M54
+> fixes the separate SQLSTATE `428C9` membership-write defect.
+
 ## Symptom
 
 Every **brand-new owner**, on first login, hit the workspace hydration boundary:
@@ -78,9 +84,9 @@ matching the M38/M45/M46/M51 verifier convention.
 ### Client hardening
 
 `sanitizeProvisionError()` now recognises deterministic backend faults
-(`23502`, `42703`, `42883`, `42501`, not-null/undefined-column/undefined-function
-violations) and tells the owner to contact support instead of inviting an
-unwinnable retry. No SQL, table names or database internals are leaked.
+(`23502`, `42703`, `42883`, `428C9`, `42501`, generated-column,
+not-null/undefined-column/undefined-function violations) and tells the owner
+to contact support instead of inviting an unwinnable retry. No SQL, table names or database internals are leaked.
 
 ## Verification
 
@@ -100,7 +106,9 @@ real live `NOT NULL UNIQUE` shape. It asserts:
 - `verify_m53_provision_salon_slug()` and `verify_m51_slug_collision_hardening()`
   are both green.
 
-Result: **11/11 PASS** with the fix, and a reproduced `23502` failure without it.
+Result: **11/11 PASS** with the M53 slug fix. The later M54 compatibility
+suite (`npm run test:m54`) separately reproduces the live `428C9` failure and
+verifies the replacement provisioner.
 
 Regression run: `lint`, `build`, `validate:migrations` (21/21),
 `test:slug-collision` (12/12), `test:public-resolution-chain` (9/9),
@@ -113,13 +121,15 @@ Regression run: `lint`, `build`, `validate:migrations` (21/21),
 
 ## Deploying to the live project
 
-The migration must be applied to the live Supabase project for the fix to take
-effect for real owners:
+The migration must be applied to the live Supabase project for the slug fix to
+take effect for real owners. For the complete workspace fix, apply M54 after
+M53:
 
 ```bash
-SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m53
+SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m54
 ```
 
-This applies M53 and then prints `verify_m53_provision_salon_slug()`. The token
+This applies M54 and then prints `verify_m54_workspace_bootstrap()`. The token
 is a live secret supplied by the deployment environment and is never stored in
-this repository.
+this repository. See `docs/m54-workspace-bootstrap-compatibility.md` for the
+status/generated-column audit and live browser verification checklist.

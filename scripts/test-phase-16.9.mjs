@@ -48,7 +48,7 @@ dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 globalThis.HTMLElement.prototype.scrollIntoView = dom.window.HTMLElement.prototype.scrollIntoView;
 
 const React = (await import('react')).default;
-const { render, cleanup, act, fireEvent } = await import('@testing-library/react');
+const { render: testingRender, cleanup, act, fireEvent } = await import('@testing-library/react');
 
 const SiteBookingFullFlow = (await import('../src/components/SiteBookingFullFlow.tsx')).default;
 const SiteBookingFlow = (await import('../src/components/SiteBookingFlow.tsx')).default;
@@ -83,6 +83,16 @@ const { bookingNoticesText, fillNoticeText } = await import('../src/lib/siteBook
 const { bookingFlowText } = await import('../src/lib/siteBookingI18n.ts');
 const { bookingManagementText } = await import('../src/lib/bookingManagementI18n.ts');
 const { paymentFlowText } = await import('../src/lib/siteBookingPaymentI18n.ts');
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
+
+function render(ui, options) {
+  const wrap = (child) => React.createElement(AuthModalProvider, null, child);
+  const utils = testingRender(wrap(ui), options);
+  return {
+    ...utils,
+    rerender: (nextUi) => utils.rerender(wrap(nextUi)),
+  };
+}
 
 let passed = 0;
 let failed = 0;

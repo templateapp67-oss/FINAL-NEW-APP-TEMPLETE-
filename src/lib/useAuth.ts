@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, supabaseConfigError } from './supabaseClient';
+import { getAuthoritativeAuthIdentity } from './authIdentity';
 import { clearOwnerBrowserWorkspaceCache } from './ownerWorkspacePersistence';
 import {
   oauthRedirect,
@@ -61,8 +62,9 @@ export interface AuthState {
 /*
  * Module-scoped shared auth store: exactly ONE onAuthStateChange subscription
  * exists for the whole app no matter how many components call useAuth().
- * React hook instances are just subscribers to this store (with the timeout
- * safety net and invalid-session redirect owned by the store).
+ * React hook instances are just subscribers to this store. Auth state is
+ * published only after the current session has been validated with
+ * `auth.getUser()`; there is no arbitrary timeout or stale-identity fallback.
  */
 
 type AuthStateListener = (next: AuthState) => void;
@@ -71,19 +73,53 @@ const authListeners = new Set<AuthStateListener>();
 let authState: AuthState | null = null;
 let authSyncStarted = false;
 let authSubscription: { subscription: { unsubscribe: () => void } } | null = null;
-let timeoutId: ReturnType<typeof setTimeout> | null = null;
+let authValidationVersion = 0;
 
 function emitAuthState(next: AuthState): void {
   authState = next;
   for (const listener of Array.from(authListeners)) listener(next);
 }
 
-function applySession(session: Session | null, loading: boolean): void {
-  emitAuthState({ user: session?.user ?? null, session, loading });
+function applyIdentity(
+  identity: { user: User; session: Session } | null,
+  loading: boolean,
+): void {
+  const session = identity?.session ?? null;
+  emitAuthState({
+    user: identity?.user ?? null,
+    session,
+    loading,
+  });
   // An absent/invalid session on a protected route (expired refresh token,
   // revoked user, SIGNED_OUT) lands on /auth/login — guarded so the login
   // page never bounces back to itself.
   if (!session && !loading) redirectToLoginIfProtected();
+}
+
+/**
+ * Validate a session after Supabase emits an auth event. The microtask is
+ * intentional: Supabase warns against awaiting another auth call directly in
+ * the auth callback because it can deadlock the auth lock. It is not a timing
+ * workaround and has no arbitrary delay.
+ */
+function validateEmittedSession(session: Session | null, operation: string): void {
+  const version = ++authValidationVersion;
+  if (!session) {
+    applyIdentity(null, false);
+    return;
+  }
+
+  emitAuthState({ user: session.user, session, loading: true });
+  void Promise.resolve().then(async () => {
+    try {
+      const identity = await getAuthoritativeAuthIdentity(operation, session);
+      if (version !== authValidationVersion) return;
+      applyIdentity(identity, false);
+    } catch {
+      if (version !== authValidationVersion) return;
+      applyIdentity(null, false);
+    }
+  });
 }
 
 /** Lazily starts the ONE shared Supabase auth listener (idempotent). */
@@ -98,48 +134,31 @@ function startAuthSync(): void {
 
   authState = { user: null, session: null, loading: true };
 
-  // Safety fallback: ensure loading never hangs if getSession stalls.
-  timeoutId = setTimeout(() => {
-    if (authState?.loading) applySession(authState.session, false);
-  }, 4000);
-
-  supabase.auth
-    .getSession()
-    .then(({ data, error }) => {
-      if (timeoutId) clearTimeout(timeoutId);
-      if (error) {
-        console.error('Supabase getSession error:', error);
-        applySession(null, false);
-        return;
-      }
-      applySession(data.session ?? null, false);
-    })
-    .catch((err) => {
-      if (timeoutId) clearTimeout(timeoutId);
-      console.error('Supabase getSession exception:', err);
-      applySession(null, false);
-    });
-
   // Exactly one listener for the whole app (see startAuthSync guard).
   const { data } = supabase.auth.onAuthStateChange((event, session) => {
-    // INITIAL_SESSION: hydration completed (mirrors getSession result).
-    // TOKEN_REFRESHED: autoRefreshToken kept the session valid — keep it.
+    // INITIAL_SESSION: persisted session was found (or not found).
+    // TOKEN_REFRESHED: autoRefreshToken supplied a new session.
     // SIGNED_IN: PKCE callback / login form produced a session.
     // SIGNED_OUT: session cleared — invalid-session redirect (guarded).
-    switch (event) {
-      case 'INITIAL_SESSION':
-      case 'SIGNED_IN':
-      case 'TOKEN_REFRESHED':
-      case 'SIGNED_OUT':
-        applySession(session ?? null, false);
-        break;
-      default:
-        // PASSWORD_RECOVERY and any other event still reflect the latest
-        // session; never manufacture one (no session beats a stale session).
-        applySession(session ?? null, false);
-    }
+    // PASSWORD_RECOVERY and any future event use the same validation path.
+    validateEmittedSession(session ?? null, `auth.${event.toLowerCase()}`);
   });
   authSubscription = data;
+
+  // Subscribe first so an INITIAL_SESSION event cannot be missed. Then read
+  // the current session and validate its user with Supabase Auth. Whichever
+  // result is newest wins through authValidationVersion.
+  void Promise.resolve().then(async () => {
+    const version = ++authValidationVersion;
+    try {
+      const identity = await getAuthoritativeAuthIdentity('auth.initial_session');
+      if (version !== authValidationVersion) return;
+      applyIdentity(identity, false);
+    } catch {
+      if (version !== authValidationVersion) return;
+      applyIdentity(null, false);
+    }
+  });
 }
 
 export function useAuth(): AuthState {

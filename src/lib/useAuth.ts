@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase, isSupabaseConfigured, supabaseConfigError } from './supabaseClient';
 import { clearOwnerBrowserWorkspaceCache } from './ownerWorkspacePersistence';
 import {
   oauthRedirect,
@@ -168,6 +168,41 @@ export interface SignInResult {
   needsConfirmation: boolean;
 }
 
+export function normalizeAuthEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function isValidAuthEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeAuthEmail(email));
+}
+
+function configuredError(): string {
+  return supabaseConfigError || 'Authentication is not configured. Please set VITE_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY.';
+}
+
+function mapAuthError(message: string | undefined, fallback: string): string {
+  const raw = message || '';
+  if (/invalid login credentials|invalid_grant|invalid credentials/i.test(raw)) {
+    return 'Incorrect email or password.';
+  }
+  if (/email not confirmed|email.*confirm/i.test(raw)) {
+    return "Your email hasn't been confirmed yet. Check your inbox for the confirmation link, or resend it below.";
+  }
+  if (/rate limit|too many requests|over_email_send_rate_limit|email rate limit/i.test(raw)) {
+    return 'Too many requests. Please wait a minute, then try again.';
+  }
+  if (/failed to fetch|network|fetch/i.test(raw)) {
+    return 'Unable to connect. Please try again.';
+  }
+  if (/user already registered|already registered|already exists/i.test(raw)) {
+    return 'That email is already registered. Try logging in.';
+  }
+  if (/password/i.test(raw) && /weak|short|characters|length/i.test(raw)) {
+    return 'Password must be at least 6 characters.';
+  }
+  return fallback;
+}
+
 /**
  * Email/password sign-in using the existing Supabase Auth.
  *
@@ -183,27 +218,34 @@ export async function signInWithPassword(
 ): Promise<SignInResult> {
   if (!supabase) {
     return {
-      error: 'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+      error: configuredError(),
       needsConfirmation: false,
     };
   }
   try {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const normalizedEmail = normalizeAuthEmail(email);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    });
     if (error) {
       console.error('Sign-in failed:', error);
-      if (/email not confirmed|email.*confirm/i.test(error.message)) {
-        return {
-          error: "Your email hasn't been confirmed yet. Check your inbox for the confirmation link, or resend it below.",
-          needsConfirmation: true,
-        };
-      }
-      return { error: error.message || 'Incorrect email or password.', needsConfirmation: false };
+      const needsConfirmation = /email not confirmed|email.*confirm/i.test(error.message);
+      return {
+        error: mapAuthError(error.message, 'Incorrect email or password.'),
+        needsConfirmation,
+      };
+    }
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      console.error('Signed in but getUser failed:', userError);
+      return { error: 'Unable to verify your session. Please try again.', needsConfirmation: false };
     }
     return { error: null, needsConfirmation: false };
   } catch (err: any) {
     console.error('Sign-in exception:', err);
     return {
-      error: err?.message || 'Could not connect to authentication service. Please try again.',
+      error: mapAuthError(err?.message, 'Unable to connect. Please try again.'),
       needsConfirmation: false,
     };
   }
@@ -221,15 +263,16 @@ export async function signUpWithPassword(
 ): Promise<{ error: string | null; needsConfirmation: boolean }> {
   if (!supabase) {
     return {
-      error: 'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+      error: configuredError(),
       needsConfirmation: false,
     };
   }
   try {
+    const normalizedEmail = normalizeAuthEmail(email);
     const emailRedirectTo = signupConfirmationRedirect();
     const salonName = extras?.salonName?.trim().slice(0, 120);
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
         emailRedirectTo,
@@ -243,16 +286,23 @@ export async function signUpWithPassword(
     });
     if (error) {
       console.error('Sign-up failed:', error);
-      const message = /already registered|already exists/i.test(error.message)
-        ? 'That email is already registered. Try logging in.'
-        : error.message || 'Could not create the account. Please try again.';
-      return { error: message, needsConfirmation: false };
+      return {
+        error: mapAuthError(error.message, 'Could not create the account. Please try again.'),
+        needsConfirmation: false,
+      };
+    }
+    // Supabase intentionally obfuscates duplicate signups when confirmations
+    // are enabled. For an already-registered email it may return a user with
+    // no identities and no session; do not create app records or pretend this
+    // is a new signup.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return { error: 'That email is already registered. Try logging in.', needsConfirmation: false };
     }
     return { error: null, needsConfirmation: !data.session };
   } catch (err: any) {
     console.error('Sign-up exception:', err);
     return {
-      error: err?.message || 'Could not connect to authentication service. Please try again.',
+      error: mapAuthError(err?.message, 'Unable to connect. Please try again.'),
       needsConfirmation: false,
     };
   }
@@ -268,29 +318,27 @@ export async function resendConfirmationEmail(
 ): Promise<{ error: string | null }> {
   if (!supabase) {
     return {
-      error: 'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+      error: configuredError(),
     };
   }
   try {
     const emailRedirectTo = signupConfirmationRedirect();
     const { error } = await supabase.auth.resend({
       type: 'signup',
-      email: email.trim(),
+      email: normalizeAuthEmail(email),
       options: { emailRedirectTo },
     });
     if (error) {
       console.error('Resend confirmation failed:', error);
       return {
-        error: /rate limit|too many requests/i.test(error.message)
-          ? 'Too many requests. Please wait a minute, then try again.'
-          : error.message || 'Could not resend the confirmation email. Please try again.',
+        error: mapAuthError(error.message, 'Could not resend the confirmation email. Please try again.'),
       };
     }
     return { error: null };
   } catch (err: any) {
     console.error('Resend confirmation exception:', err);
     return {
-      error: err?.message || 'Could not resend the confirmation email. Please try again.',
+      error: mapAuthError(err?.message, 'Unable to connect. Please try again.'),
     };
   }
 }
@@ -310,18 +358,18 @@ export async function signInWithGoogle(next = '/builder'): Promise<{ error: stri
 
 export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
   if (!supabase || typeof window === 'undefined') {
-    return { error: 'Authentication is not configured.' };
+    return { error: configuredError() };
   }
   const redirectTo = passwordResetRedirect();
-  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-  return { error: error?.message || null };
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizeAuthEmail(email), { redirectTo });
+  return { error: error ? mapAuthError(error.message, 'Could not send the reset email. Please try again.') : null };
 }
 
 export async function updatePassword(password: string): Promise<{ error: string | null }> {
-  if (!supabase) return { error: 'Authentication is not configured.' };
-  if (password.length < 8) return { error: 'Password must be at least 8 characters.' };
+  if (!supabase) return { error: configuredError() };
+  if (password.length < 6) return { error: 'Password must be at least 6 characters.' };
   const { error } = await supabase.auth.updateUser({ password });
-  return { error: error?.message || null };
+  return { error: error ? mapAuthError(error.message, 'Could not update the password. Please try again.') : null };
 }
 
 export async function signOut(): Promise<void> {

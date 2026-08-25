@@ -55,9 +55,12 @@ async function runAllTests() {
     assert.ok(loginModalSrc.includes('!isSupabaseConfigured'), 'Missing isSupabaseConfigured check');
   });
 
-  await test('LoginModal enforces form submission, 6-char password on signup, and error states', () => {
+  await test('LoginModal enforces form submission, email validation, 6-char signup password, confirmation, and error states', () => {
+    assert.ok(loginModalSrc.includes('isValidAuthEmail'), 'Missing email format validation');
     assert.ok(loginModalSrc.includes('password.length < 6'), 'Missing min 6 char password check');
     assert.ok(loginModalSrc.includes('Password must be at least 6 characters.'), 'Missing 6-char error message');
+    assert.ok(loginModalSrc.includes('data-testid="auth-password-confirm-input"'), 'Missing signup password confirmation input');
+    assert.ok(loginModalSrc.includes('Passwords do not match.'), 'Missing password mismatch error');
     assert.ok(loginModalSrc.includes('Enter your email and password.'), 'Missing empty fields error message');
     assert.ok(loginModalSrc.includes('signInWithPassword'), 'Missing signInWithPassword call');
     assert.ok(loginModalSrc.includes('signUpWithPassword'), 'Missing signUpWithPassword call');

@@ -29,6 +29,14 @@ export default function PasswordResetPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
+    if (!password || !confirm) {
+      setError('Enter and confirm your new password.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
     if (password !== confirm) {
       setError('Passwords do not match.');
       return;

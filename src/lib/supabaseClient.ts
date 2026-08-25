@@ -16,6 +16,7 @@
 export {
   supabase,
   isSupabaseConfigured,
+  supabaseConfigError,
   requireSupabase,
   NEXORA_AUTH_STORAGE_KEY,
   NEXORA_PROJECT_REF,

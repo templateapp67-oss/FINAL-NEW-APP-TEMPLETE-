@@ -19,8 +19,10 @@ import {
   signInWithGoogle,
   signInWithPassword,
   signUpWithPassword,
+  normalizeAuthEmail,
+  isValidAuthEmail,
 } from '../lib/useAuth';
-import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { isSupabaseConfigured, supabaseConfigError } from '../lib/supabaseClient';
 import { readStoredReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
@@ -51,6 +53,7 @@ export default function LoginModal({
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +74,7 @@ export default function LoginModal({
     setError(null);
     setNotice(null);
     setBusy(false);
+    setPasswordConfirm('');
     setUnconfirmedEmail(null);
     setResendBusy(false);
     setResendStatus(null);
@@ -109,6 +113,7 @@ export default function LoginModal({
     setMode(newMode);
     setError(null);
     setNotice(null);
+    setPasswordConfirm('');
     setUnconfirmedEmail(null);
     setResendBusy(false);
     setResendStatus(null);
@@ -139,7 +144,7 @@ export default function LoginModal({
   };
 
   const handlePasswordReset = async () => {
-    const mail = email.trim();
+    const mail = normalizeAuthEmail(email);
     if (!mail) {
       setError('Enter your email address first.');
       return;
@@ -165,18 +170,33 @@ export default function LoginModal({
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const mail = email.trim();
+    if (busy) return;
+    const mail = normalizeAuthEmail(email);
     if (!mail || !password) {
       setError('Enter your email and password.');
       return;
     }
-    if (mode === 'signup' && password.length < 6) {
-      setError('Password must be at least 6 characters.');
+    if (!isValidAuthEmail(mail)) {
+      setError('Enter a valid email address.');
       return;
+    }
+    if (mode === 'signup') {
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters.');
+        return;
+      }
+      if (!passwordConfirm) {
+        setError('Confirm your password.');
+        return;
+      }
+      if (password !== passwordConfirm) {
+        setError('Passwords do not match.');
+        return;
+      }
     }
     if (!isSupabaseConfigured) {
       setError(
-        'Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+        supabaseConfigError || 'Authentication is not configured. Please set VITE_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY.',
       );
       return;
     }
@@ -203,6 +223,7 @@ export default function LoginModal({
           return;
         }
         setPassword('');
+        setPasswordConfirm('');
         const session = await completeOwnerAuthSession();
         if ('error' in session) {
           setError(session.error);
@@ -230,6 +251,7 @@ export default function LoginModal({
       }
 
       setPassword('');
+      setPasswordConfirm('');
       if (needsConfirmation) {
         // Account created — Supabase emailed a confirmation link. Guide the
         // user through confirming instead of dropping them at a dead end.
@@ -517,6 +539,32 @@ export default function LoginModal({
               </button>
             </div>
           </div>
+
+          {!isLogin && (
+            <div>
+              <label
+                htmlFor="auth-password-confirm-input"
+                className="mb-1 block text-xs font-semibold text-[#1a1c1c]"
+              >
+                Confirm Password
+              </label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  id="auth-password-confirm-input"
+                  name="passwordConfirm"
+                  type={showPassword ? 'text' : 'password'}
+                  data-testid="auth-password-confirm-input"
+                  autoComplete="new-password"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  placeholder="Re-enter password"
+                  disabled={busy}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Success / notice banner */}
           {notice && (

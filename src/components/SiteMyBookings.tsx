@@ -356,19 +356,17 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {openSummary && (
-                <button
-                  type="button"
-                  data-testid={`my-booking-summary-${record.bookingId}`}
-                  aria-expanded={openReference === record.bookingId}
-                  onClick={() => setOpenReference((current) => (current === record.bookingId ? null : record.bookingId))}
-                  className="text-[10px] font-extrabold uppercase tracking-wider px-3 py-1.5 border rounded-lg cursor-pointer inline-flex items-center gap-1.5"
-                  style={{ borderColor: s.accent, color: s.accent, backgroundColor: 'transparent' }}
-                >
-                  <ReceiptText className="w-3 h-3" />
-                  {openReference === record.bookingId ? CT['action.hideReceipt'] : CT['history.open']}
-                </button>
-              )}
+              <button
+                type="button"
+                data-testid={`my-booking-summary-${record.bookingId}`}
+                aria-expanded={openReference === record.bookingId}
+                onClick={() => setOpenReference((current) => (current === record.bookingId ? null : record.bookingId))}
+                className="text-[10px] font-extrabold uppercase tracking-wider px-3 py-1.5 border rounded-lg cursor-pointer inline-flex items-center gap-1.5"
+                style={{ borderColor: s.accent, color: s.accent, backgroundColor: 'transparent' }}
+              >
+                <ReceiptText className="w-3 h-3" />
+                {openReference === record.bookingId ? CT['action.hideReceipt'] : CT['history.open']}
+              </button>
 
               {canCancel && !isTerminal && (
                 <button

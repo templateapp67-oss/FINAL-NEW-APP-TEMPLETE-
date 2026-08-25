@@ -232,6 +232,17 @@ function sanitizeProvisionError(message: string | undefined): string {
   if (/3.{0,3}60|lowercase|hyphen|characters/.test(msg)) {
     return 'Website address must be 3–60 lowercase letters, numbers or hyphens.';
   }
+  // Deterministic backend faults (missing column/constraint, undefined
+  // function, permission) can NEVER be fixed by the owner pressing "Try
+  // again", so we must not tell them to. Surfaced as a support-path message
+  // without leaking SQL, table names or any database internals.
+  if (
+    /23502|not-null|null value in column|42703|42883|42501|undefined column|undefined function|does not exist|violates/.test(
+      msg,
+    )
+  ) {
+    return 'Your salon workspace could not be created because of a setup problem on our side. Please contact support — retrying will not help.';
+  }
   return 'Could not set up your salon. Please try again.';
 }
 

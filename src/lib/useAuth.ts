@@ -7,6 +7,7 @@ import {
   oauthRedirect,
   passwordResetRedirect,
   signupConfirmationRedirect,
+  type AuthAccountIntent,
 } from './authRedirect';
 
 /**
@@ -50,7 +51,7 @@ function redirectToLoginIfProtected(): void {
   if (!isProtectedRoute(pathname)) return;
   if (pathname === AUTH_LOGIN_PATH) return; // already there — never loop
   if (window.location.search.includes('code=') || window.location.search.includes('error=')) return; // PKCE callback in flight
-  window.location.replace(`${AUTH_LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
+  window.location.replace(`${AUTH_LOGIN_PATH}?intent=owner&next=${encodeURIComponent(pathname)}`);
 }
 
 export interface AuthState {
@@ -275,10 +276,16 @@ export async function signInWithPassword(
  * `needsConfirmation` is true when the project requires email confirmation
  * before a session is issued.
  */
+export interface SignUpOptions {
+  salonName?: string;
+  accountIntent?: AuthAccountIntent;
+  returnTo?: string;
+}
+
 export async function signUpWithPassword(
   email: string,
   password: string,
-  extras?: { salonName?: string },
+  extras?: SignUpOptions,
 ): Promise<{ error: string | null; needsConfirmation: boolean }> {
   if (!supabase) {
     return {
@@ -288,17 +295,25 @@ export async function signUpWithPassword(
   }
   try {
     const normalizedEmail = normalizeAuthEmail(email);
-    const emailRedirectTo = signupConfirmationRedirect();
-    const salonName = extras?.salonName?.trim().slice(0, 120);
+    const accountIntent: AuthAccountIntent = extras?.accountIntent === 'customer' ? 'customer' : 'owner';
+    const defaultReturn = accountIntent === 'customer' ? '/' : '/builder';
+    const emailRedirectTo = signupConfirmationRedirect(
+      extras?.returnTo || defaultReturn,
+      accountIntent,
+    );
+    const salonName = accountIntent === 'owner'
+      ? extras?.salonName?.trim().slice(0, 120)
+      : undefined;
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
       options: {
         emailRedirectTo,
-        // handle_new_user() reads signup_role. Owner pages request business_user.
-        // Admin/staff cannot be self-assigned (normalize_platform_role).
+        // handle_new_user() reads signup_role. Public customers remain
+        // customers; only an explicit owner entry point requests business_user.
+        // Admin/staff can never be self-assigned (normalize_platform_role).
         data: {
-          signup_role: 'business_user',
+          signup_role: accountIntent === 'owner' ? 'business_user' : 'customer',
           ...(salonName ? { full_name: salonName, salon_name: salonName } : {}),
         },
       },
@@ -334,6 +349,7 @@ export async function signUpWithPassword(
  */
 export async function resendConfirmationEmail(
   email: string,
+  options?: { accountIntent?: AuthAccountIntent; returnTo?: string },
 ): Promise<{ error: string | null }> {
   if (!supabase) {
     return {
@@ -341,7 +357,11 @@ export async function resendConfirmationEmail(
     };
   }
   try {
-    const emailRedirectTo = signupConfirmationRedirect();
+    const accountIntent: AuthAccountIntent = options?.accountIntent === 'customer' ? 'customer' : 'owner';
+    const emailRedirectTo = signupConfirmationRedirect(
+      options?.returnTo || (accountIntent === 'customer' ? '/' : '/builder'),
+      accountIntent,
+    );
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email: normalizeAuthEmail(email),
@@ -362,12 +382,14 @@ export async function resendConfirmationEmail(
   }
 }
 
-export async function signInWithGoogle(next = '/builder'): Promise<{ error: string | null }> {
+export async function signInWithGoogle(
+  next = '/builder',
+  accountIntent: AuthAccountIntent = 'owner',
+): Promise<{ error: string | null }> {
   if (!supabase || typeof window === 'undefined') {
     return { error: 'Authentication is not configured.' };
   }
-  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/builder';
-  const redirectTo = oauthRedirect(safeNext);
+  const redirectTo = oauthRedirect(next, accountIntent);
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo, skipBrowserRedirect: false },

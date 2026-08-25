@@ -1280,12 +1280,17 @@ section('J. Static hygiene — no secrets, placeholder env, no invented stores')
     }
   });
 
-  await test('.env.example carries placeholders only — never real secret formats', async () => {
+  await test('.env.example carries the public project URL and secret placeholders — never real secret formats', async () => {
     const envExample = await readFile('.env.example', 'utf8');
     assert.ok(!/eyJ[A-Za-z0-9_-]{10,}/.test(envExample), 'no JWT');
     assert.ok(!/\b(sk|pk|rzp|ghp)_[A-Za-z0-9]{10,}/.test(envExample), 'no private key');
     assert.ok(!/AIza[A-Za-z0-9_-]{10,}/.test(envExample), 'no Google API key');
-    assert.ok(envExample.includes('your-project.supabase.co'), 'placeholder URL only');
+    assert.match(
+      envExample,
+      /^SUPABASE_URL=https:\/\/qwaehqsmodekbgvnaavz\.supabase\.co$/m,
+      'server URL is the canonical public project URL (not a credential)',
+    );
+    assert.ok(envExample.includes('SUPABASE_SERVICE_ROLE_KEY=your-service-role-key'), 'server secret remains a placeholder');
   });
 
   await test('no invented client stores: every nexora_ key is on the known allowlist', async () => {

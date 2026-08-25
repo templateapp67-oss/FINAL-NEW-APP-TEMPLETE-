@@ -20,6 +20,58 @@ function sendError(response: Response, status: number, message: string) {
   response.status(status).json({ error: message });
 }
 
+interface DatabaseErrorLike {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+}
+
+function databaseError(error: unknown): DatabaseErrorLike {
+  return error && typeof error === 'object' ? error as DatabaseErrorLike : {};
+}
+
+function logDatabaseFailure(operation: string, error: unknown): void {
+  const dbError = databaseError(error);
+  console.error('Booking API database operation failed', {
+    operation,
+    source: 'supabase',
+    code: dbError.code || null,
+    message: dbError.message || (error instanceof Error ? error.message : 'Unknown database error'),
+    details: dbError.details || null,
+    hint: dbError.hint || null,
+  });
+}
+
+const SALON_TIME_ZONE = 'Asia/Kolkata';
+
+function salonDateTime(value: unknown): { dateKey: string; minutes: number } {
+  const date = typeof value === 'string' ? new Date(value) : new Date(Number.NaN);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('The database returned an invalid booking timestamp.');
+  }
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SALON_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((item) => item.type === type)?.value || '';
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  const hour = Number(part('hour'));
+  const minute = Number(part('minute'));
+  if (!year || !month || !day || !Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new Error('The database returned an invalid booking timestamp.');
+  }
+  return { dateKey: `${year}-${month}-${day}`, minutes: hour * 60 + minute };
+}
+
 export function registerBookingRoutes(app: Express): void {
   /** Create a real authenticated customer booking in Supabase. */
   app.post('/api/bookings', async (request: Request, response: Response) => {
@@ -93,8 +145,8 @@ export function registerBookingRoutes(app: Express): void {
   app.get('/api/customer/bookings', async (request: Request, response: Response) => {
     try {
       const user = await requireAuthenticatedUser(request);
-      const { data, error } = await getSupabaseAdmin().rpc('get_customer_bookings', {
-        p_user_id: user.id,
+      const { data, error } = await getSupabaseAdmin().rpc('get_customer_bookings_for_actor', {
+        p_actor_user_id: user.id,
       });
       if (error) throw error;
 
@@ -104,37 +156,43 @@ export function registerBookingRoutes(app: Express): void {
         const advancePaise = Number(row.advance_amount_paise || 0);
         const remainingPaise = Number(row.remaining_amount_paise ?? Math.max(0, totalPaise - advancePaise));
 
-        const startDate = row.appointment_start ? new Date(row.appointment_start) : new Date();
-        const endDate = row.appointment_end ? new Date(row.appointment_end) : new Date(startDate.getTime() + 30 * 60000);
+        const start = salonDateTime(row.appointment_start);
+        const end = row.appointment_end ? salonDateTime(row.appointment_end) : null;
 
         return {
           id: row.booking_id,
           bookingId: row.booking_id,
           salonId: row.salon_id,
-          businessName: row.business_name || 'Salon',
-          businessSlug: row.business_slug || '',
+          businessName: typeof row.business_name === 'string' ? row.business_name : null,
+          businessSlug: typeof row.business_slug === 'string' ? row.business_slug : null,
           serviceNames: Array.isArray(row.service_names) ? row.service_names : [],
           appointmentStart: row.appointment_start,
           appointmentEnd: row.appointment_end,
-          dateKey: startDate.toISOString().slice(0, 10),
+          dateKey: start.dateKey,
+          startMinutes: start.minutes,
+          endMinutes: end?.minutes ?? null,
           totalAmount: Math.round(totalPaise / 100),
           advanceAmount: Math.round(advancePaise / 100),
           remainingAmount: Math.round(remainingPaise / 100),
           totalAmountPaise: totalPaise,
           advanceAmountPaise: advancePaise,
           remainingAmountPaise: remainingPaise,
-          status: row.status || 'pending',
-          paymentStatus: row.payment_status || 'pending',
-          currency: row.currency || 'INR',
+          status: row.status,
+          paymentStatus: row.payment_status,
+          currency: row.currency,
           createdAt: row.created_at,
         };
       });
 
       response.json({ bookings });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
-      sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to load your bookings.');
+      const dbError = databaseError(error);
+      const message = dbError.message || (error instanceof Error ? error.message : '');
+      const status = /bearer|session|authenticat/i.test(message) ? 401 : dbError.code === '42501' ? 403 : 500;
+      if (status === 500) logDatabaseFailure('get_customer_bookings_for_actor', error);
+      sendError(response, status, status === 401
+        ? 'Authentication required.'
+        : status === 403 ? 'Permission denied.' : 'Unable to load your bookings.');
     }
   });
 
@@ -147,34 +205,30 @@ export function registerBookingRoutes(app: Express): void {
         return sendError(response, 400, 'Booking ID is required.');
       }
 
-      const { data: booking, error: findError } = await getSupabaseAdmin()
-        .from('bookings')
-        .select('id,customer_id,status,payment_status')
-        .eq('id', bookingId)
-        .maybeSingle();
-
-      if (findError || !booking) {
-        return sendError(response, 404, 'Booking not found.');
-      }
-
-      if (booking.customer_id !== user.id) {
-        return sendError(response, 403, 'You can only cancel your own bookings.');
-      }
-
-      if (booking.status !== 'pending' && booking.status !== 'confirmed') {
-        return sendError(response, 400, 'This booking cannot be cancelled.');
-      }
-
-      const { error: cancelError } = await getSupabaseAdmin().rpc('cancel_customer_booking', {
+      // Keep authorization and mutation in one database transaction. The
+      // service-role client may bypass RLS, so the authenticated actor UUID is
+      // mandatory at the RPC boundary (M55); a read-then-write API check would
+      // leave a TOCTOU gap and would not constrain a privileged function call.
+      const { error: cancelError } = await getSupabaseAdmin().rpc('cancel_customer_booking_for_actor', {
+        p_actor_user_id: user.id,
         p_booking_id: bookingId,
       });
 
-      if (cancelError) throw cancelError;
+      if (cancelError) {
+        if (cancelError.code === '42501') return sendError(response, 403, 'You can only cancel your own bookings.');
+        if (cancelError.code === 'P0002') return sendError(response, 404, 'Booking not found.');
+        if (cancelError.code === '22023') return sendError(response, 400, cancelError.message);
+        throw cancelError;
+      }
       response.json({ success: true, bookingId });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      const status = /bearer|session|authenticat/i.test(message) ? 401 : /403|denied|only cancel/i.test(message) ? 403 : 500;
-      sendError(response, status, message || 'Unable to cancel the booking.');
+      const dbError = databaseError(error);
+      const message = dbError.message || (error instanceof Error ? error.message : '');
+      const status = /bearer|session|authenticat/i.test(message) ? 401 : dbError.code === '42501' ? 403 : 500;
+      if (status === 500) logDatabaseFailure('cancel_customer_booking_for_actor', error);
+      sendError(response, status, status === 401
+        ? 'Authentication required.'
+        : status === 403 ? 'You can only cancel your own bookings.' : 'Unable to cancel the booking.');
     }
   });
 
@@ -182,10 +236,15 @@ export function registerBookingRoutes(app: Express): void {
   app.get('/api/owner/bookings', async (request: Request, response: Response) => {
     try {
       const user = await requireAuthenticatedUser(request);
-      const salonId = request.query.salonId ? String(request.query.salonId) : null;
+      const rawSalonId = request.query.salonId ? String(request.query.salonId) : null;
+      const salonId = rawSalonId ? z.string().uuid().safeParse(rawSalonId) : null;
+      if (salonId && !salonId.success) {
+        return sendError(response, 400, 'A valid salonId is required.');
+      }
 
-      const { data, error } = await getSupabaseAdmin().rpc('get_owner_salon_bookings', {
-        p_salon_id: salonId,
+      const { data, error } = await getSupabaseAdmin().rpc('get_owner_salon_bookings_for_actor', {
+        p_actor_user_id: user.id,
+        p_salon_id: salonId?.success ? salonId.data : null,
       });
       if (error) throw error;
 
@@ -195,39 +254,54 @@ export function registerBookingRoutes(app: Express): void {
         const advancePaise = Number(row.advance_amount_paise || 0);
         const remainingPaise = Number(row.remaining_amount_paise ?? Math.max(0, totalPaise - advancePaise));
 
-        const startDate = row.appointment_start ? new Date(row.appointment_start) : new Date();
+        const start = salonDateTime(row.appointment_start);
+        const end = row.appointment_end ? salonDateTime(row.appointment_end) : null;
 
         return {
           id: row.booking_id,
           bookingId: row.booking_id,
           salonId: row.salon_id,
-          businessName: row.business_name || 'My Salon',
+          businessName: typeof row.business_name === 'string' ? row.business_name : null,
+          themeId: typeof row.theme_key === 'string' ? row.theme_key : null,
           customerId: row.customer_id,
-          customerName: row.customer_name || 'Customer',
-          customerEmail: row.customer_email || '',
-          customerPhone: row.customer_phone || '',
+          customerName: typeof row.customer_name === 'string' ? row.customer_name : null,
+          customerEmail: typeof row.customer_email === 'string' ? row.customer_email : null,
+          customerPhone: typeof row.customer_phone === 'string' ? row.customer_phone : null,
           serviceNames: Array.isArray(row.service_names) ? row.service_names : [],
+          serviceLines: Array.isArray(row.service_lines) ? row.service_lines : [],
+          staffId: typeof row.staff_id === 'string' ? row.staff_id : null,
+          staffName: typeof row.staff_name === 'string' ? row.staff_name : null,
           appointmentStart: row.appointment_start,
           appointmentEnd: row.appointment_end,
-          dateKey: startDate.toISOString().slice(0, 10),
+          dateKey: start.dateKey,
+          startMinutes: start.minutes,
+          endMinutes: end?.minutes ?? null,
           totalAmount: Math.round(totalPaise / 100),
           advanceAmount: Math.round(advancePaise / 100),
           remainingAmount: Math.round(remainingPaise / 100),
           totalAmountPaise: totalPaise,
           advanceAmountPaise: advancePaise,
           remainingAmountPaise: remainingPaise,
-          status: row.status || 'pending',
-          paymentStatus: row.payment_status || 'pending',
-          currency: row.currency || 'INR',
+          status: row.status,
+          paymentStatus: row.payment_status,
+          currency: row.currency,
           createdAt: row.created_at,
         };
       });
 
       response.json({ bookings, ownerId: user.id });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
-      sendError(response, status, status === 401 ? 'Authentication required.' : 'Unable to load owner bookings.');
+      const dbError = databaseError(error);
+      const message = dbError.message || (error instanceof Error ? error.message : '');
+      const status = /bearer|session|authenticat/i.test(message) || dbError.code === '28000'
+        ? 401
+        : dbError.code === '42501' ? 403 : dbError.code === 'P0003' ? 409 : 500;
+      if (status === 500) logDatabaseFailure('get_owner_salon_bookings_for_actor', error);
+      sendError(response, status,
+        status === 401 ? 'Authentication required.'
+          : status === 403 ? 'Permission denied for this salon.'
+            : status === 409 ? 'Multiple salons are linked to this account. Select one first.'
+              : 'Unable to load owner bookings.');
     }
   });
 
@@ -235,14 +309,21 @@ export function registerBookingRoutes(app: Express): void {
   app.post('/api/owner/bookings/:id/status', async (request: Request, response: Response) => {
     try {
       const user = await requireAuthenticatedUser(request);
-      const bookingId = request.params.id;
-      const nextStatus = String(request.body?.status || '').trim().toLowerCase();
+      const parsed = z.object({
+        bookingId: z.string().uuid(),
+        status: z.enum(['confirmed', 'completed', 'cancelled']),
+      }).safeParse({
+        bookingId: request.params.id,
+        status: String(request.body?.status || '').trim().toLowerCase(),
+      });
 
-      if (!bookingId || !nextStatus) {
-        return sendError(response, 400, 'Booking ID and status are required.');
+      if (!parsed.success) {
+        return sendError(response, 400, parsed.error.issues[0]?.message || 'A valid booking ID and status are required.');
       }
+      const { bookingId, status: nextStatus } = parsed.data;
 
-      const { data, error } = await getSupabaseAdmin().rpc('update_owner_booking_status', {
+      const { data, error } = await getSupabaseAdmin().rpc('update_owner_booking_status_for_actor', {
+        p_actor_user_id: user.id,
         p_booking_id: bookingId,
         p_next_status: nextStatus,
       });
@@ -255,9 +336,15 @@ export function registerBookingRoutes(app: Express): void {
 
       response.json({ success: true, bookingId, status: nextStatus });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      const status = /bearer|session|authenticat/i.test(message) ? 401 : 500;
-      sendError(response, status, message || 'Unable to update booking status.');
+      const dbError = databaseError(error);
+      const message = dbError.message || (error instanceof Error ? error.message : '');
+      const status = /bearer|session|authenticat/i.test(message) || dbError.code === '28000'
+        ? 401 : dbError.code === '42501' ? 403 : dbError.code === 'P0002' ? 404 : 500;
+      if (status === 500) logDatabaseFailure('update_owner_booking_status_for_actor', error);
+      sendError(response, status,
+        status === 401 ? 'Authentication required.'
+          : status === 403 ? 'Permission denied for this salon booking.'
+            : status === 404 ? 'Booking not found.' : 'Unable to update booking status.');
     }
   });
 }

@@ -87,6 +87,7 @@ const EN = {
   'today.status.pay_at_salon': 'Confirmed · Pay at salon',
   'today.status.completed': 'Completed',
   'today.status.cancelled': 'Cancelled',
+  'today.status.no_show': 'No-show',
   'today.status.failed': 'Payment failed',
 
   /* Payment status — the EXISTING payment values */
@@ -172,7 +173,7 @@ const EN = {
 
   /* PHASE 17.6 — Revenue & Payment Summary */
   'revenue.heading': 'Revenue & Payment Summary',
-  'revenue.subtitle': 'Booking and payment totals for your salon from existing test-mode records.',
+  'revenue.subtitle': 'Booking and payment totals from your salon’s persisted records.',
   'revenue.loading': 'Loading revenue and payment summary…',
   'revenue.error.title': 'Revenue summary could not be loaded',
   'revenue.error.body': 'Something went wrong while loading your salon’s payment records. Please try again.',
@@ -363,6 +364,7 @@ const HI: Record<OwnerDashboardTextKey, string> = {
   'today.status.pay_at_salon': 'पुष्ट · सैलून में भुगतान',
   'today.status.completed': 'पूर्ण',
   'today.status.cancelled': 'रद्द',
+  'today.status.no_show': 'उपस्थित नहीं',
   'today.status.failed': 'भुगतान विफल',
 
   'today.payment.unpaid': 'अवैतनिक',
@@ -442,7 +444,7 @@ const HI: Record<OwnerDashboardTextKey, string> = {
   'customers.search.empty': 'इस खोज से कोई ग्राहक नहीं मिला।',
 
   'revenue.heading': 'आय और भुगतान सारांश',
-  'revenue.subtitle': 'मौजूदा टेस्ट-मोड रिकॉर्ड से आपके सैलून की बुकिंग और भुगतान राशि।',
+  'revenue.subtitle': 'आपके सैलून के सहेजे गए रिकॉर्ड से बुकिंग और भुगतान राशि।',
   'revenue.loading': 'आय और भुगतान सारांश लोड हो रहा है…',
   'revenue.error.title': 'आय सारांश लोड नहीं हो सका',
   'revenue.error.body': 'आपके सैलून के भुगतान रिकॉर्ड लोड करते समय कुछ गड़बड़ी हुई। कृपया फिर से कोशिश करें।',

@@ -1,51 +1,77 @@
 /**
  * STANDALONE LOGIN PAGE — route `/auth/login`
  *
- * Single destination for invalid/expired sessions redirected out of the
- * protected owner workspace (`/dashboard`, `/builder`). It reuses the ONE
- * root auth modal (AuthModalProvider) — it is not a second auth system —
- * and returns the owner to the route they were on (`?next=/dashboard`).
+ * One destination for expired protected owner sessions and for same-origin
+ * login after email confirmation. It reuses the root auth modal. The explicit
+ * account intent prevents a public customer login from provisioning or entering
+ * an owner workspace.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Lock, Scissors, ArrowRight } from 'lucide-react';
 import { useAuth } from '../lib/useAuth';
 import { useAuthModal } from './AuthModalProvider';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { getAuthRedirectOrigin } from '../lib/authRedirect';
+import {
+  getAuthRedirectOrigin,
+  normalizeAuthIntent,
+  safeAuthContinuation,
+} from '../lib/authRedirect';
+
+function ownerContinuation(value: string | null): string {
+  const path = safeAuthContinuation(value, '/dashboard');
+  return (
+    path === '/dashboard'
+    || path === '/builder'
+    || path.startsWith('/dashboard/')
+    || path.startsWith('/builder/')
+  ) ? path : '/dashboard';
+}
 
 export default function AuthLoginPage() {
   const { user, loading } = useAuth();
   const { openAuth } = useAuthModal();
   const redirected = useRef(false);
-  const next = useRef('/dashboard');
+  const settledWithoutUser = useRef(false);
 
-  // Read the guarded `?next=` (only allow known workspace paths) once.
+  const context = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const accountIntent = normalizeAuthIntent(params.get('intent'));
+    const next = accountIntent === 'customer'
+      ? safeAuthContinuation(params.get('next'), '/')
+      : ownerContinuation(params.get('next'));
+    return { accountIntent, next };
+  }, []);
+  const isCustomer = context.accountIntent === 'customer';
+
+  const openLogin = () => openAuth('login', {
+    accountIntent: context.accountIntent,
+    returnTo: context.next,
+  });
+
   useEffect(() => {
-    const param = new URLSearchParams(window.location.search).get('next') || '';
-    if (
-      param === '/dashboard' ||
-      param === '/builder' ||
-      param.startsWith('/dashboard/') ||
-      param.startsWith('/builder/')
-    ) {
-      next.current = param;
-    }
-    // Open the shared login dialog after first paint.
-    openAuth('login');
+    openLogin();
+    // Context is immutable for this route instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // After a successful sign-in the shared session shows up here; return the
-  // owner to the workspace they tried to open (guarded, no loops: this page
-  // itself never redirects an anonymous visitor away).
+  // Customer-mode modal intentionally performs no navigation. Once the shared
+  // validated session appears, this page returns to the guarded public path.
+  // Owner mode uses the same continuation; replace is idempotent if the modal's
+  // owner navigation has already started.
   useEffect(() => {
-    if (redirected.current) return;
-    if (loading) return;
-    if (user) {
-      redirected.current = true;
-      window.location.replace(next.current);
+    if (redirected.current || loading) return;
+    if (!user) {
+      settledWithoutUser.current = true;
+      return;
     }
-  }, [user, loading]);
+    // For a newly signed-in owner, LoginModal first completes idempotent owner
+    // provisioning and then navigates. Do not race that boundary. A session
+    // that already existed on page load may proceed to the protected route,
+    // whose hydration performs the same canonical workspace resolution.
+    if (!isCustomer && settledWithoutUser.current) return;
+    redirected.current = true;
+    window.location.replace(context.next);
+  }, [context.next, isCustomer, user, loading]);
 
   return (
     <main className="min-h-screen bg-[#fcfcfc] flex items-center justify-center p-6">
@@ -53,10 +79,13 @@ export default function AuthLoginPage() {
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-[#ac0053] to-[#ff2d8d]">
           <Scissors className="h-5 w-5 text-white" />
         </div>
-        <h1 className="mt-4 text-xl font-bold">Log in to open your salon workspace</h1>
+        <h1 className="mt-4 text-xl font-bold">
+          {isCustomer ? 'Log in to continue your booking' : 'Log in to open your salon workspace'}
+        </h1>
         <p className="mt-2 text-sm text-gray-600">
-          Dashboard ownership is resolved from your authenticated Supabase account
-          and organization membership.
+          {isCustomer
+            ? 'Your Supabase account keeps your bookings and confirmations tied to you.'
+            : 'Dashboard ownership is resolved from your authenticated Supabase account and organization membership.'}
         </p>
         {isSupabaseConfigured ? (
           loading ? (
@@ -69,7 +98,7 @@ export default function AuthLoginPage() {
           ) : (
             <button
               data-testid="auth-login-page-open-btn"
-              onClick={() => openAuth('login')}
+              onClick={openLogin}
               className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
             >
               <Lock className="h-4 w-4" /> Open log in
@@ -77,10 +106,10 @@ export default function AuthLoginPage() {
           )
         ) : null}
         <a
-          href="/signup"
+          href={isCustomer ? `${context.next}#book` : '/signup'}
           className="mt-3 block text-sm font-semibold text-[#ac0053]"
         >
-          Create an account
+          {isCustomer ? 'Return to the salon' : 'Create an account'}
         </a>
         <a
           href={getAuthRedirectOrigin()}

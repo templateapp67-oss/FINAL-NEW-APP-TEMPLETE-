@@ -46,6 +46,7 @@ import type { BookingStatus, PaymentRecord, PaymentStatus, PaymentOption } from 
 import { bookingBrowserId } from './siteBookingFlow';
 import { PAYMENT_STORE_KEY, PAYMENT_STORE_VERSION } from './siteBookingPayment';
 import { isSupabaseConfigured } from './supabaseClient';
+import { updateOwnerBookingStatus as updateCanonicalOwnerBookingStatus } from './authoritativeBooking';
 
 /* ------------------------------------------------------------------ */
 /* Actor resolution (mirrors 14.6 gallery / 15.6 video management)     */
@@ -155,6 +156,23 @@ export function setSupabaseConfiguredForTests(value: boolean | null): void {
   supabaseConfiguredOverride = value;
 }
 
+// Configured deployments keep only the current, server-authorized response in
+// memory. This is a render cache, not persistence or identity authority. It is
+// replaced/cleared whenever the session-resolved owner dashboard changes.
+let authoritativeOwnerRecords: PaymentRecord[] | null = null;
+
+export function setAuthoritativeOwnerBookingRecords(records: readonly PaymentRecord[]): void {
+  authoritativeOwnerRecords = records.map((record) => ({ ...record }));
+}
+
+export function clearAuthoritativeOwnerBookingRecords(): void {
+  authoritativeOwnerRecords = null;
+}
+
+export function readAuthoritativeOwnerBookingRecords(): PaymentRecord[] | null {
+  return authoritativeOwnerRecords?.map((record) => ({ ...record })) ?? null;
+}
+
 export function readSalonBookings(
   actor: BookingActorContext,
   businessId: string,
@@ -166,9 +184,18 @@ export function readSalonBookings(
   if (!actorAllowsBusiness(actor, businessId)) {
     return { ok: false, reason: 'permission-denied' };
   }
-  const records = readPaymentRecordsForBusiness(businessId, themeId);
   const configured = supabaseConfiguredOverride ?? isSupabaseConfigured;
-  if (records.length === 0 && (businessId.startsWith('mock-') || !configured)) {
+  if (isSupabaseConfigured || authoritativeOwnerRecords !== null) {
+    // Canonical rows have already been actor-bound by the owner API. Retain a
+    // second tenant check here so a stale/crafted cache can never widen scope.
+    const records = (authoritativeOwnerRecords ?? []).filter(
+      (record) => record.businessId === businessId && record.themeId === themeId,
+    );
+    return { ok: true, records };
+  }
+
+  const records = readPaymentRecordsForBusiness(businessId, themeId);
+  if (records.length === 0 && !configured && businessId.startsWith('mock-')) {
     return { ok: true, records: generateMockBookings(businessId, themeId) };
   }
   return { ok: true, records };
@@ -307,6 +334,7 @@ const OWNER_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   failed: [],
   cancelled: [],
   completed: [],
+  no_show: [],
 };
 
 /** Statuses from which the CUSTOMER may cancel their own booking. */
@@ -356,6 +384,7 @@ export interface UpdateResult {
   ok: boolean;
   record?: PaymentRecord;
   reason?: BookingUpdateFailure;
+  message?: string;
 }
 
 function patchRecordRaw(id: string, patch: Partial<PaymentRecord>): PaymentRecord | null {
@@ -442,6 +471,55 @@ export function ownerUpdateBookingStatus(
  * browser, never from the caller; a record owned by someone else (or in a
  * terminal state) is refused.
  */
+export async function ownerUpdateBookingStatusThroughAuthority(
+  actor: BookingActorContext,
+  businessId: string,
+  themeId: string,
+  bookingId: string,
+  nextStatus: BookingStatus,
+): Promise<UpdateResult> {
+  const useCanonicalApi = isSupabaseConfigured || authoritativeOwnerRecords !== null;
+  if (!useCanonicalApi) {
+    return ownerUpdateBookingStatus(actor, businessId, themeId, bookingId, nextStatus);
+  }
+  if (!bookingActorCanManage(actor)) return { ok: false, reason: actor.permission };
+  if (!actorAllowsBusiness(actor, businessId)) return { ok: false, reason: 'permission-denied' };
+
+  const record = (authoritativeOwnerRecords ?? []).find(
+    (candidate) => candidate.businessId === businessId
+      && candidate.themeId === themeId
+      && candidate.bookingId === bookingId,
+  );
+  if (!record) return { ok: false, reason: 'not-found' };
+  if (record.bookingStatus === nextStatus) return { ok: false, reason: 'duplicate-update' };
+  if (!ownerAllowedTransitions(record.bookingStatus).includes(nextStatus)) {
+    return { ok: false, reason: 'invalid-transition' };
+  }
+  if (
+    nextStatus === 'confirmed'
+    && record.paymentOption !== 'pay_at_salon'
+    && record.paymentStatus !== 'paid'
+  ) {
+    return { ok: false, reason: 'advance-payment-required' };
+  }
+
+  try {
+    await updateCanonicalOwnerBookingStatus(bookingId, nextStatus);
+    const updated: PaymentRecord = { ...record, bookingStatus: nextStatus };
+    authoritativeOwnerRecords = (authoritativeOwnerRecords ?? []).map(
+      (candidate) => candidate.id === record.id ? updated : candidate,
+    );
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(PAYMENT_EVENT));
+    return { ok: true, record: updated };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'error',
+      message: error instanceof Error ? error.message : 'Failed to update booking status.',
+    };
+  }
+}
+
 export function customerCancelBooking(
   businessId: string,
   themeId: string,

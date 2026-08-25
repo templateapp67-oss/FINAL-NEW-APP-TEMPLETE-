@@ -14,9 +14,12 @@ function read(p) { return readFileSync(resolve(ROOT, p), 'utf8'); }
 
 {
   const auth = read('src/lib/useAuth.ts');
-  if (auth.includes("signup_role: 'business_user'") && auth.includes('signUp(')) {
-    pass('Signup requests business_user via Supabase user metadata');
-  } else fail('Signup role', 'missing signup_role metadata');
+  if (
+    auth.includes("signup_role: accountIntent === 'owner' ? 'business_user' : 'customer'")
+    && auth.includes('signUp(')
+  ) {
+    pass('Signup metadata separates explicit owner and customer intent');
+  } else fail('Signup role', 'missing intent-bound signup_role metadata');
   if (!/localStorage\.setItem\(.*token|fakeUser|HARDCODED_USER/.test(auth)) {
     pass('useAuth has no localStorage/fake identity');
   } else fail('useAuth fake', 'found fake identity');

@@ -17,10 +17,10 @@ import {
   WalletCards,
 } from 'lucide-react';
 import {
-  OWNER_PAYMENT_DATA_MODE,
   readOwnerRevenueSummary,
   REVENUE_DATE_RANGES,
 } from '../lib/ownerRevenueSummary';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
 import type { PaymentSummaryBucket, RevenueDateRange } from '../lib/ownerRevenueSummary';
 import type { BookingActorContext } from '../lib/bookingManagement';
 import type { OwnerDashboardFilterState } from '../lib/ownerDashboardFilters';
@@ -235,7 +235,7 @@ export default function OwnerRevenueSummary({
     return (
       <div className="space-y-4">
         {header}
-        <MockModeNotice palette={palette} t={t} />
+        {!isSupabaseConfigured && <MockModeNotice palette={palette} t={t} />}
         <div
           data-testid={filters && ownerFiltersActive(filters) ? 'owner-revenue-no-results' : 'owner-revenue-empty'}
           className="space-y-2 rounded-2xl border p-8 text-center"
@@ -254,9 +254,13 @@ export default function OwnerRevenueSummary({
   }
 
   return (
-    <div data-testid="owner-revenue" data-payment-mode={OWNER_PAYMENT_DATA_MODE} className="space-y-4">
+    <div
+      data-testid="owner-revenue"
+      data-payment-mode={isSupabaseConfigured ? 'canonical' : 'mock'}
+      className="space-y-4"
+    >
       {header}
-      <MockModeNotice palette={palette} t={t} />
+      {!isSupabaseConfigured && <MockModeNotice palette={palette} t={t} />}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <SummaryCard

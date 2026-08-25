@@ -174,6 +174,21 @@ export function persistOwnerDashboardSection(id: OwnerDashboardSectionId): void 
   }
 }
 
+/** Route-owned section for refresh/direct-link support; null outside dashboard. */
+export function ownerDashboardSectionFromPath(pathname: string): OwnerDashboardSectionId | null {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  if (normalized !== '/dashboard' && !normalized.startsWith('/dashboard/')) return null;
+  const segment = normalized.slice('/dashboard'.length).replace(/^\/+/, '').split('/')[0];
+  return segment ? normalizeOwnerDashboardSection(segment) : DEFAULT_OWNER_DASHBOARD_SECTION;
+}
+
+export function ownerDashboardSectionPath(id: OwnerDashboardSectionId): string {
+  const section = normalizeOwnerDashboardSection(id);
+  return section === DEFAULT_OWNER_DASHBOARD_SECTION
+    ? '/dashboard'
+    : `/dashboard/${section}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Access model                                                        */
 /* ------------------------------------------------------------------ */

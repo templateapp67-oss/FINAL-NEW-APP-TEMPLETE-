@@ -54,6 +54,8 @@ import {
   ownerBookingTenant,
   loadOwnerDashboardContext,
   normalizeOwnerDashboardSection,
+  ownerDashboardSectionFromPath,
+  ownerDashboardSectionPath,
   ownerDashboardCanRetry,
   ownerDashboardCanView,
   ownerDashboardDeniedKey,
@@ -78,7 +80,14 @@ import OwnerNotifications from './OwnerNotifications';
 import OwnerDashboardFilters from './OwnerDashboardFilters';
 import { DEFAULT_OWNER_FILTERS } from '../lib/ownerDashboardFilters';
 import type { OwnerDashboardFilterState } from '../lib/ownerDashboardFilters';
-import { resolveBookingActor } from '../lib/bookingManagement';
+import {
+  clearAuthoritativeOwnerBookingRecords,
+  resolveBookingActor,
+  setAuthoritativeOwnerBookingRecords,
+} from '../lib/bookingManagement';
+import { fetchOwnerBookings } from '../lib/authoritativeBooking';
+import { ownerBookingItemsToDashboardRecords } from '../lib/ownerAuthoritativeBookings';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
 import type { BookingActorContext } from '../lib/bookingManagement';
 import { SITE_HEADER_THEME_IDS } from '../lib/siteNavigation';
 import { LOCALE_LABELS, SUPPORTED_LOCALES } from '../lib/locale';
@@ -489,11 +498,20 @@ export default function OwnerDashboard({ loadContext }: Props) {
   const t = useMemo(() => ownerDashboardTranslator(locale), [locale]);
 
   const [context, setContext] = useState<OwnerDashboardContext>(LOADING_OWNER_DASHBOARD_CONTEXT);
-  const [active, setActive] = useState<OwnerDashboardSectionId>(() => readStoredOwnerDashboardSection());
+  const [active, setActive] = useState<OwnerDashboardSectionId>(() => (
+    typeof window !== 'undefined'
+      ? ownerDashboardSectionFromPath(window.location.pathname) ?? readStoredOwnerDashboardSection()
+      : readStoredOwnerDashboardSection()
+  ));
   const [drawerOpen, setDrawerOpen] = useState(false);
   // PHASE 17.9 — one filter state shared by every real-data section. It is a
   // transient UI preference only and never changes the session tenant scope.
   const [filters, setFilters] = useState<OwnerDashboardFilterState>({ ...DEFAULT_OWNER_FILTERS });
+  const [bookingDataState, setBookingDataState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    isSupabaseConfigured ? 'idle' : 'ready',
+  );
+  const [bookingDataError, setBookingDataError] = useState('');
+  const [bookingDataRetry, setBookingDataRetry] = useState(0);
 
   const load = useCallback(
     (signal?: { cancelled: boolean }) => {
@@ -520,11 +538,61 @@ export default function OwnerDashboard({ loadContext }: Props) {
     };
   }, [load]);
 
+  useEffect(() => {
+    clearAuthoritativeOwnerBookingRecords();
+    setBookingDataError('');
+    if (!isSupabaseConfigured) {
+      setBookingDataState('ready');
+      return;
+    }
+    if (context.access !== 'authorized' || !context.salon?.id) {
+      setBookingDataState('idle');
+      return;
+    }
+
+    let cancelled = false;
+    setBookingDataState('loading');
+    fetchOwnerBookings(context.salon.id)
+      .then((items) => {
+        if (cancelled) return;
+        const records = ownerBookingItemsToDashboardRecords(items);
+        setAuthoritativeOwnerBookingRecords(records);
+        setBookingDataState('ready');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        clearAuthoritativeOwnerBookingRecords();
+        setBookingDataError(error instanceof Error ? error.message : 'Unable to load owner bookings.');
+        setBookingDataState('error');
+      });
+
+    return () => {
+      cancelled = true;
+      clearAuthoritativeOwnerBookingRecords();
+    };
+  }, [context.access, context.salon?.id, bookingDataRetry]);
+
   const selectSection = useCallback((id: OwnerDashboardSectionId) => {
     const next = normalizeOwnerDashboardSection(id);
     setActive(next);
     persistOwnerDashboardSection(next);
     setDrawerOpen(false);
+    if (typeof window !== 'undefined' && ownerDashboardSectionFromPath(window.location.pathname)) {
+      const nextPath = ownerDashboardSectionPath(next);
+      if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = ownerDashboardSectionFromPath(window.location.pathname);
+      if (!next) return;
+      setActive(next);
+      persistOwnerDashboardSection(next);
+      setDrawerOpen(false);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   const access = context.access;
@@ -624,6 +692,20 @@ export default function OwnerDashboard({ loadContext }: Props) {
     if (active === 'overview') {
       return (
         <OverviewFoundation palette={palette} context={context} t={t} onSelect={selectSection} />
+      );
+    }
+    if (isSupabaseConfigured && (bookingDataState === 'idle' || bookingDataState === 'loading')) {
+      return <OwnerDashboardLoading palette={palette} label="Loading canonical salon bookings…" />;
+    }
+    if (isSupabaseConfigured && bookingDataState === 'error') {
+      return (
+        <OwnerDashboardError
+          palette={palette}
+          title="We couldn’t load your salon bookings"
+          body={bookingDataError || 'The canonical booking API did not return a usable response.'}
+          retryLabel={t('state.retry')}
+          onRetry={() => setBookingDataRetry((value) => value + 1)}
+        />
       );
     }
     // PHASE 17.2 — Today's Appointments. The actor and tenant keys are BOTH

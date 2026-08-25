@@ -44,7 +44,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = ['card', 'upi', 'netbanking', 'w
 
 export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 /** PHASE 16.7 — `completed` added additively (owner marks a served booking). */
-export type BookingStatus = 'pending_payment' | 'confirmed' | 'pay_at_salon' | 'failed' | 'cancelled' | 'completed';
+export type BookingStatus = 'pending_payment' | 'confirmed' | 'pay_at_salon' | 'failed' | 'cancelled' | 'completed' | 'no_show';
 
 export type GatewayOutcome = 'success' | 'failure' | 'cancellation' | 'timeout';
 

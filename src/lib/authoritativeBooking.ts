@@ -26,12 +26,14 @@ export interface CustomerBookingItem {
   id: string;
   bookingId: string;
   salonId: string;
-  businessName: string;
-  businessSlug: string;
+  businessName: string | null;
+  businessSlug: string | null;
   serviceNames: string[];
   appointmentStart: string;
-  appointmentEnd: string;
+  appointmentEnd: string | null;
   dateKey: string;
+  startMinutes: number;
+  endMinutes: number | null;
   totalAmount: number;
   advanceAmount: number;
   remainingAmount: number;
@@ -44,19 +46,33 @@ export interface CustomerBookingItem {
   createdAt: string;
 }
 
+export interface OwnerBookingServiceLine {
+  serviceId: string;
+  serviceName: string;
+  pricePaise: number;
+  durationMinutes: number;
+  quantity: number;
+}
+
 export interface OwnerBookingItem {
   id: string;
   bookingId: string;
   salonId: string;
-  businessName: string;
+  businessName: string | null;
+  themeId: string | null;
   customerId: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
   serviceNames: string[];
+  serviceLines: OwnerBookingServiceLine[];
+  staffId: string | null;
+  staffName: string | null;
   appointmentStart: string;
   appointmentEnd: string;
   dateKey: string;
+  startMinutes: number;
+  endMinutes: number | null;
   totalAmount: number;
   advanceAmount: number;
   remainingAmount: number;

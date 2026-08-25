@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "id": "canonical-clean-bootstrap",
+  "mode": "clean-bootstrap",
+  "status": "blocked",
+  "authority": "canonical-design-b",
+  "files": [],
+  "reason": "This repository does not contain a verified empty-database baseline for the canonical profiles/organizations/organization_members/salons hierarchy. M01-M27 create the mutually exclusive Design-A businesses hierarchy, while M28 requires existing canonical roots.",
+  "requiredAction": "Export and review the canonical project schema as a data-free baseline, add it as one audited baseline migration, then prove baseline plus the reconciliation manifest twice on an empty PostgreSQL database before enabling this track.",
+  "forbidden": [
+    "Do not concatenate M01-M27 with M28+.",
+    "Do not use setup_public_salon_v2.sql or dynamic_multitenant_salons.sql as a production baseline.",
+    "Do not infer missing production columns from frontend types."
+  ]
+}

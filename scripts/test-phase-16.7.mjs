@@ -55,6 +55,7 @@ const { render, cleanup, act, fireEvent } = await import('@testing-library/react
 const SiteBookingFlow = (await import('../src/components/SiteBookingFlow.tsx')).default;
 const BookingManagementPanel = (await import('../src/components/BookingManagementPanel.tsx')).default;
 const SiteMyBookings = (await import('../src/components/SiteMyBookings.tsx')).default;
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
 const { initialData } = await import('../src/types.ts');
 const { setSalonClockForTests } = await import('../src/lib/salonStatus.ts');
 const { setSiteAppearance, setSiteLocale } = await import('../src/lib/siteNavigation.ts');
@@ -214,9 +215,15 @@ function renderOwnerPanel(actor, businessId, themeId) {
 
 function renderMyBookings(themeId, businessId, extras = {}) {
   const toasts = [];
-  const utils = render(React.createElement(SiteMyBookings, {
-    themeId, data: richData(themeId, extras), businessId, onShowToast: (m) => toasts.push(toastText(m)),
-  }));
+  const utils = render(
+    React.createElement(
+      AuthModalProvider,
+      null,
+      React.createElement(SiteMyBookings, {
+        themeId, data: richData(themeId, extras), businessId, onShowToast: (m) => toasts.push(toastText(m)),
+      }),
+    ),
+  );
   return { utils, toasts };
 }
 
@@ -650,11 +657,17 @@ section('Customer UI — My Bookings per theme');
     resetState();
     const me = bookingBrowserId();
     seedRecords([paymentRecord({ bookingId: 'NX-STEP', customerId: me, themeId: 'family_full_service' })]);
-    const utils = render(React.createElement(SiteBookingFlow, {
-      themeId: 'family_full_service',
-      data: richData('family_full_service'),
-      onBackToWebsite: () => {},
-    }));
+    const utils = render(
+      React.createElement(
+        AuthModalProvider,
+        null,
+        React.createElement(SiteBookingFlow, {
+          themeId: 'family_full_service',
+          data: richData('family_full_service'),
+          onBackToWebsite: () => {},
+        }),
+      ),
+    );
     assert.equal(utils.getByTestId('booking-flow').dataset.step, 'salon');
     assert.ok(utils.getByTestId('my-bookings'));
     assert.ok(utils.getByTestId('my-booking-NX-STEP'));

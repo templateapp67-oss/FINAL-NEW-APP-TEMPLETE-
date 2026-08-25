@@ -60,7 +60,7 @@ if (!globalThis.URL.createObjectURL) {
 }
 
 const React = (await import('react')).default;
-const { render, cleanup, act, fireEvent } = await import('@testing-library/react');
+const { render: testingRender, cleanup, act, fireEvent } = await import('@testing-library/react');
 
 const SiteBookingFullFlow = (await import('../src/components/SiteBookingFullFlow.tsx')).default;
 const SiteBookingPaymentFlow = (await import('../src/components/SiteBookingPaymentFlow.tsx')).default;
@@ -94,6 +94,16 @@ const {
   BOOKING_CONFIRMATION_STATES,
 } = await import('../src/lib/siteBookingConfirmation.ts');
 const { bookingConfirmationText } = await import('../src/lib/siteBookingConfirmationI18n.ts');
+const { AuthModalProvider } = await import('../src/components/AuthModalProvider.tsx');
+
+function render(ui, options) {
+  const wrap = (child) => React.createElement(AuthModalProvider, null, child);
+  const utils = testingRender(wrap(ui), options);
+  return {
+    ...utils,
+    rerender: (nextUi) => utils.rerender(wrap(nextUi)),
+  };
+}
 
 let passed = 0;
 let failed = 0;

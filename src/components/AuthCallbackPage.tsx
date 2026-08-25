@@ -115,10 +115,10 @@ export default function AuthCallbackPage() {
               salon website.
             </p>
             <a
-              href="/"
+              href="/auth/login"
               className="mt-5 inline-flex rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
             >
-              Log in to continue setup
+              Log in to your dashboard
             </a>
           </>
         ) : (

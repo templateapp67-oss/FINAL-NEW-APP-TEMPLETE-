@@ -15,11 +15,12 @@ const walk = async (dir) => {
   return files;
 };
 
-const [m44, m46, publicView, browserClient, envExample] = await Promise.all([
+const [m44, m46, publicView, browserClient, legacyClient, envExample] = await Promise.all([
   read('supabase/migrations/20260824000101_m44_business_publishing.sql'),
   read('supabase/migrations/20260824000301_m46_public_access_security.sql'),
   read('src/components/PublicSalonView.tsx'),
-  read('src/lib/supabaseClient.ts'),
+  read('src/lib/supabase.ts'),            // canonical shared client
+  read('src/lib/supabaseClient.ts'),      // legacy compatibility re-export
   read('.env.example'),
 ]);
 
@@ -55,6 +56,7 @@ ok('private drafts, root business rows and security verifier remain non-public')
 
 assert.match(browserClient, /env\.VITE_SUPABASE_ANON_KEY/);
 assert.doesNotMatch(browserClient, /env\.VITE_SUPABASE_SERVICE_ROLE_KEY/);
+assert.doesNotMatch(legacyClient, /env\.VITE_SUPABASE_SERVICE_ROLE_KEY/);
 assert.doesNotMatch(envExample, /^VITE_.*(?:SERVICE_ROLE|RAZORPAY.*SECRET|WEBHOOK_SECRET)/m);
 ok('browser configuration accepts only the public Supabase key');
 

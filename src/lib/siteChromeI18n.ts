@@ -27,7 +27,7 @@ const COMMON_EN = {
   'chrome.copyright': 'All rights reserved.',
   'chrome.noServices': 'Menu coming soon',
   'chrome.fallbackHours': 'Mon – Sat · 10:00 – 20:00',
-  'chrome.emailFallback': 'hello@salon.nexora.site',
+  'chrome.emailFallback': 'hello@final-new-app-templete.vercel.app',
 };
 
 const COMMON_HI: Record<keyof typeof COMMON_EN, string> = {
@@ -52,7 +52,7 @@ const COMMON_HI: Record<keyof typeof COMMON_EN, string> = {
   'chrome.copyright': 'सर्वाधिकार सुरक्षित।',
   'chrome.noServices': 'मेनू जल्द आएगा',
   'chrome.fallbackHours': 'सोम – शनि · 10:00 – 20:00',
-  'chrome.emailFallback': 'hello@salon.nexora.site',
+  'chrome.emailFallback': 'hello@final-new-app-templete.vercel.app',
 };
 
 type ThemeChrome = {

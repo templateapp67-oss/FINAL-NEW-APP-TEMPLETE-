@@ -13,11 +13,11 @@ export const SCREENS = [
   { id: 6, label: '06 — Socials & Reels', group: 'OWNER SETUP (01-14)' },
   { id: 7, label: '07 — Location & Hours', group: 'OWNER SETUP (01-14)' },
   { id: 8, label: '08 — Contact & Booking Rules', group: 'OWNER SETUP (01-14)' },
-  { id: 9, label: '09 — Website Appearance', group: 'OWNER SETUP (01-14)' },
-  { id: 10, label: '10 — Content Review', group: 'OWNER SETUP (01-14)' },
-  { id: 11, label: '11 — Select Template', group: 'OWNER SETUP (01-14)' },
+  { id: 9, label: '09 — Choose Template', group: 'OWNER SETUP (01-14)' },
+  { id: 10, label: '10 — Customize Appearance', group: 'OWNER SETUP (01-14)' },
+  { id: 11, label: '11 — AI Content Review', group: 'OWNER SETUP (01-14)' },
   { id: 12, label: '12 — Preview Website', group: 'OWNER SETUP (01-14)' },
-  { id: 13, label: '13 — Publish to Supabase', group: 'OWNER SETUP (01-14)' },
+  { id: 13, label: '13 — Publish (persisted)', group: 'OWNER SETUP (01-14)' },
   { id: 14, label: '14 — Published Website', group: 'OWNER SETUP (01-14)' },
   { id: 17, label: '17 — Staff Management Module', group: 'STAFF MODULE' },
   { id: 18, label: '18 — Overview Dashboard', group: 'DASHBOARD (18-25)' },
@@ -126,7 +126,7 @@ export default function TopBar({ step, activeModule, setActiveModule, saveStatus
               ))}
 
               <div className="p-3 border-t border-gray-100 bg-gray-50/30 text-[10px] text-gray-400 text-center">
-                Owner flow: Login → Business Setup → Template → Preview → Publish • Staff=17 • Dashboard 18-25 • Owner=26
+                Owner flow: Login → Business Setup → Choose Template → Customize → Preview → Publish • Staff=17 • Dashboard 18-25 • Owner=26
               </div>
             </div>
           )}

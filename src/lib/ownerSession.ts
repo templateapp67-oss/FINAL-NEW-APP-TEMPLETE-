@@ -20,16 +20,22 @@ import {
 } from './ownerProvisioning';
 import { suggestedWebsiteSlug } from './publicWebsiteUrl';
 import { loadOwnerWebsiteDraft } from './salonWebsiteService';
+import { STEP_BUSINESS_SETUP_START, STEP_PUBLISH } from './ownerFlow';
 
 export const OWNER_DASHBOARD_PATH = '/dashboard';
 export const OWNER_ONBOARDING_PATH = '/builder';
 
-/** Wizard index after login: Business Setup is step 1 (Hero is only for signed-out). */
+/**
+ * Wizard index after login: Business Setup is step 1 (Hero is only for
+ * signed-out). The publish step is the last resumable screen — a published
+ * owner opens the dashboard instead, and an unpublished owner resumes at the
+ * real publish action rather than at a synthetic success screen.
+ */
 export function resumeWizardStep(lastCompletedStep?: number): number {
   const done = typeof lastCompletedStep === 'number' && Number.isFinite(lastCompletedStep)
     ? lastCompletedStep
     : 0;
-  return Math.min(12, Math.max(1, Math.floor(done) + 1));
+  return Math.min(STEP_PUBLISH, Math.max(STEP_BUSINESS_SETUP_START, Math.floor(done) + 1));
 }
 
 export interface OwnerAuthSession {

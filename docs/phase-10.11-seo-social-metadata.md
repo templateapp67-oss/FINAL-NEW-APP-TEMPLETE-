@@ -52,7 +52,7 @@ Social sharing shows active salon/theme content because SEO is generated from li
 
 ## Technical SEO
 
-- **Canonical**: `buildCanonicalUrl(data)` → prefers `publishedUrl` (validated absolute), else `https://{websiteSlug}.nexora.site`, else slugified `salonName`. Absolute `https://`, uses real slug.
+- **Canonical**: `buildCanonicalUrl(data)` → prefers `publishedUrl` (validated absolute), else `https://final-new-app-templete.vercel.app/{websiteSlug}` (path form; the Vercel host does not support wildcard business subdomains), else slugified `salonName`. Absolute `https://`, uses real slug.
 - **Robots**: `index, follow` (constant `SEO_ROBOTS`)
 - **Sitemap**: `buildSitemapEntry()` → `{loc, lastmod: YYYY-MM-DD, changefreq: weekly, priority: 1.0 for barber else 0.8}` — absolute https, compatible with XML sitemap
 - **Heading hierarchy**: `verifyHeadingHierarchy()` counts H1/H2/H3, asserts exactly 1 H1 (hero title from real `tagline`), reports issues

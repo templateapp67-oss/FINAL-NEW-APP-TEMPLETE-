@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SalonData, ReviewedContent } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import { useBrandConfig } from '../config/brandConfig';
+import { STEP_CONTENT_REVIEW, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -105,7 +106,7 @@ export default function StepAIContentReview({ data, setData, onNext, onPrev, onS
     setSaveStatus('saving');
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      setData(prev => ({ ...prev, reviewedContent: updated, lastCompletedStep: Math.max(prev.lastCompletedStep || 0, 9) }));
+      setData(prev => ({ ...prev, reviewedContent: updated, lastCompletedStep: Math.max(prev.lastCompletedStep || 0, STEP_CONTENT_REVIEW) }));
       if (onSave) onSave();
       setSaveStatus('saved');
     }, 600) as unknown as number;
@@ -263,7 +264,7 @@ export default function StepAIContentReview({ data, setData, onNext, onPrev, onS
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#ac0053]">
-                  <Sparkles className="w-4 h-4" /> STEP 10 • AI CONTENT REVIEW
+                  <Sparkles className="w-4 h-4" /> STEP {STEP_CONTENT_REVIEW + 1} • AI CONTENT REVIEW
                 </div>
                 <div className="flex items-center gap-2 text-xs font-medium">
                   {saveStatus === 'saving' ? (
@@ -692,7 +693,7 @@ export default function StepAIContentReview({ data, setData, onNext, onPrev, onS
           <button onClick={onPrev} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-semibold text-xs hover:bg-gray-50 flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" /> Back
           </button>
-          <span className="hidden sm:block text-xs text-gray-400">Step 10 of 14 • AI Content Review</span>
+          <span className="hidden sm:block text-xs text-gray-400">Step {STEP_CONTENT_REVIEW + 1} of {TOTAL_OWNER_STEPS} • AI Content Review</span>
           <button onClick={onNext} className="px-6 py-2.5 rounded-xl bg-[#ac0053] text-white font-semibold text-xs hover:bg-[#ba005b] flex items-center gap-2 shadow-sm">
             Continue <ArrowRight className="w-4 h-4" />
           </button>

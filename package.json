@@ -148,12 +148,16 @@
     "test:phase2-publishing": "tsx scripts/test-phase2-business-publishing.mjs",
     "test:phase3": "node scripts/test-phase3-customer-booking.mjs",
     "test:owner-publish-flow": "tsx scripts/test-owner-setup-publish-flow.mjs",
+    "test:owner-publish-real": "tsx scripts/test-owner-publish-persists.mjs",
     "test:publish-readiness": "tsx scripts/test-publish-readiness.mjs",
     "test:owner-session-persistence": "tsx scripts/test-owner-session-persistence.mjs",
     "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",
     "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
     "test:public-template-rendering": "tsx scripts/test-public-template-rendering.mjs",
-    "test:public-security": "tsx scripts/test-public-access-security.mjs"
+    "test:public-security": "tsx scripts/test-public-access-security.mjs",
+    "test:slug-collision": "tsx scripts/test-slug-collision-handling.mjs",
+    "test:business-name-change": "tsx scripts/test-business-name-change.mjs",
+    "test:public-resolution-chain": "tsx scripts/test-public-resolution-chain.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

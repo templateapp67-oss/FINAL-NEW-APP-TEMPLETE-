@@ -120,14 +120,18 @@ export function getBrandBaseHost(): string {
  * Extract a salon slug from the request **subdomain** (host-based routing).
  *
  * Returns `''` when there is no usable subdomain — the apex domain, localhost,
- * an IP address, an unknown/preview host, or the `www` label. When the brand
- * base host is `yourdomain.com`, a visit to `royal-hair-studio.yourdomain.com`
- * resolves to the slug `royal-hair-studio`.
+ * an IP address, an unknown/preview host, the `www` label, or any
+ * `*.vercel.app` base (Vercel does not support wildcard business subdomains;
+ * those deployments resolve published sites through `base/<slug>` paths).
+ * When the brand base host is `yourdomain.com`, a visit to
+ * `royal-hair-studio.yourdomain.com` resolves to the slug
+ * `royal-hair-studio`.
  */
 export function extractSubdomainSlug(hostname: string): string {
   const host = (hostname || '').split(':')[0].toLowerCase();
   const base = getBrandBaseHost();
   if (!host || !base) return '';
+  if (base.endsWith('.vercel.app')) return '';
   if (host === base || !host.endsWith(`.${base}`)) return '';
   const prefix = host.slice(0, -(base.length + 1));
   if (!prefix || prefix === 'www') return '';

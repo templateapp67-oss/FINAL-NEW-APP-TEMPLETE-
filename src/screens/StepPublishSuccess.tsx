@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useBrandConfig } from '../config/brandConfig';
+import { STEP_PUBLISH_SUCCESS, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 
 interface Props {
   data: SalonData;
@@ -251,7 +252,7 @@ export default function StepPublishSuccess({ data, setData, onNext, onSave }: Pr
           <span className="text-xl font-bold text-[#ac0053] tracking-tight">{platform.name}</span>
         </div>
         <div className="flex flex-col items-end">
-          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Step 14 of 14</span>
+          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Step {STEP_PUBLISH_SUCCESS + 1} of {TOTAL_OWNER_STEPS}</span>
           <div className="flex items-center gap-1.5 text-[#ac0053]">
             <span className="text-xs font-bold">Website Published</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600 fill-emerald-100" />

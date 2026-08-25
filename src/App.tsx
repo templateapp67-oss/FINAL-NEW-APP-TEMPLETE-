@@ -28,6 +28,7 @@ import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
+import { useLocationSync } from './hooks/useLocationSync';
 import { useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
@@ -47,13 +48,19 @@ import { templateSwitchProtectedRevision, templateVisualConfigRevision } from '.
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
+import {
+  MAX_OWNER_STEP_INDEX,
+  TOTAL_OWNER_STEPS,
+} from './lib/ownerFlow';
 
 const STORAGE_KEY = OWNER_ONBOARDING_CACHE_KEY;
 const DASHBOARD_TAB_KEY = OWNER_DASHBOARD_TAB_CACHE_KEY;
-// Owner journey: Login → Complete Business Setup → Select Template → Preview → Publish.
-// Business setup spans the guided detail/catalog/team/media/location/contact/content screens.
-const TOTAL_STEPS = 14;
-const MAX_STEP_INDEX = 13; // 0-based: 0..13 => 1..14
+// Canonical owner journey:
+//   Login → Business Setup → Choose Template → Customize → Preview → Publish.
+// Business setup spans the guided detail/catalog/team/media/location/contact
+// screens (steps 1–7); step indexes come from src/lib/ownerFlow.ts.
+const TOTAL_STEPS = TOTAL_OWNER_STEPS;
+const MAX_STEP_INDEX = MAX_OWNER_STEP_INDEX; // 0-based: 0..13 => 1..14
 
 // Dashboard tab mapping for screens 18-25
 type DashboardTab = 'overview' | 'website' | 'bookings' | 'payments' | 'share' | 'settings' | 'referral' | 'branding';
@@ -110,19 +117,15 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [activeModule, setActiveModule] = useState<'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard'>(() => {
     // A deep-link to /dashboard opens the real Owner Dashboard by default.
     if (initialModule === 'owner-dashboard') return 'owner-dashboard';
+    // Publication is decided ONLY by the database (hydrated from
+    // salon_public_websites.is_published). localStorage never decides it.
     if (isSupabaseConfigured) return 'wizard';
     try {
       const saved = safeGetItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.activeModule === 'staff-management') return parsed.activeModule;
-        if (
-          (parsed.activeModule === 'dashboard' || parsed.activeModule === 'owner-dashboard') &&
-          parsed.data?.publishState === 'published'
-        ) return parsed.activeModule;
       }
-      const dashboardTab = safeGetItem(DASHBOARD_TAB_KEY);
-      if (dashboardTab && data.publishState === 'published') return 'dashboard';
     } catch {}
     return 'wizard';
   });
@@ -138,6 +141,13 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [showResumeBanner, setShowResumeBanner] = useState(false);
+
+  // Authenticated Nexora location synchronization. Starts only once a real
+  // session exists (no-op for the public site), owns ONE shared watcher for
+  // the whole app, resolves the owner salon from the authenticated account,
+  // writes through the RLS-gated salonLocationService, and cleans up on
+  // logout. Existing StepLocation editing stays untouched.
+  useLocationSync(user, data.address ?? null);
 
   useUsageTracking({
     activeModule,
@@ -309,7 +319,6 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             selectedTemplate: data.templateId,
             websiteAppearance: data.websiteAppearance,
             reviewedContent: data.reviewedContent,
-            publishState: data.publishState,
             currentStep: step + 1
           })
         );
@@ -465,7 +474,6 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           selectedTemplate: dataToSave.templateId,
           websiteAppearance: dataToSave.websiteAppearance,
           reviewedContent: dataToSave.reviewedContent,
-          publishState: dataToSave.publishState,
           currentStep: step + 1
         })
       );
@@ -790,7 +798,8 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       
       <main className="flex-1 flex overflow-hidden">
         <>
-          {/* Complete Business Setup */}
+          {/* Business Setup (steps 2–8). Every step persists into the owner
+              draft before the owner chooses a template. */}
           {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
           {step === 2 && <StepServices data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 3 && (
@@ -815,11 +824,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           {step === 7 && (
             <StepContactBooking data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />
           )}
-          {step === 8 && <StepPublish data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
-          {step === 9 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
 
-          {/* Select Template → Preview → persisted Publish */}
-          {step === 10 && <StepTemplate data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
+          {/* Choose Template → Customize → Preview → persisted Publish */}
+          {step === 8 && <StepTemplate data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
+          {step === 9 && <StepPublish data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
+          {step === 10 && <StepAIContentReview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 11 && <StepFullWebsitePreview data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeSwitchPreview} />}
           {step === 12 && <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} />}
           {step === 13 && data.publishState === 'published' && data.publishedUrl ? (

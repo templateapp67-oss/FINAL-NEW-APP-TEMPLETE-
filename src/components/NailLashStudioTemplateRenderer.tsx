@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { SalonData } from '../types';
 import { getPublicStaffData } from '../types';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
+import { publicWebsiteHref, slugifySalonName } from '../lib/publicWebsiteUrl';
 import { NAIL_LASH_STUDIO_THEME } from '../lib/themeServices';
 import SiteHeader, { useSiteLocale, useThemeAppearance } from './SiteHeader';
 import OwnerAvatar from './OwnerAvatar';
@@ -249,7 +250,7 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
           <div className="mx-auto rounded-lg border px-5 py-1 text-[10px] font-mono tracking-wide" style={{ borderColor: line, color: muted, backgroundColor: t.card }}>
             {ownerPreview && !(data.websiteSlug || '').trim()
               ? OWNER_PREVIEW_EMPTY.websiteAddress
-              : `${DEFAULT_BRAND_CONFIG.platform.websiteUrl.replace(/^https?:\/\//, '')}/${data.websiteSlug || data.salonName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'nailandlash'}`}
+              : publicWebsiteHref((data.websiteSlug || '').trim() ? data.websiteSlug : slugifySalonName(data.salonName) || 'nailandlash', DEFAULT_BRAND_CONFIG.platform.websiteUrl)}
           </div>
         </div>
       ) : <div className="h-6 w-full flex justify-center items-start shrink-0" style={{ backgroundColor: t.footerBg }}><div className="w-24 h-4 rounded-b-xl" style={{ backgroundColor: '#09070b' }} /></div>}

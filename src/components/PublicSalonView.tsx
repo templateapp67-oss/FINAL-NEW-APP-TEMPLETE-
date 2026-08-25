@@ -153,27 +153,17 @@ export default function PublicSalonView({ slug }: Props) {
     void loadCanonicalPublicData(slug)
       .then((data) => {
         if (!active) return;
-        // Record missing → fall back to the configured brand profile when the
-        // slug matches the default business (e.g. 'royal-hair-studio').
-        if (data) {
-          setState({ status: 'ready', data });
-          return;
-        }
-        if (matchesBrandFallbackSlug(slug)) {
-          setState({ status: 'ready', data: buildBrandFallbackSalonData(slug) });
-          return;
-        }
-        setState({ status: 'not-found', data: emptyPublicData(slug) });
+        // The database projection is the ONLY source of a public business.
+        // A missing/unpublished/inactive-template record is "Salon not found"
+        // — never a default or fallback business.
+        setState(data
+          ? { status: 'ready', data }
+          : { status: 'not-found', data: emptyPublicData(slug) });
       })
       .catch((error) => {
         console.error('Failed to load public salon:', error);
         if (!active) return;
-        // Network/permission failure → still surface the brand fallback so the
-        // default salon never shows "Salon Not Found".
-        if (matchesBrandFallbackSlug(slug)) {
-          setState({ status: 'ready', data: buildBrandFallbackSalonData(slug) });
-          return;
-        }
+        // Network/permission failure must never substitute a default salon.
         setState({ status: 'error', data: emptyPublicData(slug) });
       });
     return () => { active = false; };

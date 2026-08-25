@@ -25,23 +25,88 @@ Migrations: M39 (publish/unpublish) → white-label provision → **M44–M46** 
 
 ## Owner journey
 
-Login → business setup → template + config → preview → **explicit publish** (`StepPublishSetup` → `publishOwnerSalonWebsite` → readiness gate) → success URL from **RPC slug** only.
+**Login → Business Setup → Choose Template → Customize → Preview → Publish** (`src/lib/ownerFlow.ts` is the canonical step map: Login 1, Business Setup 2–8, Choose Template 9, Customize 10–11, Preview 12, Publish 13–14).
+
+The Publish action is real: `StepPublishSetup` → `publishOwnerSalonWebsite` → `publish_owner_salon_website` RPC (readiness gate) → only a database-confirmed `is_published = true` row renders the success screen. The success URL comes from the **RPC-returned slug only**, never from a client-generated draft URL. The same screen shows the live/draft state from the database and exposes **Unpublish** through the canonical `unpublish_owner_salon_website` RPC (M39): visibility flips in Supabase, `published_at` (the URL allocation) is preserved, and local state is updated only from the RPC response. Publication is never decided from localStorage — `salon_public_websites.is_published` is the authority on load, publish, unpublish and public resolution.
 
 Drafts are never public. Duplicate names get `name-2`. First `published_at` permanently allocates the URL.
 
+## Public URL generation (single slug/URL system)
+
+`Nexora Salon` → `nexora-salon` → `https://final-new-app-templete.vercel.app/nexora-salon` (the live Vercel deployment).
+
+One authority only:
+
+| Concern | Source |
+|---|---|
+| Slug normalization (browser) | `slugifySalonName` + `suggestedWebsiteSlug` (`src/lib/publicWebsiteUrl.ts`) |
+| Slug allocation (DB) | `private.nexora_business_slug` / `private.nexora_allocate_business_slug` (M44/M45) |
+| White-label URL | `publicWebsiteHref` / `publicWebsiteUrl` — `base/<slug>` path form on the live `*.vercel.app` host and on localhost/IP; `<slug>.<base-host>` form on wildcard custom domains |
+| Subdomain → path | `extractSubdomainSlug` (client) / `resolveHostSlug` (server), identical results (both refuse `*.vercel.app` bases — Vercel has no wildcard business subdomains) |
+
+All six template renderers and the SEO canonical URL (`buildCanonicalUrl`) consume these helpers — no local `slugify` forks, no inline URL regexes, no second URL/domain system. `buildCanonicalUrl` prefers the RPC-allocated `publishedUrl`, then falls back to `publicWebsiteUrl(suggestedWebsiteSlug(data), brand.platform.websiteUrl)`.
+
+## Slug collision handling (M51)
+
+Duplicate business names never produce duplicate public URLs — uniqueness is decided and enforced **in the database**, for every writer:
+
+| Concern | Mechanism |
+|---|---|
+| Deterministic sequence | `private.nexora_allocate_business_slug` → `base`, `base-1`, `base-2`, … (fixed in M51; the previous loop skipped `-1`) |
+| Race safety | transaction-scoped `pg_advisory_xact_lock(hashtext(base))` serializes same-base allocations; provision/publish persist under a savepoint **retry on `unique_violation`** |
+| Final DB invariant | CI unique indexes on `lower(btrim(slug))` on `salon_public_websites` **and** `salons` (M51) — reject exact, case and whitespace variants from any writer |
+| Valid URL characters | URL-safe checks (`^[a-z0-9]+(-[a-z0-9]+)*$`, `NOT VALID` so legacy rows are untouched) on both slug columns |
+| Update safety | first `published_at` permanently locks the URL; rename → unpublish → republish keeps it |
+| Namespace | one shared slug namespace across `salon_public_websites.slug` and `salons.slug` |
+
+Verified end-to-end: `A/B/C = nexora-salon / nexora-salon-1 / nexora-salon-2`, each resolving to exactly its own business; a direct duplicate insert is rejected by the DB (no frontend decision); `NEXORA-SALON` and `Nexora Salon!` are rejected; the 4th duplicate gets `nexora-salon-3`.
+
+## Business name change after publishing
+
+**Strategy implemented: immutable slug after publication** (the canonical M39/M44/M45/M51 architecture — no alias/redirect table, no second URL system).
+
+| Moment | Behavior |
+|---|---|
+| First publish | Allocates the slug from the business name and sets `published_at` — the permanent URL allocation |
+| Rename → republish | `published_at is not null` ⇒ `v_slug := v_existing.slug`; the URL never moves. `salons.name`/org name are updated from the draft config, and `get_public_salon_website` reads `business_name` from `salons.name` — so the **old/shared bookmark keeps resolving** at the same URL and now shows the new name |
+| Unpublish → rename → republish | `published_at` and the slug survive unpublish; the same URL comes back live |
+| Rename before the first publish | New slug is allowed — no public link existed yet, so nothing needs preserving |
+| Template switch / visual config / draft autosave | Never write slug or name (M48 body guards + `saveOwnerWebsiteDraft` updates `config` only) |
+
+Nothing silently changes a published public URL; there is no redirect because the slug never changes after publication.
+
+## Public website resolution (M52)
+
+Customer → `final-new-app-templete.vercel.app/<business-name>` (path form) → **Hostname/Slug → Published Business → Active Template → Template Configuration → Public Business Data**, for the correct business only:
+
+| Step | Authority |
+|---|---|
+| Hostname/Slug | Client `extractSubdomainSlug` + server `resolveHostSlug`/`rewriteHostPath` agree; `/<slug>` path form via `normalizeRouteSlug`. Slug only — **no business/salon id ever supplied by the browser** |
+| Published Business | `get_public_salon_website(p_slug)`: `is_published = true` AND `salons.is_active` AND `deleted_at is null` |
+| Active Template | (M52) joins `themes t on t.theme_id = w.template_key AND t.is_active = true` — **no theme = zero rows**. An unknown/deactivated template never falls back to a default template |
+| Template Configuration | Field-limited projection of `templateConfig(s)`, `brandColor`, `heroPosition`, appearance aliases (M49) applied via `applyPublicTemplateConfiguration(…, website.template_key)` |
+| Public Business Data | `business_name`/address/city from `salons`; services via `get_public_salon_services(p_slug)`; media via DB-returned `salon_id` |
+
+Failures resolve to zero rows and the client shows **"Salon not found"** — the app never renders a default/fallback business when hostname resolution fails (offline demo mode only applies when Supabase is unconfigured, never for a configured deployment). Anon resolves through the RPCs only; owner draft tables stay SELECT-denied.
+
 ## Public journey
 
-`/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → template + config → renderer. Unpublished / inactive / deleted → 404. Anon cannot SELECT draft tables.
+`/<slug>` (live Vercel deployment) or `<slug>.<custom-domain>` (wildcard domain) → same slug → field-limited RPC → active template + config → renderer. Unpublished / inactive / deleted / templateless → 404. Anon cannot SELECT draft tables.
 
 ## Verification
 
-```
+```sh
 npm run test:phase2-publishing
 npm run test:public-website
 npm run test:public-security
 npm run test:public-template-rendering
 npm run test:publish-readiness
 npm run test:owner-publish-flow
+npm run test:owner-publish-real   # app publish path → real persisted row (PGlite)
+npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://final-new-app-templete.vercel.app/nexora-salon
+npm run test:slug-collision                       # A/B/C → nexora-salon / -1 / -2, DB-enforced uniqueness
+npm run test:business-name-change                 # rename keeps the immutable public URL
+npm run test:public-resolution-chain              # hostname → business → active template → config → data
 npm run lint
 npm run build
 ```

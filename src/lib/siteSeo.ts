@@ -16,6 +16,7 @@ import type { AppLocale } from './locale';
 import type { SiteHeaderThemeId } from './siteNavigation';
 import { salonDisplayName } from './siteBooking';
 import { getBrandConfig } from '../config/brandConfig';
+import { publicWebsiteUrl, suggestedWebsiteSlug } from './publicWebsiteUrl';
 
 export const SEO_ROBOTS = 'index, follow';
 export const SEO_OG_TYPE = 'website';
@@ -217,45 +218,34 @@ const THEME_SEO: Record<SiteHeaderThemeId, ThemeSeoConfig> = {
   },
 };
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\u0900-\u097F]+/g, '-') // keep devanagari too but fallback to hyphen
-    .replace(/^-+|-+$/g, '')
-    .replace(/-+/g, '-')
-    .slice(0, 60) || 'salon';
-}
-
 function safeCity(data: SalonData): string | null {
   const city = (data.address?.city || '').trim();
   return city || null;
 }
 
-/** Build canonical URL from actual salon data — never fake. */
+/**
+ * Build canonical URL from actual salon data — never fake, never a second
+ * URL system. Uses the phase-1B helper `publicWebsiteUrl` with the verified
+ * slug (`websiteSlug` when allocated, else the business-name suggestion),
+ * resolved against the configured white-label base host. The database stays
+ * the slug authority at publish time; the published URL is preferred when
+ * present.
+ */
 export function buildCanonicalUrl(data: SalonData): string {
-  // Prefer verified published URL
+  // Prefer the verified published URL (allocated by the publish RPC).
   const published = (data.publishedUrl || '').trim();
   if (published) {
     try {
       const u = new URL(published);
       if (u.protocol.startsWith('http')) return u.toString();
     } catch {
-      // if not absolute, treat as slug path
       if (published.startsWith('http')) return published;
     }
   }
   const brand = getBrandConfig();
-  const domain = brand.platform.websiteUrl.replace(/^https?:\/\//, '');
-  const slug = (data.websiteSlug || '').trim();
+  const slug = suggestedWebsiteSlug(data);
   if (slug) {
-    const clean = slugify(slug);
-    return `https://${clean}.${domain}`;
-  }
-  const name = (data.salonName || '').trim();
-  if (name) {
-    const clean = slugify(name);
-    return `https://${clean}.${domain}`;
+    return publicWebsiteUrl(slug, brand.platform.websiteUrl) || brand.platform.websiteUrl;
   }
   return brand.platform.websiteUrl;
 }

@@ -3,11 +3,18 @@ import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor, Smartphone, Circle, Check } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
-import { publishOwnerSalonWebsite } from '../lib/salonWebsiteService';
+import {
+  publishOwnerSalonWebsite,
+  unpublishOwnerSalonWebsite,
+  verifyOwnerPublishReadiness,
+} from '../lib/salonWebsiteService';
 import { publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
+import { STEP_PUBLISH, STEP_PUBLISH_SUCCESS, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 import {
   evaluatePublishReadiness,
   PUBLISH_INCOMPLETE_ERROR,
+  PUBLISH_READY_LABEL,
+  type PublishReadiness,
 } from '../lib/publishReadiness';
 
 interface Props {
@@ -23,16 +30,45 @@ function generatedSlug(data: SalonData): string {
   return slugifySalonName(data.salonName) || 'salon';
 }
 
+function displayUrl(value: string): string {
+  return value.replace(/^https?:\/\//, '');
+}
+
 export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave }: Props) {
   const { platform } = useBrandConfig();
   const [slug, setSlug] = useState<string>(() => generatedSlug(data));
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [publishing, setPublishing] = useState(false);
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [confirmingUnpublish, setConfirmingUnpublish] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [serverReady, setServerReady] = useState<PublishReadiness | null>(null);
+  const [checkingReadiness, setCheckingReadiness] = useState(false);
 
   useEffect(() => {
     setSlug(generatedSlug(data));
   }, [data.salonName, data.publishState, data.websiteSlug]);
+
+  // Validate against the persisted business row too (migration M50). The
+  // client rules stay the fallback when the validator RPC is not deployed.
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      setCheckingReadiness(true);
+      try {
+        const result = await verifyOwnerPublishReadiness(data);
+        if (active) setServerReady(result);
+      } catch {
+        if (active) setServerReady(null);
+      } finally {
+        if (active) setCheckingReadiness(false);
+      }
+    };
+    void check();
+    return () => { active = false; };
+  }, [data.salonName, data.tagline, data.about, data.phone, data.email,
+    data.whatsappPhone, data.services, data.templateId, data.websiteAppearance,
+    data.reviewedContent, data.lastCompletedStep]);
 
   useEffect(() => {
     setData(prev => ({ ...prev, websiteSlug: slug }));
@@ -40,14 +76,20 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
 
   const previewUrl = publicWebsiteHref(slug, platform.websiteUrl);
 
-  const readiness = evaluatePublishReadiness(data);
+  const localReadiness = evaluatePublishReadiness(data);
+  // The database validator (M50) is authoritative when it answers; otherwise
+  // the existing client-side business rules are used.
+  const readiness = serverReady ?? localReadiness;
   const checks = readiness.required;
   const optionalChecks = readiness.optional;
   const allRequiredDone = readiness.ready;
 
   const handlePublish = async () => {
-    if (!evaluatePublishReadiness(data).ready) {
-      setPublishError(PUBLISH_INCOMPLETE_ERROR);
+    // Re-validate at click time so a stale checklist can never publish.
+    const clickReadiness = await verifyOwnerPublishReadiness(data);
+    if (!clickReadiness.ready) {
+      setPublishError(PUBLISH_INCOMPLETE_ERROR + clickReadiness.missingLabels.join('; '));
+      setServerReady(clickReadiness);
       return;
     }
     const previousState = data.publishState;
@@ -68,7 +110,7 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
         websiteSlug: saved.slug,
         publishState: 'published',
         publishedUrl,
-        lastCompletedStep: 13,
+        lastCompletedStep: STEP_PUBLISH_SUCCESS,
       }));
       if (onSave) onSave();
       setPublishing(false);
@@ -83,6 +125,36 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
         websiteSlug: previousState === 'published' ? prev.websiteSlug : slug,
       }));
       setPublishing(false);
+    }
+  };
+
+  // Only a database-confirmed publication can be displayed as live, and only
+  // then can the owner take the site offline through the same RPC. Local
+  // cache never participates: publishState/publishedUrl are set exclusively
+  // from the publish/unpublish RPC response or from the hydrated DB draft.
+  const isLive = data.publishState === 'published' && Boolean(data.publishedUrl);
+
+  const handleUnpublish = async () => {
+    setUnpublishing(true);
+    setPublishError(null);
+    try {
+      const saved = await unpublishOwnerSalonWebsite(data);
+      // Flip local state only from the database response.
+      setData(prev => ({
+        ...prev,
+        salonId: saved.salonId,
+        websiteSlug: saved.slug,
+        publishState: saved.isPublished ? 'published' : 'draft',
+        publishedUrl: saved.isPublished ? prev.publishedUrl : '',
+      }));
+      if (onSave) onSave();
+      setConfirmingUnpublish(false);
+    } catch (error) {
+      setPublishError(
+        error instanceof Error ? error.message : 'Unable to unpublish your website.',
+      );
+    } finally {
+      setUnpublishing(false);
     }
   };
 
@@ -108,19 +180,114 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
           {/* Header section */}
           <div className="flex flex-col gap-2">
             <span className="text-[10px] font-bold text-[#ac0053] uppercase tracking-widest flex items-center gap-1">
-              <Globe className="w-3.5 h-3.5" /> STEP 13 OF 14 • PUBLISH
+              <Globe className="w-3.5 h-3.5" /> STEP {STEP_PUBLISH + 1} OF {TOTAL_OWNER_STEPS} • PUBLISH
             </span>
             <h1
               className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight"
               data-testid="publish-readiness-status"
             >
-              {readiness.statusLabel}
+              {checkingReadiness && !serverReady ? 'Checking your website…' : readiness.statusLabel}
             </h1>
             <p className="text-xs md:text-sm text-gray-500 leading-relaxed">
               {allRequiredDone
-                ? 'Required business and template information is complete. Check your website address and publish when you are ready.'
-                : 'Finish the required business and template information below before this site can be published.'}
+                ? 'Required business and website information is complete. Check your website address and publish when you are ready.'
+                : 'Finish each required item below before this site can be published.'}
             </p>
+          </div>
+
+          {/* Exact incomplete list — existing business rules, never invented
+              optional fields. */}
+          {!allRequiredDone && readiness.missingLabels.length > 0 && (
+            <div
+              className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5"
+              data-testid="publish-readiness-missing"
+            >
+              <h2 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-3">
+                Complete these items before publishing:
+              </h2>
+              <ul className="space-y-2">
+                {readiness.missingLabels.map((label) => (
+                  <li key={label} className="flex items-start gap-2 text-sm text-amber-900">
+                    <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+                    {label}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-[11px] text-amber-700/80">
+                {checkingReadiness ? 'Checking the saved business record…' : 'Team, gallery, offers and location details are optional and can be added later.'}
+              </p>
+            </div>
+          )}
+
+          {/* Publication state — the database is the only authority. */}
+          <div
+            className={`rounded-2xl border p-5 flex flex-col gap-3 ${isLive ? 'border-emerald-200 bg-emerald-50/60' : 'border-gray-200 bg-white'}`}
+            data-testid="publication-state"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                Publication state
+              </h2>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                  isLive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}
+                data-testid="publication-state-badge"
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                {isLive ? 'Live' : 'Draft — not public'}
+              </span>
+            </div>
+            {isLive ? (
+              <>
+                <p className="text-xs text-gray-600">
+                  Your website is live at{' '}
+                  <span className="font-mono font-semibold text-gray-900 break-all">
+                    {displayUrl(data.publishedUrl)}
+                  </span>
+                  . Unpublishing removes it from the public website immediately; your saved
+                  business information and address stay reserved.
+                </p>
+                {confirmingUnpublish ? (
+                  <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
+                    <p className="text-xs font-semibold text-red-800">
+                      Take your website offline? Visitors will see it as unavailable.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleUnpublish}
+                        disabled={unpublishing}
+                        className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {unpublishing ? 'Unpublishing…' : 'Yes, unpublish'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingUnpublish(false)}
+                        disabled={unpublishing}
+                        className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Keep live
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingUnpublish(true)}
+                    className="w-full rounded-lg border border-red-200 bg-white px-3 py-2.5 text-xs font-bold text-red-700 hover:bg-red-50"
+                  >
+                    Unpublish website
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-gray-600">
+                Your website is not visible to the public yet. Publish it to go live at the
+                address above.
+              </p>
+            )}
           </div>
 
           {/* Website Address Section */}

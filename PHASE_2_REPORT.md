@@ -75,9 +75,23 @@ Verified end-to-end: `A/B/C = nexora-salon / nexora-salon-1 / nexora-salon-2`, e
 
 Nothing silently changes a published public URL; there is no redirect because the slug never changes after publication.
 
+## Public website resolution (M52)
+
+Customer → `business-name.nexora.site` → **Hostname/Slug → Published Business → Active Template → Template Configuration → Public Business Data**, for the correct business only:
+
+| Step | Authority |
+|---|---|
+| Hostname/Slug | Client `extractSubdomainSlug` + server `resolveHostSlug`/`rewriteHostPath` agree; `/<slug>` path form via `normalizeRouteSlug`. Slug only — **no business/salon id ever supplied by the browser** |
+| Published Business | `get_public_salon_website(p_slug)`: `is_published = true` AND `salons.is_active` AND `deleted_at is null` |
+| Active Template | (M52) joins `themes t on t.theme_id = w.template_key AND t.is_active = true` — **no theme = zero rows**. An unknown/deactivated template never falls back to a default template |
+| Template Configuration | Field-limited projection of `templateConfig(s)`, `brandColor`, `heroPosition`, appearance aliases (M49) applied via `applyPublicTemplateConfiguration(…, website.template_key)` |
+| Public Business Data | `business_name`/address/city from `salons`; services via `get_public_salon_services(p_slug)`; media via DB-returned `salon_id` |
+
+Failures resolve to zero rows and the client shows **"Salon not found"** — the app never renders a default/fallback business when hostname resolution fails (offline demo mode only applies when Supabase is unconfigured, never for a configured deployment). Anon resolves through the RPCs only; owner draft tables stay SELECT-denied.
+
 ## Public journey
 
-`/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → template + config → renderer. Unpublished / inactive / deleted → 404. Anon cannot SELECT draft tables.
+`/<slug>` or `<slug>.<base-host>` → same slug → field-limited RPC → active template + config → renderer. Unpublished / inactive / deleted / templateless → 404. Anon cannot SELECT draft tables.
 
 ## Verification
 
@@ -92,6 +106,7 @@ npm run test:owner-publish-real   # app publish path → real persisted row (PGl
 npx tsx scripts/test-public-url-generation.mjs   # Nexora Salon → nexora-salon → https://nexora-salon.nexora.site
 npm run test:slug-collision                       # A/B/C → nexora-salon / -1 / -2, DB-enforced uniqueness
 npm run test:business-name-change                 # rename keeps the immutable public URL
+npm run test:public-resolution-chain              # hostname → business → active template → config → data
 npm run lint
 npm run build
 ```

@@ -84,6 +84,18 @@ assert.match(m51Source, /pg_advisory_xact_lock/, 'M51 allocator must be serializ
 assert.match(m51Source, /salon_public_websites_slug_ci_unique/, 'M51 must add the DB-wide CI unique slug index');
 assert.match(m51Source, /unique_violation/, 'M51 provision/publish must retry on unique violation');
 assert.match(m51Source, /salon_public_websites_slug_url_safe/, 'M51 must add the URL-safe slug character check');
+const m52MigrationFiles = migrationFiles.filter((name) => name.includes('_m52_') || name.includes('_public_resolution_hardening'));
+assert.deepEqual(m52MigrationFiles, [
+  '20260825000301_m52_public_resolution_hardening.sql',
+], 'expected the M52 public resolution hardening migration after M51');
+const m52Source = await readFile(join(migrationsDir, m52MigrationFiles[0]), 'utf8');
+assert.match(m52Source, /join public\.themes t on t\.theme_id = w\.template_key and t\.is_active = true/,
+  'M52 must enforce the active template inside the public resolution');
+assert.match(m52Source, /w\.is_published = true[\s\S]*s\.is_active = true[\s\S]*s\.deleted_at is null/,
+  'M52 must keep published + active + not-deleted business gates');
+assert.match(m52Source, /verify_m52_public_resolution_hardening/, 'M52 must add its own read-only verifier');
+assert.doesNotMatch(m52Source, /grant select on table public\.salon_public_websites to anon/,
+  'M52 must keep anon resolution RPC-only');
 const m48Source = await readFile(join(migrationsDir, m48MigrationFiles[0]), 'utf8');
 const m48SwitchBody = m48Source.slice(
   m48Source.indexOf('create or replace function public.set_owner_salon_template'),

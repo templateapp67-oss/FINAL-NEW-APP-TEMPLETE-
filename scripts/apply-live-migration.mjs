@@ -13,7 +13,7 @@
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m38        # M38 only
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m40        # M40 only
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live:m46        # M46 only
- *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M46
+ *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --all   # M28–M53
  *   SUPABASE_ACCESS_TOKEN=<sbp_...> npm run db:apply:live -- --verify
  *
  * Env:
@@ -30,7 +30,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATIONS_DIR = join(root, 'supabase', 'migrations');
 const CONFIG_PATH = join(root, 'supabase', 'config.toml');
 
-const CHAIN_M28_TO_M46 = [
+const CHAIN_M28_TO_M53 = [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
   '20260821000201_m29_phase1a_razorpay_foundation.sql',
   '20260821000301_m30_phase1a_storage_foundation.sql',
@@ -51,12 +51,20 @@ const CHAIN_M28_TO_M46 = [
   '20260824000101_m44_business_publishing.sql',
   '20260824000201_m45_business_slug_hardening.sql',
   '20260824000301_m46_public_access_security.sql',
+  '20260824000401_m47_phase3_customer_booking_advance.sql',
+  '20260824000501_m48_template_switch_isolation.sql',
+  '20260824000601_m49_public_template_config.sql',
+  '20260825000101_m50_publish_readiness_validation.sql',
+  '20260825000201_m51_slug_collision_hardening.sql',
+  '20260825000301_m52_public_resolution_hardening.sql',
+  '20260825000401_m53_provision_salon_slug_fix.sql',
 ];
 
 const M38 = '20260822000101_m38_reconciliation_fix.sql';
 const M40 = '20260822000301_m40_service_catalog_commerce_rpc.sql';
 const M45 = '20260824000201_m45_business_slug_hardening.sql';
 const M46 = '20260824000301_m46_public_access_security.sql';
+const M53 = '20260825000401_m53_provision_salon_slug_fix.sql';
 
 const VERIFY_SQL = `
 select check_name, ok, detail
@@ -73,6 +81,12 @@ order by check_name;
 const VERIFY_SQL_M45 = `
 select check_name, ok, detail
 from public.verify_m45_business_slug_hardening()
+order by check_name;
+`.trim();
+
+const VERIFY_SQL_M53 = `
+select check_name, ok, detail
+from public.verify_m53_provision_salon_slug()
 order by check_name;
 `.trim();
 
@@ -106,17 +120,20 @@ function resolveFiles(argv) {
   if (
     argv.includes('--verify') &&
     !argv.includes('--m38') && !argv.includes('--m40') &&
-    !argv.includes('--m45') && !argv.includes('--m46') && !argv.includes('--all')
+    !argv.includes('--m45') && !argv.includes('--m46') &&
+    !argv.includes('--m53') && !argv.includes('--all')
   ) return [];
   if (argv.includes('--m38')) return [M38];
   if (argv.includes('--m40')) return [M40];
   if (argv.includes('--m45')) return [M45];
   if (argv.includes('--m46')) return [M46];
-  if (argv.includes('--all')) return CHAIN_M28_TO_M46;
-  return [CHAIN_M28_TO_M46[0]];
+  if (argv.includes('--m53')) return [M53];
+  if (argv.includes('--all')) return CHAIN_M28_TO_M53;
+  return [CHAIN_M28_TO_M53[0]];
 }
 
 function verifySqlFor(files) {
+  if (files.includes(M53)) return VERIFY_SQL_M53;
   if (files.includes(M46)) return VERIFY_SQL_M46;
   if (files.includes(M45)) return VERIFY_SQL_M45;
   if (files.includes(M40)) return VERIFY_SQL_M40;
@@ -171,9 +188,11 @@ async function main() {
 
   const projectRef = await resolveProjectRef();
   const files = resolveFiles(process.argv);
-  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40) || files.includes(M45) || files.includes(M46);
+  const wantVerify = process.argv.includes('--verify') || files.includes(M38) || files.includes(M40) || files.includes(M45) || files.includes(M46) || files.includes(M53);
   const verifySql = verifySqlFor(files);
-  const verifyFnName = files.includes(M46)
+  const verifyFnName = files.includes(M53)
+    ? 'verify_m53_provision_salon_slug'
+    : files.includes(M46)
     ? 'verify_m46_public_access_security'
     : files.includes(M45)
       ? 'verify_m45_business_slug_hardening'

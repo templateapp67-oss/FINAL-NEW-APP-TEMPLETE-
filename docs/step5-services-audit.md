@@ -45,7 +45,7 @@ the catalog RPC return real UUID categories.
 
 ### 3.1 Network & API handlers
 - Services do **not** flow through the Vercel API routes. `/api/*`
-  (`api/[[...path]].ts` → `api-routes.ts`) only covers booking/payment/
+  (`api/[...path].ts` → `api-routes.ts`) only covers booking/payment/
   geocoding/Gemini; services call Supabase PostgREST **directly from the
   browser** (`https://qwaehqsmodekbgvnaavz.supabase.co/rest/v1/rpc/...`).
 - Observed failure class on the live deployment: **404 `PGRST202`**

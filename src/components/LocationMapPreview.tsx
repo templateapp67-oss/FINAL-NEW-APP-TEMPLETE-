@@ -51,7 +51,7 @@ export default function LocationMapPreview({
   const [lastGeocodedAddress, setLastGeocodedAddress] = useState<string>('');
   const [manualAdjusted, setManualAdjusted] = useState(false);
 
-  const isGeocoding = externalIsGeocoding ?? internalIsGeocoding;
+  const isGeocoding = Boolean(externalIsGeocoding || internalIsGeocoding);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -90,7 +90,7 @@ export default function LocationMapPreview({
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      setIsGeocoding(true);
+      setInternalIsGeocoding(true);
       setGeocodeError(null);
 
       try {
@@ -111,7 +111,7 @@ export default function LocationMapPreview({
         if ((err as Error)?.name === 'AbortError') return;
         console.warn('Map preview geocoding failed:', err);
       } finally {
-        setIsGeocoding(false);
+        setInternalIsGeocoding(false);
       }
     }, 900);
 
@@ -136,7 +136,7 @@ export default function LocationMapPreview({
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    setIsGeocoding(true);
+    setInternalIsGeocoding(true);
     setGeocodeError(null);
 
     try {
@@ -159,7 +159,7 @@ export default function LocationMapPreview({
       if ((err as Error)?.name === 'AbortError') return;
       setGeocodeError('Geocoding service unavailable. Try setting the pin manually.');
     } finally {
-      setIsGeocoding(false);
+      setInternalIsGeocoding(false);
     }
   };
 

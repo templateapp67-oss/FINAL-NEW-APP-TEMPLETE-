@@ -231,41 +231,15 @@ export async function ensureOwnerSalon(input?: {
         };
       }
     } catch {
-      // Fall through to direct provisioning fallback
+      // Preserve the original provisioning failure below.
     }
 
-    // Server-side fallback with service role (bypasses missing RPC / divergent constraints)
-    try {
-      const resp = await fetch('/api/owner/provision-salon', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${identity.session.access_token}`,
-        },
-        body: JSON.stringify({
-          salonName: name,
-          slug,
-          templateKey,
-        }),
-      });
-
-      if (resp.ok) {
-        const payload = await resp.json();
-        if (payload?.salonId && payload?.organizationId) {
-          return {
-            salonId: payload.salonId,
-            organizationId: payload.organizationId,
-            slug: payload.slug || slug,
-            templateId: isOwnerTemplateKey(payload.templateId) ? payload.templateId : templateKey,
-            isPublished: Boolean(payload.isPublished),
-            alreadyExisted: Boolean(payload.alreadyExisted),
-          };
-        }
-      }
-    } catch {
-      // Server fallback failed, continue to client recovery
-    }
-
+    // Do not bypass the canonical, transaction-safe provisioning RPC with a
+    // service-role HTTP writer. In particular, an ambiguous P0003 response must
+    // never be converted into "pick the first membership" or another salon
+    // insert: that turns a recoverable data issue into additional duplicates.
+    // Existing single-salon accounts were recovered above; every other error is
+    // preserved for the diagnostic/support path and the reviewed DB repair.
     const diagnostic = diagnosticFromError({
       operation: 'workspace.provision',
       stage: 'provision',

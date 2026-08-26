@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { MapPin, Search, X, Check, Loader2, AlertCircle, Move } from 'lucide-react';
+import { MapPin, Search, X, Check, Loader2, AlertCircle, Move, Navigation } from 'lucide-react';
 import {
   geocodeAddress,
   reverseGeocode,
@@ -50,6 +50,7 @@ export default function LocationPickerModal({
   );
   const [isSearching, setIsSearching] = useState(false);
   const [isReversing, setIsReversing] = useState(false);
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +99,55 @@ export default function LocationPickerModal({
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleCenterOnMyLocation = () => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      setError('Browser geolocation is not supported on this device/browser.');
+      return;
+    }
+
+    setIsLocatingUser(true);
+    setError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const next = normalizeCoordinates(lat, lng);
+        if (!next) {
+          setIsLocatingUser(false);
+          setError('Received invalid coordinates from browser geolocation.');
+          return;
+        }
+
+        setCoords(next);
+        try {
+          const rev = await reverseGeocode(next.latitude, next.longitude);
+          if (rev) {
+            setResolvedAddress(rev.displayName);
+            setQuery(rev.displayName);
+          }
+        } catch {
+          // Keep coords
+        } finally {
+          setIsLocatingUser(false);
+        }
+      },
+      (err) => {
+        setIsLocatingUser(false);
+        let msg = 'Could not access your physical location.';
+        if (err.code === err.PERMISSION_DENIED) {
+          msg = 'Location permission was denied by browser. Please allow location access.';
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          msg = 'Physical location signal unavailable. Try typing your address.';
+        } else if (err.code === err.TIMEOUT) {
+          msg = 'Geolocation timed out. Please try again.';
+        }
+        setError(msg);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
   };
 
   /**
@@ -169,7 +219,7 @@ export default function LocationPickerModal({
   };
 
   const view = coords ?? FALLBACK_VIEW;
-  const busy = isSearching || isReversing;
+  const busy = isSearching || isReversing || isLocatingUser;
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
@@ -208,20 +258,40 @@ export default function LocationPickerModal({
                 placeholder="e.g. Shop 8, Vaishali Nagar, Jaipur, Rajasthan 302021"
                 className="flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1]"
               />
-              <button
-                onClick={() => void handleFindLocation()}
-                disabled={busy}
-                className="flex h-fit items-center justify-center gap-2 self-start rounded-xl bg-[#ac0053] px-5 py-3 text-xs font-semibold text-white transition-colors hover:bg-[#ba005b] disabled:cursor-not-allowed disabled:opacity-60 sm:self-stretch"
-              >
-                {isSearching ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Search className="h-3.5 w-3.5" />
-                )}
-                <span className="whitespace-nowrap">
-                  {isSearching ? 'Finding...' : 'Find Location'}
-                </span>
-              </button>
+              <div className="flex flex-wrap gap-2 sm:self-stretch">
+                <button
+                  type="button"
+                  onClick={() => void handleFindLocation()}
+                  disabled={busy}
+                  className="flex h-fit items-center justify-center gap-2 rounded-xl bg-[#ac0053] px-4 py-3 text-xs font-semibold text-white transition-colors hover:bg-[#ba005b] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSearching ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5" />
+                  )}
+                  <span className="whitespace-nowrap">
+                    {isSearching ? 'Finding...' : 'Find Location'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCenterOnMyLocation}
+                  disabled={busy}
+                  title="Use browser Geolocation to center on your physical location"
+                  className="flex h-fit items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isLocatingUser ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#ac0053]" />
+                  ) : (
+                    <Navigation className="h-3.5 w-3.5 text-[#ac0053]" />
+                  )}
+                  <span className="whitespace-nowrap">
+                    {isLocatingUser ? 'Locating...' : 'Use My Location'}
+                  </span>
+                </button>
+              </div>
             </div>
             <p className="text-[11px] text-gray-400">
               Search runs only when you press Find Location.

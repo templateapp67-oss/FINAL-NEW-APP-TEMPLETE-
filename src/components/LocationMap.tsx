@@ -31,6 +31,75 @@ const salonMarkerIcon = L.icon({
   className: 'nexora-salon-marker',
 });
 
+export interface POIItem {
+  id: string;
+  name: string;
+  category: string;
+  lat: number;
+  lng: number;
+  iconType?: 'transit' | 'shopping' | 'dining' | 'landmark' | 'bank';
+}
+
+export function generateNearbyPOIs(lat: number, lng: number): POIItem[] {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+  return [
+    { id: 'poi-1', name: 'Central Transit & Metro Station', category: 'Metro Hub', lat: lat + 0.0022, lng: lng + 0.0018, iconType: 'transit' },
+    { id: 'poi-2', name: 'City Shopping Galleria', category: 'Shopping Mall', lat: lat - 0.0015, lng: lng + 0.0024, iconType: 'shopping' },
+    { id: 'poi-3', name: 'Grand Bus Terminal', category: 'Bus Stop', lat: lat - 0.0021, lng: lng - 0.0014, iconType: 'transit' },
+    { id: 'poi-4', name: 'National Commerce Bank & ATM', category: 'Bank / ATM', lat: lat + 0.0014, lng: lng - 0.0026, iconType: 'bank' },
+    { id: 'poi-5', name: 'Central Civic Park', category: 'Landmark Park', lat: lat + 0.0028, lng: lng - 0.0009, iconType: 'landmark' },
+    { id: 'poi-6', name: 'Aroma Artisan Cafe & Bakery', category: 'Dining', lat: lat - 0.0009, lng: lng - 0.0021, iconType: 'dining' },
+  ];
+}
+
+function createPoiIcon(iconType: string = 'landmark') {
+  let color = '#2563eb';
+  let badge = 'P';
+  if (iconType === 'transit') { color = '#2563eb'; badge = '🚇'; }
+  else if (iconType === 'shopping') { color = '#9333ea'; badge = '🛍️'; }
+  else if (iconType === 'dining') { color = '#ea580c'; badge = '☕'; }
+  else if (iconType === 'landmark') { color = '#16a34a'; badge = '🏛️'; }
+  else if (iconType === 'bank') { color = '#0284c7'; badge = '🏦'; }
+
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <g fill="none" fill-rule="evenodd">
+      <ellipse cx="14" cy="34" rx="5" ry="2" fill="rgba(0,0,0,0.2)"/>
+      <path d="M14 1C7.37 1 2 6.37 2 13c0 8.5 11 19 11.5 19.5a.7.7 0 0 0 1 0C15 32 26 21.5 26 13 26 6.37 20.63 1 14 1Z"
+            fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="14" cy="13" r="6.5" fill="#ffffff"/>
+      <text x="14" y="16.5" font-size="9" text-anchor="middle" fill="${color}" font-weight="bold">${badge}</text>
+    </g>
+  </svg>`.trim();
+
+  return L.icon({
+    iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    iconSize: [28, 36],
+    iconAnchor: [14, 34],
+    popupAnchor: [0, -30],
+  });
+}
+
+export type MapStyle = 'street' | 'satellite' | 'terrain';
+
+const TILE_LAYERS: Record<MapStyle, { url: string; attribution: string; maxZoom: number }> = {
+  street: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and GIS User Community',
+    maxZoom: 19,
+  },
+  terrain: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN',
+    maxZoom: 19,
+  },
+};
+
 interface Props {
   latitude: number;
   longitude: number;
@@ -38,6 +107,9 @@ interface Props {
   onDragEnd: (latitude: number, longitude: number) => void;
   draggable?: boolean;
   zoom?: number;
+  showPois?: boolean;
+  pois?: POIItem[];
+  mapStyle?: MapStyle;
   className?: string;
 }
 
@@ -47,11 +119,16 @@ export default function LocationMap({
   onDragEnd,
   draggable = true,
   zoom = 14,
+  showPois = false,
+  pois,
+  mapStyle = 'street',
   className = '',
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const poiLayerRef = useRef<L.LayerGroup | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   // Keep the latest callback without re-binding the Leaflet listener.
   const onDragEndRef = useRef(onDragEnd);
   onDragEndRef.current = onDragEnd;
@@ -67,10 +144,15 @@ export default function LocationMap({
       attributionControl: true,
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
+    const config = TILE_LAYERS[mapStyle] || TILE_LAYERS.street;
+    const tileLayer = L.tileLayer(config.url, {
+      maxZoom: config.maxZoom,
+      attribution: config.attribution,
     }).addTo(map);
+    tileLayerRef.current = tileLayer;
+
+    const poiGroup = L.layerGroup().addTo(map);
+    poiLayerRef.current = poiGroup;
 
     const marker = L.marker([latitude, longitude], {
       draggable,
@@ -103,10 +185,57 @@ export default function LocationMap({
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
+      poiLayerRef.current = null;
+      tileLayerRef.current = null;
     };
     // Intentionally mount-only; position updates are handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Update tile layer whenever mapStyle changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+
+    const config = TILE_LAYERS[mapStyle] || TILE_LAYERS.street;
+    const newTileLayer = L.tileLayer(config.url, {
+      maxZoom: config.maxZoom,
+      attribution: config.attribution,
+    }).addTo(map);
+
+    tileLayerRef.current = newTileLayer;
+  }, [mapStyle]);
+
+  // Update POI layer whenever showPois, coordinates, or pois list changes
+  useEffect(() => {
+    const poiGroup = poiLayerRef.current;
+    if (!poiGroup) return;
+
+    poiGroup.clearLayers();
+
+    if (!showPois) return;
+
+    const poiList = pois || generateNearbyPOIs(latitude, longitude);
+    poiList.forEach(poi => {
+      const icon = createPoiIcon(poi.iconType);
+      const m = L.marker([poi.lat, poi.lng], {
+        icon,
+        title: `${poi.name} (${poi.category})`,
+      });
+      m.bindPopup(
+        `<div style="font-family: sans-serif; padding: 2px;">
+          <div style="font-weight: 700; font-size: 12px; color: #1a1c1c;">${poi.name}</div>
+          <div style="font-size: 11px; color: #666; margin-top: 2px;">📍 ${poi.category}</div>
+        </div>`
+      );
+      poiGroup.addLayer(m);
+    });
+  }, [showPois, latitude, longitude, pois]);
 
   // Move and zoom the existing map/marker when the parent supplies new coordinates
   // (e.g. after address change, geocoding or "Find Location").

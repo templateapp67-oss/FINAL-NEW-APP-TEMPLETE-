@@ -282,6 +282,10 @@ export interface SalonAddress {
   latitude?: number;
   longitude?: number;
   locationConfirmedAt?: string;
+  /** Saved view preset (zoom level and center position) for StepLocation map */
+  preferredZoom?: number;
+  preferredCenterLat?: number;
+  preferredCenterLng?: number;
 }
 
 export interface DaySchedule {

@@ -2,7 +2,9 @@ import React, { useRef, useState } from 'react';
 import { SalonData } from '../types';
 import { DEFAULT_THEME_ID, ThemeId } from '../lib/themeServices';
 import { listOwnerTemplates, normalizeThemeId, switchSalonTemplatePresentation, THEME_LABELS } from '../lib/templateConfig';
-
+import TemplateQuickViewModal from './TemplateQuickViewModal';
+import TemplateShowcaseModal from './TemplateShowcaseModal';
+import { Eye, Sparkles } from 'lucide-react';
 
 interface Props {
   data: SalonData;
@@ -26,6 +28,8 @@ export default function ThemeSelector({
   const currentTemplate = normalizeThemeId(data.templateId);
   const [switchingCounts, setSwitchingCounts] = useState<Partial<Record<ThemeId, number>>>({});
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [quickViewThemeId, setQuickViewThemeId] = useState<ThemeId | null>(null);
+  const [showShowcaseModal, setShowShowcaseModal] = useState(false);
   const latestRequest = useRef(0);
   const pendingSwitchCount = Object.values(switchingCounts as Record<string, number | undefined>)
     .reduce<number>((total, count) => total + (count ?? 0), 0);
@@ -100,21 +104,31 @@ export default function ThemeSelector({
           </h4>
           <p className="text-xs text-gray-500 line-clamp-2 mt-1 mb-3">{theme.tagline}</p>
         </div>
-        <div className="pt-3 border-t border-gray-100 flex items-center gap-2">
-          <button
-            type="button"
-            data-testid={`template-preview-${theme.id}`}
-            onClick={() => previewTemplate(theme.id)}
-            className="flex-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            {isPreview ? 'Previewing' : 'Preview'}
-          </button>
+        <div className="pt-3 border-t border-gray-100 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid={`template-quickview-${theme.id}`}
+              onClick={() => setQuickViewThemeId(theme.id)}
+              className="flex-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-pink-50 text-[#ac0053] hover:bg-pink-100 transition-colors flex items-center justify-center gap-1 border border-pink-200/60"
+            >
+              <Eye className="w-3.5 h-3.5" /> Quick View
+            </button>
+            <button
+              type="button"
+              data-testid={`template-preview-${theme.id}`}
+              onClick={() => previewTemplate(theme.id)}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            >
+              {isPreview ? 'Previewing' : 'Preview'}
+            </button>
+          </div>
           <button
             type="button"
             data-testid={`template-apply-${theme.id}`}
             onClick={() => void applyTemplate(theme.id)}
             disabled={isActive && pendingSwitchCount === 0}
-            className="flex-1 px-3 py-1.5 rounded-xl text-xs font-bold text-white disabled:opacity-80"
+            className="w-full px-3 py-1.5 rounded-xl text-xs font-bold text-white transition-colors disabled:opacity-80"
             style={{ backgroundColor: isActive ? theme.accent : '#ac0053' }}
           >
             {isSwitching ? 'Applying…' : isActive && pendingSwitchCount === 0 ? 'Applied' : 'Apply'}
@@ -126,9 +140,20 @@ export default function ThemeSelector({
 
   return (
     <div data-testid="owner-template-gallery" data-active-template={currentTemplate}>
-      <p className="text-xs font-semibold text-gray-600 mb-3" data-testid="owner-active-template-label">
-        Active template: {THEME_LABELS[currentTemplate]}
-      </p>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <p className="text-xs font-semibold text-gray-600" data-testid="owner-active-template-label">
+          Active template: {THEME_LABELS[currentTemplate]}
+        </p>
+        <button
+          type="button"
+          data-testid="open-template-showcase-btn"
+          onClick={() => setShowShowcaseModal(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#ac0053] to-[#80003e] text-white shadow-2xs hover:opacity-95 transition-all"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-pink-200" /> Template Showcase
+        </button>
+      </div>
+
       <div className={layout === 'list' ? 'space-y-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-4'}>
         {themes.map(card)}
       </div>
@@ -145,6 +170,29 @@ export default function ThemeSelector({
         >
           {(switchingCounts[DEFAULT_THEME_ID] ?? 0) > 0 ? 'Applying…' : `Reset to ${THEME_LABELS[DEFAULT_THEME_ID]}`}
         </button>
+      )}
+
+      {/* Quick View Modal */}
+      {quickViewThemeId && (
+        <TemplateQuickViewModal
+          themeId={quickViewThemeId}
+          data={data}
+          onClose={() => setQuickViewThemeId(null)}
+          onApply={(id) => void applyTemplate(id)}
+          isActive={currentTemplate === quickViewThemeId}
+        />
+      )}
+
+      {/* Template Showcase Modal */}
+      {showShowcaseModal && (
+        <TemplateShowcaseModal
+          data={data}
+          setData={setData}
+          onClose={() => setShowShowcaseModal(false)}
+          onApply={(id) => void applyTemplate(id)}
+          onSave={onSave}
+          currentTemplateId={currentTemplate}
+        />
       )}
     </div>
   );

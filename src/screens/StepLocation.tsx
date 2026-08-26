@@ -466,6 +466,16 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
             longitude={savedCoords?.longitude}
             salonName={data.salonName}
             isGeocoding={isAutoGeocoding}
+            preferredZoom={address.preferredZoom}
+            preferredCenterLat={address.preferredCenterLat}
+            preferredCenterLng={address.preferredCenterLng}
+            onSaveViewPreset={preset => {
+              updateAddress({
+                preferredZoom: preset.zoom,
+                preferredCenterLat: preset.latitude,
+                preferredCenterLng: preset.longitude,
+              });
+            }}
             onChangeCoordinates={(lat, lng) => {
               updateAddress({ latitude: lat, longitude: lng });
             }}

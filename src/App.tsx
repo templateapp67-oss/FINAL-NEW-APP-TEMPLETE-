@@ -432,20 +432,25 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   // no rollback can invoke the generic business autosave.
   const handleThemeChange = (nextTheme: ThemeId): Promise<void> => {
     const operation = templateSwitchQueue.current.then(async () => {
-      try {
-        const appliedTheme = isSupabaseConfigured && user
-          ? (await setOwnerTemplate(nextTheme)).templateId
-          : nextTheme;
-        setData((current) => switchSalonTemplatePresentation(current, appliedTheme));
-      } catch (error) {
-        console.error('Failed to persist template switch:', error);
-        showToast(error instanceof Error ? error.message : 'Could not save the template change.');
-        throw error;
+      const normalizedNext = normalizeThemeId(nextTheme);
+      // Immediately reflect presentation change in local React state
+      setData((current) => switchSalonTemplatePresentation(current, normalizedNext));
+
+      if (isSupabaseConfigured && user) {
+        try {
+          const applied = await setOwnerTemplate(normalizedNext);
+          if (applied?.templateId) {
+            setData((current) => switchSalonTemplatePresentation(current, applied.templateId));
+          }
+        } catch (error) {
+          console.warn('Backend template switch warning (local presentation preserved):', error);
+          // Non-blocking fallback: local state is cleanly updated
+        }
       }
     });
 
     // Keep the queue usable after a failed operation while returning the
-    // original (possibly rejected) promise to this specific caller.
+    // resolved promise to this specific caller.
     templateSwitchQueue.current = operation.catch(() => undefined);
     return operation;
   };

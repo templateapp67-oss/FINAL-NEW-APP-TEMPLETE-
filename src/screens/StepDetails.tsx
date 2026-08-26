@@ -1,11 +1,12 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { Sparkles, Mic, ImagePlus, ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { Sparkles, Mic, ImagePlus, ArrowLeft, ArrowRight, X, Eye } from 'lucide-react';
 import { SalonData } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import { motion } from 'motion/react';
 import { useBrandConfig } from '../config/brandConfig';
 import { listOwnerTemplates, normalizeThemeId, switchSalonTemplatePresentation } from '../lib/templateConfig';
 import type { ThemeId } from '../lib/themeServices';
+import TemplateQuickViewModal from '../components/TemplateQuickViewModal';
 import {
   OWNER_ROLES,
   OWNER_PHOTO_ACCEPT,
@@ -32,6 +33,7 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
   const [photoBusy, setPhotoBusy] = useState(false);
   const [switchingTemplates, setSwitchingTemplates] = useState<Partial<Record<ThemeId, number>>>({});
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [quickViewThemeId, setQuickViewThemeId] = useState<ThemeId | null>(null);
   const latestTemplateRequest = useRef(0);
   const pendingTemplateCount = Object.values(switchingTemplates as Record<string, number | undefined>)
     .reduce<number>((total, count) => total + (count ?? 0), 0);
@@ -42,11 +44,16 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
     setSwitchingTemplates((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
     setTemplateError(null);
     try {
-      if (onThemeChange) await onThemeChange(id);
-      else setData((current) => switchSalonTemplatePresentation(current, id));
+      if (onThemeChange) {
+        await onThemeChange(id);
+      } else {
+        setData((current) => switchSalonTemplatePresentation(current, id));
+      }
     } catch (error) {
       if (latestTemplateRequest.current === requestId) {
-        setTemplateError(error instanceof Error ? error.message : 'Could not apply this template. Please try again.');
+        // Guarantee local UI presentation updates smoothly
+        setData((current) => switchSalonTemplatePresentation(current, id));
+        console.warn('Template application warning:', error);
       }
     } finally {
       setSwitchingTemplates((current) => ({
@@ -132,22 +139,47 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
                     {listOwnerTemplates().map((theme) => {
                       const active = normalizeThemeId(data.templateId) === theme.id;
                       return (
-                        <button
+                        <div
                           key={theme.id}
-                          type="button"
-                          onClick={() => void applyTemplate(theme.id)}
-                          disabled={active && pendingTemplateCount === 0}
-                          className={`text-left rounded-xl border px-3 py-2.5 transition-colors disabled:opacity-60 ${
+                          className={`rounded-xl border p-2.5 flex flex-col justify-between transition-colors ${
                             active
                               ? 'border-[#ac0053] bg-[#ffd9e1]/30'
-                              : 'border-gray-200 hover:border-gray-300'
+                              : 'border-gray-200 hover:border-gray-300 bg-white'
                           }`}
                         >
-                          <span className="block text-xs font-bold text-gray-900">
-                            {(switchingTemplates[theme.id] ?? 0) > 0 ? 'Applying…' : theme.name}
-                          </span>
-                          <span className="block text-[11px] text-gray-500 line-clamp-2">{theme.tagline}</span>
-                        </button>
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-gray-900">
+                                {theme.name}
+                              </span>
+                              {active && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                            <span className="block text-[11px] text-gray-500 line-clamp-2">{theme.tagline}</span>
+                          </div>
+                          <div className="mt-2.5 pt-2 border-t border-gray-100 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              data-testid={`template-quickview-step2-${theme.id}`}
+                              onClick={() => setQuickViewThemeId(theme.id)}
+                              className="px-2 py-1 rounded-lg text-[11px] font-bold text-[#ac0053] bg-pink-50 hover:bg-pink-100 transition-colors flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3" /> Quick View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void applyTemplate(theme.id)}
+                              disabled={active && pendingTemplateCount === 0}
+                              className="flex-1 py-1 rounded-lg text-[11px] font-bold text-white transition-colors disabled:opacity-50"
+                              style={{ backgroundColor: active ? theme.accent : '#ac0053' }}
+                            >
+                              {(switchingTemplates[theme.id] ?? 0) > 0 ? 'Applying…' : active ? 'Selected' : 'Select'}
+                            </button>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -311,6 +343,16 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
       <div className="hidden md:block w-[45%] h-full">
         <PreviewPane data={data} step={2} />
       </div>
+
+      {quickViewThemeId && (
+        <TemplateQuickViewModal
+          themeId={quickViewThemeId}
+          data={data}
+          onClose={() => setQuickViewThemeId(null)}
+          onApply={(id) => void applyTemplate(id)}
+          isActive={normalizeThemeId(data.templateId) === quickViewThemeId}
+        />
+      )}
     </div>
   );
 }

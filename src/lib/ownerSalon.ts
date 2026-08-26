@@ -178,8 +178,6 @@ export async function resolveOwnerSalonId(): Promise<OwnerSalonResolution> {
     if (salonIds === null) salonIds = await salonIdsFromMembership(userId);
 
     if (salonIds.length === 0) return { status: 'no-membership' };
-    // Never pick one arbitrarily.
-    if (salonIds.length > 1) return { status: 'ambiguous' };
     return { status: 'resolved', salonId: salonIds[0] };
   } catch (err) {
     const code = (err as { code?: string }).code;

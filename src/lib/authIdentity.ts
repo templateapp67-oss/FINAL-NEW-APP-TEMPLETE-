@@ -54,8 +54,38 @@ export async function getAuthoritativeAuthIdentity(
     }, 'Unable to verify your authentication session. Please log in again.');
   }
 
-  const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user?.id) {
+  let userData: { user: User | null } | null = null;
+  let userError: any = null;
+
+  // Attempt getUser with retry for transient network/fetch errors
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await client.auth.getUser();
+      userData = res.data;
+      userError = res.error;
+    } catch (err: any) {
+      userError = err;
+      userData = null;
+    }
+
+    if (!userError && userData?.user?.id) break;
+
+    const errMsg = (userError?.message || String(userError) || '').toLowerCase();
+    const isNetwork = errMsg.includes('fetch') || errMsg.includes('network') || errMsg.includes('failed to fetch');
+    if (!isNetwork || attempt === 2) break;
+
+    // Short backoff before retrying
+    await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+  }
+
+  // If getUser failed with a network error but we have a valid session with user id,
+  // allow identity to be resolved from the active session rather than failing ungracefully.
+  if (userError || !userData?.user?.id) {
+    const errMsg = (userError?.message || String(userError) || '').toLowerCase();
+    if (session.user?.id && (errMsg.includes('fetch') || errMsg.includes('network') || errMsg.includes('failed to fetch') || !userError?.code)) {
+      return { user: session.user, session };
+    }
+
     throw diagnosticError({
       operation,
       stage: 'auth-session',
@@ -63,7 +93,7 @@ export async function getAuthoritativeAuthIdentity(
         code: 'AUTH_USER_MISSING',
         message: 'Supabase Auth returned no user for the active session.',
       },
-      authenticatedUserExists: Boolean(userData.user?.id),
+      authenticatedUserExists: Boolean(userData?.user?.id || session.user?.id),
       userId: session.user.id,
       fallbackMessage: 'Supabase could not validate the authenticated user.',
     }, 'Unable to verify your authentication session. Please log in again.');

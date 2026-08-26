@@ -14,7 +14,7 @@ import { GoogleGenAI } from '@google/genai';
 import { setupPaymentRoutes } from './server/paymentRoutes';
 import { registerBookingRoutes } from './server/bookingRoutes';
 import { registerWebsiteBookingRoutes } from './server/websiteBookingRoutes';
-import { requireAuthenticatedUser } from './server/supabaseAdmin';
+import { requireAuthenticatedUser, getSupabaseAdmin } from './server/supabaseAdmin';
 
 /* ------------------------------------------------------------------ *
  * Helper utilities (rate limiting, caching, delays)
@@ -614,6 +614,211 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
     } catch (error: any) {
       console.error('Error in improve-text route:', error);
       res.json({ rewritten: req.body?.text || 'Premium beauty services.' });
+    }
+  });
+
+  // Owner salon provisioning endpoint (safe against schema variations like display_name NOT NULL)
+  app.post('/api/owner/provision-salon', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonName = (req.body?.salonName || 'My Salon').trim().slice(0, 120);
+      const slug = (req.body?.slug || '').trim();
+      const templateKey = (req.body?.templateKey || 'hair').trim();
+
+      const admin = getSupabaseAdmin();
+
+      // 1. Ensure profile exists for business_user
+      await admin.from('profiles').upsert({
+        id: user.id,
+        full_name: salonName,
+        platform_role: 'business_user',
+        is_active: true,
+        email: user.email,
+      }, { onConflict: 'id' });
+
+      // 2. Check existing owner organization memberships
+      const { data: existingMemberships } = await admin
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .eq('role', 'owner');
+
+      let orgId = existingMemberships?.[0]?.organization_id;
+
+      if (!orgId) {
+        // Create organization with name, display_name, status to satisfy live schema constraints
+        let newOrg: any = null;
+        let orgErr: any = null;
+
+        const attempt1 = await admin
+          .from('organizations')
+          .insert({
+            name: salonName,
+            display_name: salonName,
+            status: 'active',
+          } as any)
+          .select('id')
+          .maybeSingle();
+
+        if (!attempt1.error && attempt1.data?.id) {
+          newOrg = attempt1.data;
+        } else {
+          // If display_name column does not exist in schema cache, try with just name + status
+          const attempt2 = await admin
+            .from('organizations')
+            .insert({
+              name: salonName,
+              status: 'active',
+            } as any)
+            .select('id')
+            .maybeSingle();
+
+          if (!attempt2.error && attempt2.data?.id) {
+            newOrg = attempt2.data;
+          } else {
+            orgErr = attempt1.error || attempt2.error;
+          }
+        }
+
+        if (orgErr || !newOrg?.id) {
+          throw new Error(orgErr?.message || 'Failed to create organization record');
+        }
+
+        orgId = newOrg.id;
+        const memberUpsert = await admin.from('organization_members').upsert({
+          organization_id: orgId,
+          user_id: user.id,
+          role: 'owner',
+          status: 'active',
+        } as any, { onConflict: 'organization_id,user_id' });
+
+        if (memberUpsert.error && (memberUpsert.error.message?.includes('status') || memberUpsert.error.message?.includes('is_active'))) {
+          await admin.from('organization_members').upsert({
+            organization_id: orgId,
+            user_id: user.id,
+            role: 'owner',
+          } as any, { onConflict: 'organization_id,user_id' });
+        }
+      }
+
+      // 3. Find or create salon
+      let { data: existingSalon } = await admin
+        .from('salons')
+        .select('id, slug')
+        .eq('organization_id', orgId)
+        .maybeSingle();
+
+      const alreadyExisted = Boolean(existingSalon?.id);
+
+      if (!existingSalon?.id) {
+        // Attempt 1: insert with common columns (address, city, state, postal_code, country, phone, email)
+        const fullPayload: Record<string, any> = {
+          organization_id: orgId,
+          name: salonName,
+          slug: slug || undefined,
+          address: 'Main Location',
+          city: 'City',
+          state: 'State',
+          postal_code: '000000',
+          country: 'India',
+          phone: '9999999999',
+          email: user.email || 'salon@example.com',
+          is_active: true,
+        };
+
+        const attempt1 = await admin
+          .from('salons')
+          .insert(fullPayload as any)
+          .select('id, slug')
+          .maybeSingle();
+
+        if (!attempt1.error && attempt1.data?.id) {
+          existingSalon = attempt1.data;
+        } else {
+          // Attempt 2: insert with address and city
+          const attempt2 = await admin
+            .from('salons')
+            .insert({
+              organization_id: orgId,
+              name: salonName,
+              slug: slug || undefined,
+              address: 'Main Location',
+              city: 'City',
+              is_active: true,
+            } as any)
+            .select('id, slug')
+            .maybeSingle();
+
+          if (!attempt2.error && attempt2.data?.id) {
+            existingSalon = attempt2.data;
+          } else {
+            // Attempt 3: insert with just address
+            const attempt3 = await admin
+              .from('salons')
+              .insert({
+                organization_id: orgId,
+                name: salonName,
+                slug: slug || undefined,
+                address: 'Main Location',
+                is_active: true,
+              } as any)
+              .select('id, slug')
+              .maybeSingle();
+
+            if (!attempt3.error && attempt3.data?.id) {
+              existingSalon = attempt3.data;
+            } else {
+              // Attempt 4: minimal payload
+              const attempt4 = await admin
+                .from('salons')
+                .insert({
+                  organization_id: orgId,
+                  name: salonName,
+                  slug: slug || undefined,
+                  is_active: true,
+                } as any)
+                .select('id, slug')
+                .maybeSingle();
+
+              if (!attempt4.error && attempt4.data?.id) {
+                existingSalon = attempt4.data;
+              } else {
+                const err = attempt1.error || attempt2.error || attempt3.error || attempt4.error;
+                throw new Error(err?.message || 'Failed to create salon record');
+              }
+            }
+          }
+        }
+      }
+
+      const finalSlug = existingSalon.slug || slug;
+
+      // 4. Ensure website row
+      try {
+        await admin
+          .from('salon_public_websites')
+          .upsert({
+            salon_id: existingSalon.id,
+            slug: finalSlug,
+            template_key: templateKey,
+            config: {},
+            is_published: false,
+          } as any, { onConflict: 'salon_id' });
+      } catch (wErr) {
+        console.warn('Could not upsert salon_public_websites row:', wErr);
+      }
+
+      res.json({
+        salonId: existingSalon.id,
+        organizationId: orgId,
+        slug: finalSlug,
+        templateId: templateKey,
+        isPublished: false,
+        alreadyExisted,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/owner/provision-salon:', err);
+      res.status(500).json({ error: err.message || 'Provisioning failed' });
     }
   });
 

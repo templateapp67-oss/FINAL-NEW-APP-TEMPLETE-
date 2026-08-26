@@ -71,16 +71,37 @@ export interface ProvisionedOwnerSalon {
 
 interface ProvisionRpcRow {
   out_salon_id?: string;
+  salon_id?: string;
+  id?: string;
   out_organization_id?: string;
+  organization_id?: string;
   out_slug?: string;
+  slug?: string;
   out_template_id?: string;
+  template_id?: string;
+  template_key?: string;
   out_is_published?: boolean;
+  is_published?: boolean;
   out_already_existed?: boolean;
+  already_existed?: boolean;
 }
 
 function firstRow<T>(data: T | T[] | null): T | null {
   if (data == null) return null;
   return Array.isArray(data) ? (data[0] ?? null) : data;
+}
+
+function isMissingFunctionError(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  const code = err.code || '';
+  const msg = (err.message || '').toLowerCase();
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    msg.includes('could not find the function') ||
+    msg.includes('schema cache') ||
+    msg.includes('no matches were found')
+  );
 }
 
 /**
@@ -129,13 +150,122 @@ export async function ensureOwnerSalon(input?: {
     ? input.templateKey
     : DEFAULT_OWNER_TEMPLATE;
 
-  const { data, error } = await client.rpc(PROVISION_OWNER_SALON_FN, {
+  // Try canonical 3-argument signature first
+  let { data, error } = await client.rpc(PROVISION_OWNER_SALON_FN, {
     p_salon_name: name,
     p_slug: slug,
     p_template_id: templateKey,
   });
 
+  // If the function signature differs in the schema cache (e.g. earlier migration
+  // or alternate parameter naming), attempt known backwards-compatible variants.
+  if (error && isMissingFunctionError(error)) {
+    // 1. Try (p_salon_name, p_user_id) as hinted by PostgREST schema cache
+    const res1 = await client.rpc(PROVISION_OWNER_SALON_FN, {
+      p_salon_name: name,
+      p_user_id: identity.user.id,
+    });
+    if (!res1.error) {
+      data = res1.data;
+      error = null;
+    } else if (isMissingFunctionError(res1.error)) {
+      // 2. Try (p_salon_name, p_template_key) - M42 signature
+      const res2 = await client.rpc(PROVISION_OWNER_SALON_FN, {
+        p_salon_name: name,
+        p_template_key: templateKey,
+      });
+      if (!res2.error) {
+        data = res2.data;
+        error = null;
+      } else if (isMissingFunctionError(res2.error)) {
+        // 3. Try (p_salon_name, p_template_id)
+        const res3 = await client.rpc(PROVISION_OWNER_SALON_FN, {
+          p_salon_name: name,
+          p_template_id: templateKey,
+        });
+        if (!res3.error) {
+          data = res3.data;
+          error = null;
+        } else if (isMissingFunctionError(res3.error)) {
+          // 4. Try (p_salon_name)
+          const res4 = await client.rpc(PROVISION_OWNER_SALON_FN, {
+            p_salon_name: name,
+          });
+          if (!res4.error) {
+            data = res4.data;
+            error = null;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: If RPC still failed, check if this authenticated user ALREADY has
+  // an active salon in the database (e.g. signed up previously).
   if (error) {
+    try {
+      const { resolveOwnerSalonId } = await import('./ownerSalon');
+      const existing = await resolveOwnerSalonId();
+      if (existing.status === 'resolved' && existing.salonId) {
+        const { data: salonRow } = await client
+          .from('salons')
+          .select('id, organization_id, slug, theme_id')
+          .eq('id', existing.salonId)
+          .maybeSingle();
+
+        const { data: siteRow } = await client
+          .from('salon_public_websites')
+          .select('slug, template_key, is_published')
+          .eq('salon_id', existing.salonId)
+          .maybeSingle();
+
+        return {
+          salonId: existing.salonId,
+          organizationId: salonRow?.organization_id || '',
+          slug: siteRow?.slug || salonRow?.slug || slug,
+          templateId: isOwnerTemplateKey(siteRow?.template_key)
+            ? siteRow.template_key
+            : DEFAULT_OWNER_TEMPLATE,
+          isPublished: siteRow?.is_published === true,
+          alreadyExisted: true,
+        };
+      }
+    } catch {
+      // Fall through to direct provisioning fallback
+    }
+
+    // Server-side fallback with service role (bypasses missing RPC / divergent constraints)
+    try {
+      const resp = await fetch('/api/owner/provision-salon', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${identity.session.access_token}`,
+        },
+        body: JSON.stringify({
+          salonName: name,
+          slug,
+          templateKey,
+        }),
+      });
+
+      if (resp.ok) {
+        const payload = await resp.json();
+        if (payload?.salonId && payload?.organizationId) {
+          return {
+            salonId: payload.salonId,
+            organizationId: payload.organizationId,
+            slug: payload.slug || slug,
+            templateId: isOwnerTemplateKey(payload.templateId) ? payload.templateId : templateKey,
+            isPublished: Boolean(payload.isPublished),
+            alreadyExisted: Boolean(payload.alreadyExisted),
+          };
+        }
+      }
+    } catch {
+      // Server fallback failed, continue to client recovery
+    }
+
     const diagnostic = diagnosticFromError({
       operation: 'workspace.provision',
       stage: 'provision',
@@ -148,7 +278,10 @@ export async function ensureOwnerSalon(input?: {
   }
 
   const row = firstRow(data as ProvisionRpcRow | ProvisionRpcRow[] | null);
-  if (!row?.out_salon_id || !row.out_organization_id || !row.out_slug) {
+  const salonId = row?.out_salon_id || row?.salon_id || row?.id;
+  const organizationId = row?.out_organization_id || row?.organization_id;
+
+  if (!salonId || !organizationId) {
     throw diagnosticError({
       operation: 'workspace.provision',
       stage: 'provision',
@@ -161,15 +294,37 @@ export async function ensureOwnerSalon(input?: {
     }, 'Could not set up your salon website. Please try again.');
   }
 
+  let outSlug = row?.out_slug || row?.slug;
+  let outTemplate = row?.out_template_id || row?.template_id || row?.template_key;
+  let outPublished = row?.out_is_published ?? row?.is_published ?? false;
+
+  // If the older RPC did not return website slug/template info, resolve it from salon_public_websites
+  if (!outSlug && salonId) {
+    try {
+      const { data: siteRow } = await client
+        .from('salon_public_websites')
+        .select('slug, template_key, is_published')
+        .eq('salon_id', salonId)
+        .maybeSingle();
+      if (siteRow?.slug) {
+        outSlug = siteRow.slug;
+        if (siteRow.template_key) outTemplate = siteRow.template_key;
+        if (typeof siteRow.is_published === 'boolean') outPublished = siteRow.is_published;
+      }
+    } catch {
+      // Ignore and use fallback
+    }
+  }
+
   return {
-    salonId: row.out_salon_id,
-    organizationId: row.out_organization_id,
-    slug: row.out_slug,
-    templateId: isOwnerTemplateKey(row.out_template_id)
-      ? row.out_template_id
+    salonId,
+    organizationId,
+    slug: outSlug || slug,
+    templateId: isOwnerTemplateKey(outTemplate)
+      ? outTemplate
       : DEFAULT_OWNER_TEMPLATE,
-    isPublished: row.out_is_published === true,
-    alreadyExisted: row.out_already_existed === true,
+    isPublished: outPublished === true,
+    alreadyExisted: (row?.out_already_existed ?? row?.already_existed) === true,
   };
 }
 

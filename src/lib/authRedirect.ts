@@ -1,11 +1,12 @@
 const CANONICAL_APP_ORIGIN = 'https://final-new-app-templete.vercel.app';
 
-const env: Record<string, string | undefined> =
-  typeof import.meta !== 'undefined' && import.meta.env
+function getEnv(): Record<string, string | undefined> {
+  return typeof import.meta !== 'undefined' && import.meta.env
     ? import.meta.env
     : typeof process !== 'undefined' && process.env
       ? (process.env as Record<string, string | undefined>)
       : {};
+}
 
 export type AuthAccountIntent = 'owner' | 'customer';
 
@@ -68,7 +69,7 @@ function isEphemeralOrigin(origin: string): boolean {
  * preview/dev builds fall back to the canonical public deployment.
  */
 export function getAuthRedirectOrigin(runtimeOrigin?: string): string {
-  const configured = validHttpOrigin(env.VITE_AUTH_REDIRECT_ORIGIN);
+  const configured = validHttpOrigin(getEnv().VITE_AUTH_REDIRECT_ORIGIN);
   if (configured) return configured;
 
   const current = validHttpOrigin(

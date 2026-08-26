@@ -220,6 +220,154 @@ revoke all on function private.nexora_upsert_owner_membership(uuid, uuid)
   from public, anon, authenticated;
 
 -- ============================================================================
+-- 2.5. Organization creation helper safe for schemas with display_name/title.
+-- ============================================================================
+create or replace function private.nexora_create_owner_organization(
+  p_name   text,
+  p_status text default 'active'
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cols text[] := array[]::text[];
+  v_vals text[] := array[]::text[];
+  v_org_id uuid;
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'name') then
+    v_cols := array_append(v_cols, 'name');
+    v_vals := array_append(v_vals, quote_literal(p_name));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'display_name') then
+    v_cols := array_append(v_cols, 'display_name');
+    v_vals := array_append(v_vals, quote_literal(p_name));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'title') then
+    v_cols := array_append(v_cols, 'title');
+    v_vals := array_append(v_vals, quote_literal(p_name));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'status') then
+    v_cols := array_append(v_cols, 'status');
+    v_vals := array_append(v_vals, quote_literal(coalesce(p_status, 'active')));
+  end if;
+
+  if array_length(v_cols, 1) > 0 then
+    execute format(
+      'insert into public.organizations (%s) values (%s) returning id',
+      array_to_string(v_cols, ', '),
+      array_to_string(v_vals, ', ')
+    ) into v_org_id;
+    return v_org_id;
+  end if;
+
+  insert into public.organizations (name, status)
+  values (p_name, coalesce(p_status, 'active'))
+  returning id into v_org_id;
+  return v_org_id;
+end;
+$$;
+
+revoke all on function private.nexora_create_owner_organization(text, text)
+  from public, anon, authenticated;
+
+-- ============================================================================
+-- 2.6. Salon creation helper safe for schemas with address/city/state etc NOT NULL.
+-- ============================================================================
+create or replace function private.nexora_create_owner_salon(
+  p_org_id   uuid,
+  p_theme_id uuid,
+  p_name     text,
+  p_slug     text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cols text[] := array[]::text[];
+  v_vals text[] := array[]::text[];
+  v_salon_id uuid;
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'organization_id') then
+    v_cols := array_append(v_cols, 'organization_id');
+    v_vals := array_append(v_vals, quote_literal(p_org_id::text) || '::uuid');
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'theme_id') and p_theme_id is not null then
+    v_cols := array_append(v_cols, 'theme_id');
+    v_vals := array_append(v_vals, quote_literal(p_theme_id::text) || '::uuid');
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'name') then
+    v_cols := array_append(v_cols, 'name');
+    v_vals := array_append(v_vals, quote_literal(p_name));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'slug') then
+    v_cols := array_append(v_cols, 'slug');
+    v_vals := array_append(v_vals, quote_literal(p_slug));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'is_active') then
+    v_cols := array_append(v_cols, 'is_active');
+    v_vals := array_append(v_vals, 'true');
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'address') then
+    v_cols := array_append(v_cols, 'address');
+    v_vals := array_append(v_vals, quote_literal('Main Location'));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'city') then
+    v_cols := array_append(v_cols, 'city');
+    v_vals := array_append(v_vals, quote_literal('City'));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'state') then
+    v_cols := array_append(v_cols, 'state');
+    v_vals := array_append(v_vals, quote_literal('State'));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'postal_code') then
+    v_cols := array_append(v_cols, 'postal_code');
+    v_vals := array_append(v_vals, quote_literal('000000'));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'country') then
+    v_cols := array_append(v_cols, 'country');
+    v_vals := array_append(v_vals, quote_literal('India'));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'phone') then
+    v_cols := array_append(v_cols, 'phone');
+    v_vals := array_append(v_vals, quote_literal('9999999999'));
+  end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'salons' and column_name = 'email') then
+    v_cols := array_append(v_cols, 'email');
+    v_vals := array_append(v_vals, quote_literal('salon@example.com'));
+  end if;
+
+  execute format(
+    'insert into public.salons (%s) values (%s) returning id',
+    array_to_string(v_cols, ', '),
+    array_to_string(v_vals, ', ')
+  ) into v_salon_id;
+
+  return v_salon_id;
+end;
+$$;
+
+revoke all on function private.nexora_create_owner_salon(uuid, uuid, text, text)
+  from public, anon, authenticated;
+
+-- ============================================================================
 -- 3. Canonical owner provisioning — Auth → profile → org membership → salon.
 -- ============================================================================
 create or replace function public.provision_owner_salon(
@@ -398,8 +546,7 @@ begin
   else
     -- No membership at all is the only onboarding/provisioning case. The
     -- profile helper has already guaranteed the Auth → profile link.
-    insert into public.organizations (name, status)
-    values (v_name, 'active') returning id into v_org_id;
+    v_org_id := private.nexora_create_owner_organization(v_name, 'active');
     perform private.nexora_upsert_owner_membership(v_org_id, v_user_id);
   end if;
 
@@ -410,9 +557,7 @@ begin
     v_slug := private.nexora_allocate_business_slug(v_name, v_salon_id);
     begin
       if v_salon_id is null then
-        insert into public.salons (organization_id, theme_id, name, slug, is_active)
-        values (v_org_id, v_theme_id, v_name, v_slug, true)
-        returning id into v_salon_id;
+        v_salon_id := private.nexora_create_owner_salon(v_org_id, v_theme_id, v_name, v_slug);
       else
         update public.salons set slug = v_slug, updated_at = now()
         where id = v_salon_id;

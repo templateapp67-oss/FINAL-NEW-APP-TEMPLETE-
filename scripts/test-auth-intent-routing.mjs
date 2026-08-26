@@ -16,6 +16,8 @@ let passed = 0;
 const ok = (label) => { passed += 1; console.log(`PASS ${label}`); };
 
 const originalWindow = globalThis.window;
+const originalRedirectOrigin = process.env.VITE_AUTH_REDIRECT_ORIGIN;
+delete process.env.VITE_AUTH_REDIRECT_ORIGIN;
 globalThis.window = {
   location: {
     origin: 'https://app.example.test',
@@ -96,5 +98,7 @@ ok('root router dispatches nested dashboard and builder paths to the protected s
 
 if (originalWindow === undefined) delete globalThis.window;
 else globalThis.window = originalWindow;
+if (originalRedirectOrigin === undefined) delete process.env.VITE_AUTH_REDIRECT_ORIGIN;
+else process.env.VITE_AUTH_REDIRECT_ORIGIN = originalRedirectOrigin;
 
 console.log(`\nAuth intent and protected routing: ${passed}/${passed} checks PASS`);

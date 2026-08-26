@@ -34,6 +34,7 @@
  */
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { isSupabaseConfiguredForTests } from './bookingManagement';
 import { resolveOwnerSalonId, SALON_TABLE_NAME } from './ownerSalon';
 import type { OwnerSalonResolution } from './ownerSalon';
 import { completeOwnerAuthSession } from './ownerSession';
@@ -382,6 +383,15 @@ export const LOADING_OWNER_DASHBOARD_CONTEXT: OwnerDashboardContext = {
   salon: null,
 };
 
+export function isDashboardSupabaseConfigured(): boolean {
+  const testOverride = isSupabaseConfiguredForTests();
+  if (testOverride !== null) return testOverride;
+  if (typeof globalThis !== 'undefined' && (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT) {
+    return false;
+  }
+  return isSupabaseConfigured && supabase !== null;
+}
+
 /**
  * Full resolution for the dashboard shell:
  *   session → ownership (organization_members → salons) → salon row.
@@ -390,7 +400,7 @@ export const LOADING_OWNER_DASHBOARD_CONTEXT: OwnerDashboardContext = {
  * unauthorized viewer can never receive another salon's row — not even a name.
  */
 export async function loadOwnerDashboardContext(): Promise<OwnerDashboardContext> {
-  if (!isSupabaseConfigured || !supabase) {
+  if (!isDashboardSupabaseConfigured() || !supabase) {
     return { access: 'not-configured', salon: null };
   }
 

@@ -155,6 +155,9 @@ let supabaseConfiguredOverride: boolean | null = null;
 export function setSupabaseConfiguredForTests(value: boolean | null): void {
   supabaseConfiguredOverride = value;
 }
+export function isSupabaseConfiguredForTests(): boolean | null {
+  return supabaseConfiguredOverride;
+}
 
 // Configured deployments keep only the current, server-authorized response in
 // memory. This is a render cache, not persistence or identity authority. It is

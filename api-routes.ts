@@ -822,6 +822,145 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
     }
   });
 
+  // Owner website draft persistence fallback
+  app.post('/api/owner/save-website-draft', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonId = (req.body?.salonId || '').trim();
+      const config = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
+      const templateKey = (req.body?.templateKey || 'hair').trim();
+      const slug = (req.body?.slug || '').trim();
+
+      if (!salonId) {
+        return res.status(400).json({ error: 'Missing salonId' });
+      }
+
+      const admin = getSupabaseAdmin();
+
+      // Verify user has ownership of this salon
+      const { data: salon } = await admin
+        .from('salons')
+        .select('id, organization_id, slug')
+        .eq('id', salonId)
+        .maybeSingle();
+
+      if (!salon) {
+        return res.status(404).json({ error: 'Salon not found' });
+      }
+
+      const { data: isMember } = await admin
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', salon.organization_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!isMember) {
+        return res.status(403).json({ error: 'Not authorized for this salon' });
+      }
+
+      const finalSlug = slug || salon.slug || `salon-${salonId.slice(0, 8)}`;
+
+      // Upsert website draft
+      const { data: website, error: upsertErr } = await admin
+        .from('salon_public_websites')
+        .upsert({
+          salon_id: salonId,
+          slug: finalSlug,
+          template_key: templateKey,
+          config,
+          is_published: false,
+        } as any, { onConflict: 'salon_id' })
+        .select('slug, is_published')
+        .maybeSingle();
+
+      if (upsertErr) {
+        // If upsert fails, try update
+        const { data: updated } = await admin
+          .from('salon_public_websites')
+          .update({ config } as any)
+          .eq('salon_id', salonId)
+          .select('slug, is_published')
+          .maybeSingle();
+
+        return res.json({
+          salonId,
+          slug: updated?.slug || finalSlug,
+          isPublished: updated?.is_published === true,
+        });
+      }
+
+      res.json({
+        salonId,
+        slug: website?.slug || finalSlug,
+        isPublished: website?.is_published === true,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/owner/save-website-draft:', err);
+      res.status(500).json({ error: err.message || 'Draft save failed' });
+    }
+  });
+
+  // Owner visual config persistence fallback
+  app.post('/api/owner/save-website-visual-config', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonId = (req.body?.salonId || '').trim();
+      const visualConfig = req.body?.visualConfig && typeof req.body.visualConfig === 'object' ? req.body.visualConfig : {};
+
+      if (!salonId) {
+        return res.status(400).json({ error: 'Missing salonId' });
+      }
+
+      const admin = getSupabaseAdmin();
+
+      // Verify user has ownership of this salon
+      const { data: salon } = await admin
+        .from('salons')
+        .select('id, organization_id')
+        .eq('id', salonId)
+        .maybeSingle();
+
+      if (!salon) {
+        return res.status(404).json({ error: 'Salon not found' });
+      }
+
+      const { data: isMember } = await admin
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', salon.organization_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!isMember) {
+        return res.status(403).json({ error: 'Not authorized for this salon' });
+      }
+
+      // Load existing config to merge
+      const { data: existing } = await admin
+        .from('salon_public_websites')
+        .select('config')
+        .eq('salon_id', salonId)
+        .maybeSingle();
+
+      const existingConfig = existing?.config && typeof existing.config === 'object' && !Array.isArray(existing.config)
+        ? (existing.config as Record<string, unknown>)
+        : {};
+
+      const mergedConfig = { ...existingConfig, ...visualConfig };
+
+      await admin
+        .from('salon_public_websites')
+        .update({ config: mergedConfig } as any)
+        .eq('salon_id', salonId);
+
+      res.json({ status: 'ok', salonId });
+    } catch (err: any) {
+      console.error('Error in /api/owner/save-website-visual-config:', err);
+      res.status(500).json({ error: err.message || 'Visual config save failed' });
+    }
+  });
+
   // API 404 fallback — unknown /api/* paths return JSON, never the SPA shell
   app.all('/api/*', (req, res) => {
     res.status(404).json({ error: 'Not found' });

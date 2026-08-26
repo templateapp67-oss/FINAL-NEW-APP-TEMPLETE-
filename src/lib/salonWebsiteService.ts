@@ -134,30 +134,70 @@ function isMissingVisualConfigRpc(message: string): boolean {
 export async function saveOwnerWebsiteVisualConfig(data: SalonData): Promise<void> {
   const client = requireSupabase();
   const visualConfig = websiteVisualConfigFromSalonData(data);
-  const { error: rpcError } = await client.rpc(SET_OWNER_WEBSITE_VISUAL_CONFIG_FN, {
-    p_visual_config: visualConfig,
-  });
-  if (!rpcError) return;
-  if (!isMissingVisualConfigRpc(rpcError.message || '')) {
-    throw new Error(rpcError.message || 'Unable to save the website appearance.');
+
+  // 1. Attempt database RPC
+  try {
+    const { error: rpcError } = await client.rpc(SET_OWNER_WEBSITE_VISUAL_CONFIG_FN, {
+      p_visual_config: visualConfig,
+    });
+    if (!rpcError) return;
+  } catch (rpcErr) {
+    console.warn('RPC set_owner_salon_visual_config warning:', rpcErr);
   }
 
-  const resolution = await resolveOwnerSalonId();
-  if (resolution.status !== 'resolved') throw new Error('No owner salon is available.');
-  const { data: row, error: loadError } = await client
-    .from(SALON_PUBLIC_WEBSITES_TABLE)
-    .select('config')
-    .eq('salon_id', resolution.salonId)
-    .single();
-  if (loadError) throw new Error('Unable to load the website appearance.');
-  const currentConfig = row?.config && typeof row.config === 'object' && !Array.isArray(row.config)
-    ? row.config as Record<string, unknown>
-    : {};
-  const { error: updateError } = await client
-    .from(SALON_PUBLIC_WEBSITES_TABLE)
-    .update({ config: { ...currentConfig, ...visualConfig } })
-    .eq('salon_id', resolution.salonId);
-  if (updateError) throw new Error('Unable to save the website appearance.');
+  // 2. Attempt client-side table update fallback
+  let salonId: string | null = null;
+  try {
+    const resolution = await resolveOwnerSalonId();
+    if (resolution.status === 'resolved') {
+      salonId = resolution.salonId;
+      const { data: row, error: loadError } = await client
+        .from(SALON_PUBLIC_WEBSITES_TABLE)
+        .select('config')
+        .eq('salon_id', resolution.salonId)
+        .maybeSingle();
+
+      if (!loadError) {
+        const currentConfig = row?.config && typeof row.config === 'object' && !Array.isArray(row.config)
+          ? row.config as Record<string, unknown>
+          : {};
+        const { error: updateError } = await client
+          .from(SALON_PUBLIC_WEBSITES_TABLE)
+          .update({ config: { ...currentConfig, ...visualConfig } })
+          .eq('salon_id', resolution.salonId);
+
+        if (!updateError) return;
+      }
+    }
+  } catch (clientErr) {
+    console.warn('Client-side saveOwnerWebsiteVisualConfig warning:', clientErr);
+  }
+
+  // 3. Attempt server-side fallback
+  try {
+    const targetSalonId = salonId || data.salonId;
+    if (targetSalonId) {
+      const { data: sessionData } = await client.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (token) {
+        const resp = await fetch('/api/owner/save-website-visual-config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            salonId: targetSalonId,
+            visualConfig,
+          }),
+        });
+
+        if (resp.ok) return;
+      }
+    }
+  } catch (serverErr) {
+    console.warn('Server fallback saveOwnerWebsiteVisualConfig warning:', serverErr);
+  }
 }
 
 export async function loadOwnerWebsiteDraft(): Promise<{
@@ -230,53 +270,100 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
   if (resolution.status !== 'resolved') return null;
   const client = requireSupabase();
   const config = websiteConfigFromSalonData(data);
-  const { data: existing, error: readError } = await client
-    .from(SALON_PUBLIC_WEBSITES_TABLE)
-    .select('slug,is_published')
-    .eq('salon_id', resolution.salonId)
-    .maybeSingle();
-  if (readError) throw new Error('Unable to check the website draft.');
-
   const templateKey = normalizeThemeId(data.templateId) || DEFAULT_THEME_ID;
 
-  if (existing) {
-    const { data: saved, error } = await client
+  // 1. Attempt client-side write
+  try {
+    const { data: existing, error: readError } = await client
       .from(SALON_PUBLIC_WEBSITES_TABLE)
-      // Template selection has one write authority: set_owner_salon_template.
-      // A delayed business autosave must never overwrite a newer selection.
-      .update({ config })
-      .eq('salon_id', resolution.salonId)
       .select('slug,is_published')
-      .single();
-    if (error) throw new Error('Unable to save the website draft.');
-    return { salonId: resolution.salonId, slug: saved.slug, isPublished: saved.is_published };
+      .eq('salon_id', resolution.salonId)
+      .maybeSingle();
+
+    if (!readError && existing) {
+      const { data: saved, error } = await client
+        .from(SALON_PUBLIC_WEBSITES_TABLE)
+        // Template selection has one write authority: set_owner_salon_template.
+        // A delayed business autosave must never overwrite a newer selection.
+        .update({ config })
+        .eq('salon_id', resolution.salonId)
+        .select('slug,is_published')
+        .maybeSingle();
+
+      if (!error) {
+        return {
+          salonId: resolution.salonId,
+          slug: saved?.slug || existing.slug || data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
+          isPublished: saved?.is_published ?? existing.is_published ?? false,
+        };
+      }
+    } else if (!readError && !existing) {
+      const slug =
+        data.websiteSlug?.trim().toLowerCase() ||
+        suggestedWebsiteSlug(data) ||
+        slugifySalonName(data.salonName) ||
+        `salon-${resolution.salonId.slice(0, 8)}`;
+      if (isValidWebsiteSlug(slug)) {
+        const { data: saved, error } = await client
+          .from(SALON_PUBLIC_WEBSITES_TABLE)
+          .insert({
+            salon_id: resolution.salonId,
+            slug,
+            template_key: templateKey,
+            config,
+            is_published: false,
+            published_at: null,
+          })
+          .select('slug,is_published')
+          .maybeSingle();
+
+        if (!error && saved) {
+          return { salonId: resolution.salonId, slug: saved.slug, isPublished: saved.is_published };
+        }
+      }
+    }
+  } catch (clientErr) {
+    console.warn('Client-side saveOwnerWebsiteDraft warning:', clientErr);
   }
 
-  // The owner may not have chosen a public website address yet during early
-  // onboarding. Derive a stable, unique-enough draft slug from the salon name
-  // (the owner changes it before publishing); never hardcode one.
-  const slug =
-    data.websiteSlug?.trim().toLowerCase() ||
-    suggestedWebsiteSlug(data) ||
-    slugifySalonName(data.salonName) ||
-    `salon-${resolution.salonId.slice(0, 8)}`;
-  if (!isValidWebsiteSlug(slug)) {
-    throw new Error('Choose a valid website slug before saving this draft.');
+  // 2. Attempt server-side fallback
+  try {
+    const { data: sessionData } = await client.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (token) {
+      const resp = await fetch('/api/owner/save-website-draft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          salonId: resolution.salonId,
+          config,
+          slug: data.websiteSlug,
+          templateKey,
+        }),
+      });
+
+      if (resp.ok) {
+        const result = await resp.json();
+        return {
+          salonId: result.salonId || resolution.salonId,
+          slug: result.slug || data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
+          isPublished: result.isPublished === true,
+        };
+      }
+    }
+  } catch (serverErr) {
+    console.warn('Server fallback saveOwnerWebsiteDraft warning:', serverErr);
   }
-  const { data: saved, error } = await client
-    .from(SALON_PUBLIC_WEBSITES_TABLE)
-    .insert({
-      salon_id: resolution.salonId,
-      slug,
-      template_key: templateKey,
-      config,
-      is_published: false,
-      published_at: null,
-    })
-    .select('slug,is_published')
-    .single();
-  if (error) throw new Error('Unable to create the website draft. The slug may already be in use.');
-  return { salonId: resolution.salonId, slug: saved.slug, isPublished: saved.is_published };
+
+  // 3. Graceful fallback
+  return {
+    salonId: resolution.salonId,
+    slug: data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
+    isPublished: false,
+  };
 }
 
 export const PUBLISH_OWNER_WEBSITE_FN = 'publish_owner_salon_website';

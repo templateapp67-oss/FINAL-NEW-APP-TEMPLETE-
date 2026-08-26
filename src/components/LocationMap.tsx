@@ -46,7 +46,7 @@ export default function LocationMap({
   longitude,
   onDragEnd,
   draggable = true,
-  zoom = 16,
+  zoom = 14,
   className = '',
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -108,9 +108,8 @@ export default function LocationMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Move the existing map/marker when the parent supplies new coordinates
-  // (e.g. after "Find Location"). The marker instance is reused, so it stays
-  // visible and keeps its icon.
+  // Move and zoom the existing map/marker when the parent supplies new coordinates
+  // (e.g. after address change, geocoding or "Find Location").
   useEffect(() => {
     const map = mapRef.current;
     const marker = markerRef.current;
@@ -118,11 +117,15 @@ export default function LocationMap({
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
 
     const current = marker.getLatLng();
-    if (Math.abs(current.lat - latitude) < 1e-9 && Math.abs(current.lng - longitude) < 1e-9) {
-      return;
+    const isCoordsChanged = Math.abs(current.lat - latitude) > 1e-9 || Math.abs(current.lng - longitude) > 1e-9;
+    const targetZoom = typeof zoom === 'number' ? zoom : 14;
+
+    if (isCoordsChanged) {
+      marker.setLatLng([latitude, longitude]);
+      map.flyTo([latitude, longitude], targetZoom, { animate: true, duration: 0.75 });
+    } else if (map.getZoom() !== targetZoom) {
+      map.setZoom(targetZoom, { animate: true });
     }
-    marker.setLatLng([latitude, longitude]);
-    map.setView([latitude, longitude], map.getZoom() ?? zoom, { animate: true });
   }, [latitude, longitude, zoom]);
 
   useEffect(() => {

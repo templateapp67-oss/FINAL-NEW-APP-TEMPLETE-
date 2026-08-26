@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SalonData, SalonAddress, SalonOpeningHours, DaySchedule } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import LocationPickerModal, { ConfirmedLocation } from '../components/LocationPickerModal';
-import { normalizeCoordinates } from '../lib/location';
+import LocationMapPreview from '../components/LocationMapPreview';
+import { normalizeCoordinates, geocodeAddress } from '../lib/location';
 import { fetchSalonLocation, saveSalonLocation } from '../lib/salonLocationService';
 import { resolveOwnerSalonId, ownerSalonMessage } from '../lib/ownerSalon';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
@@ -19,7 +20,9 @@ import {
   Building2, 
   CheckCircle2,
   AlertCircle,
-  Loader2
+  Loader2,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 
 interface Props {
@@ -55,6 +58,13 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutoGeocoding, setIsAutoGeocoding] = useState(false);
+  const [autoGeocodeStatus, setAutoGeocodeStatus] = useState<'idle' | 'searching' | 'success' | 'not_found' | 'error'>('idle');
+  const [autoGeocodeMessage, setAutoGeocodeMessage] = useState<string | null>(null);
+
+  const geocodeAbortRef = useRef<AbortController | null>(null);
+  const geocodeTimerRef = useRef<number | null>(null);
+  const lastGeocodedAddressRef = useRef<string>('');
 
   const address = data.address || DEFAULT_ADDRESS;
   const hours = data.openingHours || DEFAULT_HOURS;
@@ -62,6 +72,91 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
   // Saved coordinates, validated on read so bad values never reach the map.
   const savedCoords = normalizeCoordinates(address.latitude, address.longitude);
   const hasCoordinates = savedCoords !== null;
+
+  /**
+   * Automatic address-to-coordinates geocoding using Nominatim API proxy.
+   * Runs when the salon owner finishes typing an address or blurs the input.
+   */
+  const performAutoGeocode = useCallback(async (queryAddress: string, force = false) => {
+    const trimmed = queryAddress.trim();
+    if (!trimmed || trimmed.length < 4) {
+      setAutoGeocodeStatus('idle');
+      setAutoGeocodeMessage(null);
+      return;
+    }
+
+    if (!force && trimmed === lastGeocodedAddressRef.current) {
+      return;
+    }
+
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    geocodeAbortRef.current = controller;
+
+    setIsAutoGeocoding(true);
+    setAutoGeocodeStatus('searching');
+    setAutoGeocodeMessage('Finding address coordinates via Nominatim...');
+
+    try {
+      const result = await geocodeAddress(trimmed, controller.signal);
+      if (result) {
+        lastGeocodedAddressRef.current = trimmed;
+        setAutoGeocodeStatus('success');
+        setAutoGeocodeMessage(`Location found: ${result.displayName || trimmed}`);
+
+        setData(prev => ({
+          ...prev,
+          address: {
+            ...(prev.address || DEFAULT_ADDRESS),
+            latitude: result.latitude,
+            longitude: result.longitude
+          }
+        }));
+
+        if (onSave) onSave('Location pin updated automatically');
+      } else {
+        setAutoGeocodeStatus('not_found');
+        setAutoGeocodeMessage('Could not locate exact address automatically. You can set the pin on the map.');
+      }
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return;
+      console.warn('Automatic geocoding error:', err);
+      setAutoGeocodeStatus('error');
+      setAutoGeocodeMessage('Geocoding service busy. You can adjust the pin on the map.');
+    } finally {
+      setIsAutoGeocoding(false);
+    }
+  }, [setData, onSave]);
+
+  // Debounced auto-geocoding when address changes
+  useEffect(() => {
+    const trimmed = (address.fullAddress || '').trim();
+    if (!trimmed || trimmed.length < 4) {
+      setAutoGeocodeStatus('idle');
+      setAutoGeocodeMessage(null);
+      return;
+    }
+
+    if (trimmed === lastGeocodedAddressRef.current) {
+      return;
+    }
+
+    if (geocodeTimerRef.current) {
+      window.clearTimeout(geocodeTimerRef.current);
+    }
+
+    geocodeTimerRef.current = window.setTimeout(() => {
+      performAutoGeocode(trimmed);
+    }, 800);
+
+    return () => {
+      if (geocodeTimerRef.current) {
+        window.clearTimeout(geocodeTimerRef.current);
+      }
+    };
+  }, [address.fullAddress, performAutoGeocode]);
 
   /**
    * The salon id is resolved from the authenticated session only — never from
@@ -297,14 +392,61 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
           </div>
 
           <div className="space-y-2">
-            <label className="block text-xs font-semibold text-[#1a1c1c]">Full Address</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-[#1a1c1c]">Full Address</label>
+              <span className="text-[11px] text-[#5f5e5e] flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-[#ac0053]" /> Auto-locates pin on map
+              </span>
+            </div>
             <textarea
               value={address.fullAddress}
               onChange={e => updateAddress({ fullAddress: e.target.value })}
+              onBlur={() => performAutoGeocode(address.fullAddress)}
               placeholder="e.g. Shop 8, Vaishali Nagar, Jaipur, Rajasthan 302021"
               rows={2}
               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-[#1a1c1c] focus:border-[#ac0053] focus:ring-2 focus:ring-[#ffd9e1] focus:bg-white outline-none transition-all placeholder:text-gray-400"
             />
+
+            {/* Auto-geocoding live feedback pill */}
+            {autoGeocodeStatus === 'searching' && (
+              <div className="flex items-center gap-2 text-xs text-purple-800 bg-purple-50/80 px-3.5 py-2 rounded-xl border border-purple-200 animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600 shrink-0" />
+                <span>Locating address coordinates via Nominatim...</span>
+              </div>
+            )}
+
+            {autoGeocodeStatus === 'success' && (
+              <div className="flex items-center justify-between text-xs text-emerald-800 bg-emerald-50/90 px-3.5 py-2 rounded-xl border border-emerald-200">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="truncate font-medium">Pin placed at typed address</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => performAutoGeocode(address.fullAddress, true)}
+                  title="Re-run geocoding"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 shrink-0 ml-2"
+                >
+                  <RefreshCw className="w-3 h-3" /> Re-check
+                </button>
+              </div>
+            )}
+
+            {autoGeocodeStatus === 'not_found' && (
+              <div className="flex items-center justify-between text-xs text-amber-800 bg-amber-50/90 px-3.5 py-2 rounded-xl border border-amber-200">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span className="truncate">Could not auto-locate exact address — drag pin below</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => performAutoGeocode(address.fullAddress, true)}
+                  className="text-[11px] font-semibold text-amber-900 hover:underline shrink-0 ml-2"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
           </div>
 
           <button
@@ -316,6 +458,25 @@ export default function StepLocation({ data, setData, onNext, onPrev, onSave }: 
             <Navigation className="w-3.5 h-3.5" />
             <span>{hasCoordinates ? 'Edit map location' : 'Set location on map'}</span>
           </button>
+
+          {/* Interactive Lightweight Map Preview */}
+          <LocationMapPreview
+            address={address.fullAddress}
+            latitude={savedCoords?.latitude}
+            longitude={savedCoords?.longitude}
+            salonName={data.salonName}
+            isGeocoding={isAutoGeocoding}
+            onChangeCoordinates={(lat, lng) => {
+              updateAddress({ latitude: lat, longitude: lng });
+            }}
+            onOpenFullPicker={() => {
+              if (canEditLocation) {
+                setPickerOpen(true);
+              } else if (!user) {
+                openAuth('login');
+              }
+            }}
+          />
 
           {/* Saved location summary */}
           {hasCoordinates ? (

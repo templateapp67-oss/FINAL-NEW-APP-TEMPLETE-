@@ -16,13 +16,14 @@ ok('Vercel resolves serverless functions/static files before the SPA fallback');
 
 const [apiIndex, apiCatchall] = await Promise.all([
   read('api/index.ts'),
-  read('api/[[...path]].ts'),
+  read('api/[...path].ts'),
 ]);
 assert.doesNotMatch(apiIndex, /from ['"]\.\.\/server['"]/);
-assert.match(apiIndex, /from ['"]\.\/\[\[\.\.\.path\]\]['"]/);
+assert.match(apiIndex, /from ['"]\.\/\[\.\.\.path\]['"]/);
+assert.doesNotMatch(apiIndex, /\[\[\.\.\.path\]\]/);
 assert.doesNotMatch(apiCatchall, /listen\s*\(|createViteServer|express\.static/);
 assert.match(apiCatchall, /setupApiRoutes\(app\)/);
-ok('both Vercel API entrypoints are pure and share one route registrar');
+ok('Vercel uses its supported required catch-all function and one shared route registrar');
 
 const app = express();
 setupApiRoutes(app);

@@ -55,6 +55,10 @@ const TARGETS = {
     file: '20260825000701_m56_owner_profile_theme_preflight.sql',
     verifier: 'verify_m56_owner_profile_theme_preflight',
   },
+  m57: {
+    file: '20260826000101_m57_detach_legacy_showcase_tenant.sql',
+    verifier: 'verify_m57_showcase_tenant_detachment',
+  },
 };
 
 function parseProjectRef(configText) {
@@ -185,7 +189,7 @@ async function main() {
   const target = selectedTarget(argv);
   if (!target) {
     throw new Error(
-      'No migration selected. Use --manifest=existing-project, or one reviewed target such as --m55/--m56.',
+      'No migration selected. Use --manifest=existing-project, or one reviewed target such as --m56/--m57.',
     );
   }
 

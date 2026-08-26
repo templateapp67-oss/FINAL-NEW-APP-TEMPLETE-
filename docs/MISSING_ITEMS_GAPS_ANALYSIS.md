@@ -87,7 +87,7 @@ It is **not yet demonstrably production-ready end to end**. The reported workspa
 
 ### Implemented
 
-- Shared Express route registration for standalone and serverless entry points (`server.ts`, `api/index.ts`, `api/[[...path]].ts`, `api-routes.ts`).
+- Shared Express route registration for standalone and serverless entry points (`server.ts`, `api/index.ts`, `api/[...path].ts`, `api-routes.ts`).
 - Request body limit, origin allowlist behavior, raw-body retention for payment HMAC verification, and server-only secrets.
 - Authenticated booking creation and Razorpay order/verification/webhook routes.
 - Guest booking context, availability, and creation routes.

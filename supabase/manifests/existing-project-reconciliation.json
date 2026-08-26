@@ -61,7 +61,8 @@
     "20260825000401_m53_provision_salon_slug_fix.sql",
     "20260825000501_m54_workspace_bootstrap_compatibility.sql",
     "20260825000601_m55_actor_bound_booking_authorization.sql",
-    "20260825000701_m56_owner_profile_theme_preflight.sql"
+    "20260825000701_m56_owner_profile_theme_preflight.sql",
+    "20260826000101_m57_detach_legacy_showcase_tenant.sql"
   ],
   "excludedFiles": [
     "20260811000101_m01_extensions_enums.sql through 20260815000101_m27_social_video_likes_weekly.sql",

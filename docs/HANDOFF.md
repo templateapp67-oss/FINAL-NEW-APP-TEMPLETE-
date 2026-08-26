@@ -1,10 +1,37 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-25** (cache-clear auth recovery — a missing/invalid browser session now clears disposable owner cache and routes to the owner login instead of surfacing the salon-workspace failure card).
+> Last updated: **2026-08-26** (M57 repairs the reported Vercel P0003 workspace lockout caused by the fixed Royal Hair showcase sharing a real owner's organization; Vercel API catch-all routing and duplicate-producing provisioning fallback are also hardened).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Cache/cookie/localStorage clear recovery (this PR)
+## M57 — Vercel multiple-salons workspace recovery (this PR)
+
+- Reported production copy: `We couldn’t load your salon workspace` +
+  `Multiple salons are linked to your account`. This is Supabase P0003 after a
+  valid login, not a Vercel build failure.
+- Root cause in the historical excluded helper
+  `20260821203500_setup_public_salon_v2.sql`: fixed showcase
+  `/royal-hair-studio` was attached to the oldest organization, which can be a
+  real owner's tenant. That owner then resolves their own salon plus the global
+  showcase.
+- New additive M57 moves only the fixed showcase UUID/slug to an isolated,
+  unowned organization. Salon UUID, website/config/publication and all
+  salon-keyed data are preserved; no user salon is selected or deleted.
+- The deployed `/api/health` was also observed returning SPA HTML. Vercel's
+  serverless catch-all is now the supported `api/[...path].ts` form (not the
+  Next-style optional `[[...path]]` form), while filesystem-first SPA fallback
+  stays intact.
+- Removed `/api/owner/provision-salon` and its browser call. That service-role
+  fallback picked `existingMemberships[0]`, ignored multi-row ambiguity and
+  could create another salon on retry. The authenticated transactional RPC is
+  again the sole provisioning authority.
+- Apply was **not** performed. After M54, run all of
+  `docs/m57-run-in-supabase.sql`, verify all four rows from
+  `verify_m57_showcase_tenant_detachment()`, deploy, then confirm `/api/health`
+  JSON and login/dashboard refresh. Details:
+  `docs/m57-multiple-salons-vercel-recovery.md`.
+
+## Cache/cookie/localStorage clear recovery (previous PR)
 
 - `src/App.tsx` and the protected root in `src/main.tsx` now require both a
   validated user and a structurally complete session before starting or

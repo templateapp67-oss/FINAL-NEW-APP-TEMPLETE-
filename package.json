@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "test:auth": "tsx scripts/test-auth-modal.mjs",
     "test:auth-flow": "tsx scripts/test-auth-flow-fixes.mjs && tsx scripts/test-auth-flow-ui.mjs",
+    "test:boot": "tsx scripts/test-app-boot.mjs",
     "test:favicon": "tsx scripts/test-dynamic-favicon.mjs",
     "test:customization": "tsx scripts/test-website-customization.mjs",
     "test:owner": "tsx scripts/test-owner-profile.mjs",

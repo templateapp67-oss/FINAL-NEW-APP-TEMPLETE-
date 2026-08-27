@@ -176,7 +176,8 @@
     "db:verify:live:m57": "node scripts/apply-live-migration.mjs --m57 --verify-only",
     "test:auth-intent": "tsx scripts/test-auth-intent-routing.mjs",
     "test:runtime-boundaries": "tsx scripts/test-runtime-boundaries.mjs",
-    "test:owner-canonical-bookings": "tsx scripts/test-owner-canonical-booking-consumer.mjs"
+    "test:owner-canonical-bookings": "tsx scripts/test-owner-canonical-booking-consumer.mjs",
+    "test:workspace-init": "tsx scripts/test-workspace-initialization.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -1,10 +1,44 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-26** (M57 repairs the reported Vercel P0003 workspace lockout caused by the fixed Royal Hair showcase sharing a real owner's organization; Vercel API catch-all routing and duplicate-producing provisioning fallback are also hardened).
+> Last updated: **2026-08-27** (Production White-Label Multi-Tenant Owner Workspace Recovery: authenticated workspace selector for multi-salon accounts, zero hardcoding, M54 paste-ready synchronization + drift test, and isolation hardening).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## M57 — Vercel multiple-salons workspace recovery (this PR)
+## Multi-Tenant Owner Workspace Recovery & Workspace Selector (Current PR)
+
+### Confirmed Production Facts vs Hypotheses
+- **Confirmed Fact 1 (M54 Live Status):** `public.verify_m54_workspace_bootstrap()` all 6 checks are `true`. Function `private.nexora_create_owner_organization(text,text)` is installed and active in live Supabase.
+- **Confirmed Fact 2 (M57 Non-Factor):** M57 was applied and its verification reported `legacy showcase identity is unambiguous — showcase is absent (valid)`. The `/royal-hair-studio` showcase hypothesis was NOT the root cause; M57 was a no-op and changed no live salon rows. No legacy-showcase workarounds should be re-run or extended.
+- **Confirmed Fact 3 (PR #37 Merged):** PR #37 was successfully MERGED into `main` (commit `bf3cd7b`). The dangerous service-role `/api/owner/provision-salon` writer was removed, and Vercel serverless function routing was standardized on `api/[...path].ts`.
+- **Confirmed Fact 4 (Root Cause of Lockout):** When a user has multiple active owner organizations or multiple active salons (e.g. from historical retries or multi-salon ownership), the canonical RPC `public.provision_owner_salon()` fail-closed raises SQLSTATE `P0003` (`Multiple salons are linked to your account. Select one first.` / `Multiple businesses are linked to your account. Select one first.`). Previously, the frontend caught this and permanently displayed:
+  *“We couldn’t load your salon workspace”*
+  *“Multiple salons are linked to your account. Please contact support.”*
+  locking the owner out of their account with no way to choose their workspace.
+- **Confirmed Fact 5 (Anti-Pattern Removed):** A subsequent commit (`a2a25fa`) attempted to return `salonIds[0]` on ambiguity. This violated core white-label requirements ("Never pick memberships[0] / first salon arbitrarily") and failed to resolve the lockout because `provision_owner_salon()` still raised P0003 before the client fallback could run.
+
+### Generic White-Label Solution Implemented
+1. **Authenticated Workspace Selector (`src/components/OwnerWorkspaceSelector.tsx`):**
+   - When an authenticated owner account is linked to multiple salons (`owner_salon_ids()` returns > 1 IDs), the application no longer renders a permanent error screen.
+   - Instead, it renders an authenticated workspace selector displaying each salon's name, public slug, website publication status, and location.
+   - The owner explicitly selects which salon to manage.
+2. **Strict Session-Scoped Resolution (`src/lib/ownerSalon.ts`):**
+   - `resolveOwnerSalonId()` strictly filters candidates through `auth.uid()`. User A can NEVER see or resolve User B's salon.
+   - If multiple salons exist and an active selection has been made, the active selection is strictly validated against `salonIds.includes(activeId)`. A foreign or forged salon ID is rejected and falls back to `{ status: 'ambiguous', salonIds }`.
+   - Ambiguity NEVER defaults to "pick first".
+3. **Graceful Provisioning Fallback (`src/lib/ownerProvisioning.ts`):**
+   - When `provision_owner_salon()` returns P0003 due to multiple businesses/salons, `ensureOwnerSalon()` checks `resolveOwnerSalonId()`.
+   - If the owner has an active selection, that salon is seamlessly loaded and hydrated.
+   - If not yet selected, it returns `{ status: 'ambiguous', salonIds }`, triggering the workspace selector.
+4. **Data Preservation:**
+   - Zero database records are deleted, deactivated, or mutated. All organizations, salons, websites, configs, and bookings remain intact.
+5. **M54 Paste-Ready Bundle Synchronization (`docs/m54-run-in-supabase.sql`):**
+   - Regenerated from the canonical migration `supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql`.
+   - Preserves the operator instructions header and makes the SQL transaction body byte-identical to the migration (710 lines).
+   - Added an automated drift assertion in `scripts/test-m54-workspace-bootstrap-compatibility.mjs` so the paste-ready bundle can never drift again.
+6. **Vercel API Routing Verified:**
+   - `/api/health` returns `application/json` (`{ status: 'ok', ... }`) and is not swallowed by the SPA index.html fallback.
+
+## M57 — Vercel multiple-salons workspace recovery (previous PR)
 
 - Reported production copy: `We couldn’t load your salon workspace` +
   `Multiple salons are linked to your account`. This is Supabase P0003 after a

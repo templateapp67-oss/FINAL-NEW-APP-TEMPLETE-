@@ -42,9 +42,119 @@ export type OwnerSalonResolution =
   | { status: 'not-configured' }
   | { status: 'not-authenticated' }
   | { status: 'no-membership' }
-  | { status: 'ambiguous' }
+  | { status: 'ambiguous'; salonIds?: string[] }
   | { status: 'permission-denied'; diagnostic?: WorkspaceDiagnostic }
   | { status: 'error'; diagnostic?: WorkspaceDiagnostic };
+
+const ACTIVE_SALON_STORAGE_PREFIX = 'nexora_active_workspace_salon_';
+
+/** Get the currently chosen active salon id for this authenticated user. */
+export function getActiveWorkspaceSalonId(userId: string): string | null {
+  if (typeof window === 'undefined' || !userId) return null;
+  try {
+    const key = `${ACTIVE_SALON_STORAGE_PREFIX}${userId}`;
+    const value = window.localStorage.getItem(key) || window.sessionStorage.getItem(key);
+    return value && typeof value === 'string' && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Set the active salon id for this authenticated user. */
+export function setActiveWorkspaceSalonId(userId: string, salonId: string): void {
+  if (typeof window === 'undefined' || !userId || !salonId) return;
+  try {
+    const key = `${ACTIVE_SALON_STORAGE_PREFIX}${userId}`;
+    window.localStorage.setItem(key, salonId.trim());
+    window.sessionStorage.setItem(key, salonId.trim());
+  } catch {
+    // Ignore storage quota/permission issues
+  }
+}
+
+/** Clear any chosen active salon id for this authenticated user. */
+export function clearActiveWorkspaceSalonId(userId: string): void {
+  if (typeof window === 'undefined' || !userId) return;
+  try {
+    const key = `${ACTIVE_SALON_STORAGE_PREFIX}${userId}`;
+    window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Ignore storage quota/permission issues
+  }
+}
+
+export interface OwnerSalonCandidate {
+  id: string;
+  organizationId: string | null;
+  name: string;
+  slug: string;
+  address: string | null;
+  city: string | null;
+  templateKey?: string;
+  isPublished?: boolean;
+  createdAt?: string;
+}
+
+/**
+ * Fetch candidate summaries for the authenticated owner's salons.
+ * Candidates are strictly filtered by the provided salonIds (which must have
+ * been derived from the caller's verified auth.uid()).
+ */
+export async function fetchOwnerSalonCandidates(
+  salonIds: string[],
+): Promise<OwnerSalonCandidate[]> {
+  if (!supabase || salonIds.length === 0) return [];
+  try {
+    const { data: salons, error: salonsError } = await supabase
+      .from(SALON_TABLE_NAME)
+      .select('id, organization_id, name, slug, address, city, created_at')
+      .in('id', salonIds)
+      .is('deleted_at', null);
+
+    if (salonsError || !salons) return [];
+
+    const { data: sites } = await supabase
+      .from('salon_public_websites')
+      .select('salon_id, slug, template_key, is_published')
+      .in('salon_id', salonIds);
+
+    const sitesBySalon = new Map((sites || []).map((s) => [s.salon_id, s]));
+
+    return salons.map((salon) => {
+      const site = sitesBySalon.get(salon.id);
+      return {
+        id: salon.id,
+        organizationId: salon.organization_id || null,
+        name: salon.name || 'Untitled Salon',
+        slug: site?.slug || salon.slug || `salon-${salon.id.slice(0, 8)}`,
+        address: salon.address || null,
+        city: salon.city || null,
+        templateKey: site?.template_key || undefined,
+        isPublished: site?.is_published === true,
+        createdAt: salon.created_at,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch all salon IDs owned by the current authenticated user.
+ */
+export async function fetchAuthenticatedOwnerSalonIds(): Promise<string[]> {
+  if (!supabase) return [];
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return [];
+  try {
+    let salonIds = await salonIdsFromHelper();
+    if (salonIds === null) salonIds = await salonIdsFromMembership(userId);
+    return salonIds || [];
+  } catch {
+    return [];
+  }
+}
 
 /** Authenticated user id from the real, validated session, or null signed out. */
 export async function getAuthenticatedUserId(): Promise<string | null> {
@@ -178,7 +288,16 @@ export async function resolveOwnerSalonId(): Promise<OwnerSalonResolution> {
     if (salonIds === null) salonIds = await salonIdsFromMembership(userId);
 
     if (salonIds.length === 0) return { status: 'no-membership' };
-    return { status: 'resolved', salonId: salonIds[0] };
+    if (salonIds.length === 1) return { status: 'resolved', salonId: salonIds[0] };
+
+    // When multiple salons are linked to this authenticated user:
+    // Never pick one arbitrarily. Check if an explicit active workspace selection exists.
+    const activeId = getActiveWorkspaceSalonId(userId);
+    if (activeId && salonIds.includes(activeId)) {
+      return { status: 'resolved', salonId: activeId };
+    }
+
+    return { status: 'ambiguous', salonIds };
   } catch (err) {
     const code = (err as { code?: string }).code;
     const diagnostic = diagnosticFromError({

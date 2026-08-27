@@ -150,6 +150,9 @@ export async function completeOwnerAuthSession(input?: {
     templateKey: input?.templateKey,
   });
   if ('error' in provisioned) return provisioned;
+  if ('status' in provisioned) {
+    return { error: 'Multiple salons are linked to your account. Please select a shop first.' };
+  }
 
   const confirmed = await resolveOwnerSalonId();
   if (confirmed.status === 'not-authenticated') {

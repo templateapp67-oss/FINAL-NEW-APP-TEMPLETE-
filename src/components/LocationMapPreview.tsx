@@ -28,6 +28,10 @@ interface LocationMapPreviewProps {
   longitude?: number;
   salonName?: string;
   isGeocoding?: boolean;
+  preferredZoom?: number;
+  preferredCenterLat?: number;
+  preferredCenterLng?: number;
+  onSaveViewPreset?: (preset: { zoom: number; latitude: number; longitude: number }) => void;
   onChangeCoordinates?: (latitude: number, longitude: number) => void;
   onOpenFullPicker?: () => void;
   className?: string;

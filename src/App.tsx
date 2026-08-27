@@ -48,6 +48,7 @@ import { templateSwitchProtectedRevision, templateVisualConfigRevision } from '.
 import { safeSetItem, safeGetItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
+import OwnerWorkspaceSelector from './components/OwnerWorkspaceSelector';
 import {
   diagnosticFromError,
   isMissingAuthSessionDiagnostic,
@@ -169,6 +170,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const backendHydratedFor = useRef<string | null>(null);
   const didResumeFromBackend = useRef(false);
   const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
+  const [ambiguousSalonIds, setAmbiguousSalonIds] = useState<string[] | null>(null);
   const [ownerHydrationError, setOwnerHydrationError] = useState('');
   const [ownerHydrationRetry, setOwnerHydrationRetry] = useState(0);
   const templateSwitchQueue = useRef<Promise<void>>(Promise.resolve());
@@ -239,12 +241,18 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         slug: initialSlug,
         templateKey: emptyOwnerSalonData().templateId,
       });
+      if ('status' in provisioned) {
+        if (!active) return;
+        setAmbiguousSalonIds(provisioned.salonIds);
+        return;
+      }
       if ('error' in provisioned) {
         throw provisioned.diagnostic
           ? new WorkspaceInitializationError(provisioned.diagnostic, provisioned.error)
           : new Error(provisioned.error);
       }
       if (!active) return;
+      setAmbiguousSalonIds(null);
 
       const [draft, salonRow] = await Promise.all([
         loadOwnerWebsiteDraft(),
@@ -619,6 +627,22 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     );
   }
 
+  if (isSupabaseConfigured && user && ambiguousSalonIds && ambiguousSalonIds.length > 1) {
+    return (
+      <OwnerWorkspaceSelector
+        userId={user.id}
+        salonIds={ambiguousSalonIds}
+        onSelectSalon={() => {
+          backendHydratedFor.current = null;
+          setBackendHydratedUser(null);
+          setAmbiguousSalonIds(null);
+          setOwnerHydrationError('');
+          setOwnerHydrationRetry((current) => current + 1);
+        }}
+      />
+    );
+  }
+
   if (isSupabaseConfigured && user && backendHydratedUser !== user.id) {
     return (
       <div
@@ -637,6 +661,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
                   // it never reuses the failed provision/read result.
                   backendHydratedFor.current = null;
                   setBackendHydratedUser(null);
+                  setAmbiguousSalonIds(null);
                   setOwnerHydrationError('');
                   setOwnerHydrationRetry((current) => current + 1);
                 }}

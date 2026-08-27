@@ -402,7 +402,7 @@ export default function SignUpPage() {
                         // attribute matches what the owner typed.
                         storeReferralCode(e.target.value);
                       }}
-                      placeholder="e.g. NX-ROYAL-2026"
+                      placeholder="e.g. NX-NEXORA-2026"
                       disabled={isSubmitting || codeLocked}
                       readOnly={codeLocked}
                       className={`w-full rounded-xl border pl-10 pr-10 py-2.5 text-sm font-mono font-bold tracking-wider outline-none transition-all placeholder:text-gray-400 placeholder:font-sans placeholder:font-normal placeholder:tracking-normal ${
@@ -439,7 +439,7 @@ export default function SignUpPage() {
                       autoComplete="organization"
                       value={salonName}
                       onChange={(e) => handleSalonChange(e.target.value)}
-                      placeholder="e.g. Royal Hair Studio"
+                      placeholder="e.g. Nexora Demo Salon"
                       disabled={isSubmitting}
                       aria-invalid={Boolean(error)}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"

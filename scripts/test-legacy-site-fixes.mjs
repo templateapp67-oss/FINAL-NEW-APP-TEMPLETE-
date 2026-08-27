@@ -1,5 +1,5 @@
 /**
- * LEGACY PUBLIC SITE (templateId "hair", e.g. /royal-hair-studio) —
+ * LEGACY PUBLIC SITE (templateId "hair", e.g. /nexora-demo-salon) —
  * interactive features, navigation, video playback, booking validation and
  * white-label dynamic data.
  *
@@ -25,7 +25,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-  url: 'http://localhost/royal-hair-studio',
+  url: 'http://localhost/nexora-demo-salon',
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
@@ -56,7 +56,7 @@ const { rewriteHostPath, resolveHostSlug } = await import('../server/hostRouting
 /* ------------------------------------------------------------------ */
 /* Salon data — brand fallback + realistic video URLs for playback     */
 /* ------------------------------------------------------------------ */
-const SALON = buildBrandFallbackSalonData('royal-hair-studio');
+const SALON = buildBrandFallbackSalonData('nexora-demo-salon');
 SALON.socialVideos = [
   {
     id: 'v-yt',
@@ -87,8 +87,8 @@ SALON.socialVideos = [
     id: 'v-tt',
     title: '30-Second Trim',
     platform: 'tiktok',
-    url: 'https://www.tiktok.com/@royalhairstudio/video/7293847561234567890',
-    originalPlatformUrl: 'https://www.tiktok.com/@royalhairstudio/video/7293847561234567890',
+    url: 'https://www.tiktok.com/@nexorademosalon/video/7293847561234567890',
+    originalPlatformUrl: 'https://www.tiktok.com/@nexorademosalon/video/7293847561234567890',
     thumbnailUrl: 'https://example.com/tt.jpg',
   },
 ];
@@ -104,7 +104,7 @@ SALON.socialVideos = [
 let apiMode = 'offline';
 const fetchCalls = [];
 const contextPayload = {
-  salon: { id: 'salon-uuid-1', slug: 'royal-hair-studio', name: 'Royal Hair & Beauty Studio', phone: '+91 98765 43210' },
+  salon: { id: 'salon-uuid-1', slug: 'nexora-demo-salon', name: 'Nexora Demo Salon', phone: '+91 98765 43210' },
   services: SALON.services.map((service) => ({
     id: service.id, name: service.name, price: service.price, duration: service.duration, featured: service.featured,
   })),
@@ -308,7 +308,7 @@ await test('"WhatsApp" opens wa.me with a pre-filled message', async () => {
   const href = wa.getAttribute('href');
   assert.ok(href.startsWith('https://wa.me/919876543210?text='), `WhatsApp href wrong: ${href}`);
   const message = new URL(href).searchParams.get('text');
-  assert.ok(message.includes('Royal Hair & Beauty Studio'), `pre-fill should name the salon: ${message}`);
+  assert.ok(message.includes('Nexora Demo Salon'), `pre-fill should name the salon: ${message}`);
 });
 
 await test('"Get Directions" opens Google Maps with the salon address', async () => {
@@ -377,7 +377,7 @@ await test('Confirm Booking is disabled until Service, Date, Time, Name, Phone a
     assert.ok(/NX-OFF-/.test(dialog.textContent), 'offline reference missing');
   });
   assert.ok(dialog.textContent.includes('saved on this device'), 'offline note missing');
-  const savedRaw = dom.window.localStorage.getItem('nexora_offline_bookings:royal-hair-studio');
+  const savedRaw = dom.window.localStorage.getItem('nexora_offline_bookings:nexora-demo-salon');
   assert.ok(savedRaw, 'offline booking was not persisted to localStorage');
   const saved = JSON.parse(savedRaw);
   assert.equal(saved[0].serviceName, firstService.name);
@@ -413,7 +413,7 @@ await test('Book Bundle prefills the bundle (name, price, duration) in the drawe
 await test('with a LIVE API, a slot conflict (409) surfaces as an error — no silent offline save', async () => {
   cleanup();
   await tick(20);
-  dom.window.localStorage.removeItem('nexora_offline_bookings:royal-hair-studio');
+  dom.window.localStorage.removeItem('nexora_offline_bookings:nexora-demo-salon');
   apiMode = 'live-conflict';
   const utils = render(React.createElement((await import('../src/components/TemplateRenderer.tsx')).default, { data: SALON, mode: 'desktop' }));
   await tick(80);
@@ -444,7 +444,7 @@ await test('with a LIVE API, a slot conflict (409) surfaces as an error — no s
     assert.ok(!dialog.textContent.includes('Request saved!'), 'a 409 must not be reported as a saved request');
   });
   assert.equal(
-    dom.window.localStorage.getItem('nexora_offline_bookings:royal-hair-studio'),
+    dom.window.localStorage.getItem('nexora_offline_bookings:nexora-demo-salon'),
     null,
     'a domain error must not create an offline booking record',
   );
@@ -512,7 +512,7 @@ await tick(20);
   await test('whatsappMessage override flows into the wa.me pre-fill', async () => {
     const wa = utils.container.querySelector('[data-testid="whatsapp-cta"]');
     const message = new URL(wa.getAttribute('href')).searchParams.get('text');
-    assert.equal(message, 'Namaste Royal Hair & Beauty Studio! Slot check please.');
+    assert.equal(message, 'Namaste Nexora Demo Salon! Slot check please.');
   });
 
   await test('nav override labels render on the anchor links', async () => {
@@ -539,37 +539,37 @@ const CUSTOM_BASE = 'yourdomain.com';
 await test('resolveHostSlug extracts the salon slug from the subdomain', async () => {
   assert.equal(BASE, 'final-new-app-templete.vercel.app');
   assert.equal(resolveHostSlug(`${BASE}`), '');
-  assert.equal(resolveHostSlug(`royal-hair-studio.${BASE}`), '',
+  assert.equal(resolveHostSlug(`nexora-demo-salon.${BASE}`), '',
     'vercel.app base never produces a business slug');
   assert.equal(resolveHostSlug('localhost:3000'), '');
   assert.equal(resolveHostSlug('preview.abc.e2b.app'), '');
-  assert.equal(resolveHostSlug(`royal-hair-studio.${CUSTOM_BASE}`, CUSTOM_BASE), 'royal-hair-studio');
+  assert.equal(resolveHostSlug(`nexora-demo-salon.${CUSTOM_BASE}`, CUSTOM_BASE), 'nexora-demo-salon');
   assert.equal(resolveHostSlug(`www.${CUSTOM_BASE}`, CUSTOM_BASE), '');
   assert.equal(resolveHostSlug('foo.yourdomain.com', 'yourdomain.com'), 'foo');
   // Server and client slug resolution must agree on the live Vercel base
   // (both refuse subdomain slugs there) and on unknown/preview hosts.
-  for (const host of [`royal-hair-studio.${BASE}`, BASE, `www.${BASE}`, `my.cool-salon.${BASE}`, 'preview.abc.e2b.app']) {
+  for (const host of [`nexora-demo-salon.${BASE}`, BASE, `www.${BASE}`, `my.cool-salon.${BASE}`, 'preview.abc.e2b.app']) {
     assert.equal(resolveHostSlug(host), extractSubdomainSlug(host), `server/client slug mismatch for ${host}`);
   }
 });
 
 await test('rewriteHostPath rewrites to /<slug> and preserves the path', async () => {
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/', CUSTOM_BASE), '/royal-hair-studio');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/team', CUSTOM_BASE), '/royal-hair-studio/team');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/royal-hair-studio', CUSTOM_BASE), '/royal-hair-studio');
-  assert.equal(rewriteHostPath(`${CUSTOM_BASE}`, '/royal-hair-studio', CUSTOM_BASE), '/royal-hair-studio');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/', CUSTOM_BASE), '/nexora-demo-salon');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/team', CUSTOM_BASE), '/nexora-demo-salon/team');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/nexora-demo-salon', CUSTOM_BASE), '/nexora-demo-salon');
+  assert.equal(rewriteHostPath(`${CUSTOM_BASE}`, '/nexora-demo-salon', CUSTOM_BASE), '/nexora-demo-salon');
   // Vercel deployment: path-form business URL passes through untouched.
-  assert.equal(rewriteHostPath(`${BASE}`, '/royal-hair-studio'), '/royal-hair-studio');
+  assert.equal(rewriteHostPath(`${BASE}`, '/nexora-demo-salon'), '/nexora-demo-salon');
 });
 
 await test('rewriteHostPath never touches /api, /assets or client app routes', async () => {
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/api/health', CUSTOM_BASE), '/api/health');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/api/bookings', CUSTOM_BASE), '/api/bookings');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/assets/index.js', CUSTOM_BASE), '/assets/index.js');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/signup', CUSTOM_BASE), '/signup');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/nearby', CUSTOM_BASE), '/nearby');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/dashboard', CUSTOM_BASE), '/dashboard');
-  assert.equal(rewriteHostPath(`royal-hair-studio.${CUSTOM_BASE}`, '/auth/callback', CUSTOM_BASE), '/auth/callback');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/api/health', CUSTOM_BASE), '/api/health');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/api/bookings', CUSTOM_BASE), '/api/bookings');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/assets/index.js', CUSTOM_BASE), '/assets/index.js');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/signup', CUSTOM_BASE), '/signup');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/nearby', CUSTOM_BASE), '/nearby');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/dashboard', CUSTOM_BASE), '/dashboard');
+  assert.equal(rewriteHostPath(`nexora-demo-salon.${CUSTOM_BASE}`, '/auth/callback', CUSTOM_BASE), '/auth/callback');
 });
 
 unmount();

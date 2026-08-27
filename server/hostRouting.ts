@@ -60,7 +60,7 @@ const PROTECTED_PREFIXES = ['/api/', '/assets/', '/auth/', '/www/'];
 /**
  * Extracts the salon slug from a request host (subdomain routing).
  *
- * `royal-hair-studio.yourdomain.com` → `royal-hair-studio`
+ * `nexora-demo-salon.yourdomain.com` → `nexora-demo-salon`
  * `yourdomain.com`, `www.yourdomain.com`, localhost, IPs, unknown/preview
  * hosts (e.g. `*.e2b.app`) → `''` (never misinterpreted as a slug).
  */
@@ -83,10 +83,10 @@ export function resolveHostSlug(
 /**
  * Returns the canonical request path for a host+pathname pair.
  *
- *   rewriteHostPath('royal-hair-studio.domain.com', '/')            → '/royal-hair-studio'
- *   rewriteHostPath('royal-hair-studio.domain.com', '/team')        → '/royal-hair-studio/team'
- *   rewriteHostPath('royal-hair-studio.domain.com', '/api/health')  → '/api/health' (untouched)
- *   rewriteHostPath('domain.com', '/royal-hair-studio')             → '/royal-hair-studio' (untouched)
+ *   rewriteHostPath('nexora-demo-salon.domain.com', '/')            → '/nexora-demo-salon'
+ *   rewriteHostPath('nexora-demo-salon.domain.com', '/team')        → '/nexora-demo-salon/team'
+ *   rewriteHostPath('nexora-demo-salon.domain.com', '/api/health')  → '/api/health' (untouched)
+ *   rewriteHostPath('domain.com', '/nexora-demo-salon')             → '/nexora-demo-salon' (untouched)
  */
 export function rewriteHostPath(
   hostname: string | undefined | null,

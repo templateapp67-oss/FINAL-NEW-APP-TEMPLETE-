@@ -25,11 +25,11 @@ import './index.css';
 // Apply white-label dynamic branding, theme CSS variables, and SEO tags on load
 applyBrandConfigToDocument();
 
-// Capture an incoming referral code (`/signup?ref=NX-ROYAL-2026` or any path
+// Capture an incoming referral code (`/signup?ref=NX-NEXORA-2026` or any path
 // with `?ref=`) into localStorage['nexora_referral_code'] BEFORE the router
 // runs, so the Sign-Up page can auto-fill (and lock) the code. This only
 // reads `window.location.search` — the pathname used for slug resolution is
-// untouched, so `/royal-hair-studio?ref=...` never 404s.
+// untouched, so `/nexora-demo-salon?ref=...` never 404s.
 captureReferralFromUrl();
 
 function ProtectedApp() {
@@ -77,16 +77,16 @@ function RootRouter() {
   const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'auth_login' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
 
   // NOTE: slug resolution is fed by `location.pathname` and (when present)
-  // `location.hostname` (subdomain). Query parameters (e.g. `?ref=NX-ROYAL-2026`)
+  // `location.hostname` (subdomain). Query parameters (e.g. `?ref=NX-NEXORA-2026`)
   // are never part of either, so referral links on any route keep resolving
   // slugs cleanly (no 404 / "Salon Not Found").
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-  // Host-based (subdomain) routing: `royal-hair-studio.yourdomain.com` =>
-  // slug `royal-hair-studio`. Falls back to the path slug when no subdomain
-  // is present (e.g. the canonical `/royal-hair-studio` path form).
+  // Host-based (subdomain) routing: `nexora-demo-salon.yourdomain.com` =>
+  // slug `nexora-demo-salon`. Falls back to the path slug when no subdomain
+  // is present (e.g. the canonical `/nexora-demo-salon` path form).
   const subdomainSlug = extractSubdomainSlug(window.location.hostname);
-  // Normalise the slug: lowercase, trim, slugify — so `/Royal-Hair-Studio`,
-  // `/Royal Hair Studio`, and `/royal-hair-studio` all resolve identically.
+  // Normalise the slug: lowercase, trim, slugify — so `/Nexora-Demo-Salon`,
+  // `/Nexora Demo Salon`, and `/nexora-demo-salon` all resolve identically.
   const normalizedPath = subdomainSlug || normalizeRouteSlug(pathname);
 
   useEffect(() => {

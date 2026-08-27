@@ -35,7 +35,7 @@ The app contains:
   over `src/lib/siteBookingConfirmation.ts`), **Share Referral Premium**,
   **Branding White-label**.
 - **Website guest bookings (M41)** — the LEGACY public templates
-  (templateId `hair`, e.g. the deployed `/royal-hair-studio`) have all their
+  (templateId `hair`, e.g. the deployed `/nexora-demo-salon`) have all their
   Book CTAs (Book Slot / Book Bundle / Book with Stylist / Book Appointment /
   Book Online) wired to ONE shared `src/components/BookingModal.tsx`, prefilled
   with Service Name/Price/Duration, backed by `GET /api/salons/:slug/booking-context`

@@ -791,7 +791,7 @@ export const initialData: SalonData = {
   packages: [
     {
       id: 'p1',
-      name: 'Royal Bridal Glow Package',
+      name: 'Bridal Glow Package',
       description: 'Complete head-to-toe bridal makeover including HD makeup, hair spa, facial, manicure & pedicure.',
       price: 8500,
       duration: 240
@@ -821,7 +821,7 @@ export const initialData: SalonData = {
   team: [
     {
       id: 't1',
-      name: 'Rahul Sharma',
+      name: 'Aarav Sharma',
       role: 'Owner & Master Stylist',
       appAccessRole: 'Manager (Full Access)',
       specialties: ['Precision Haircut', 'Balayage', 'Salon Management'],

@@ -1,8 +1,8 @@
 /**
- * M41 — website guest booking wiring (legacy public templates, e.g. /royal-hair-studio)
+ * M41 — website guest booking wiring (legacy public templates, e.g. /nexora-demo-salon)
  *
  * Mounts the REAL legacy TemplateRenderer in jsdom with the brand-fallback
- * salon (Royal Hair & Beauty Studio) and a mocked database API, then verifies:
+ * salon (Nexora Demo Salon) and a mocked database API, then verifies:
  *   1. On component load, services/experts/slots are fetched from
  *      GET /api/salons/:slug/booking-context (database API).
  *   2. "Call Now" renders href="tel:+919876543210" and "WhatsApp" renders
@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-  url: 'http://localhost/royal-hair-studio',
+  url: 'http://localhost/nexora-demo-salon',
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
@@ -51,7 +51,7 @@ const TemplateRenderer = (await import('../src/components/TemplateRenderer.tsx')
 /* ------------------------------------------------------------------ */
 /* Mocked database API                                                 */
 /* ------------------------------------------------------------------ */
-const SALON = buildBrandFallbackSalonData('royal-hair-studio');
+const SALON = buildBrandFallbackSalonData('nexora-demo-salon');
 
 function isoPlusDays(offset) {
   const dt = new Date();
@@ -73,7 +73,7 @@ for (let t = 10 * 60; t + 30 <= 20 * 60; t += 30) {
 }
 
 const contextPayload = {
-  salon: { id: 'salon-uuid-1', slug: 'royal-hair-studio', name: SALON.salonName, phone: SALON.phone },
+  salon: { id: 'salon-uuid-1', slug: 'nexora-demo-salon', name: SALON.salonName, phone: SALON.phone },
   services: SALON.services.map((service) => ({
     id: service.id, name: service.name, price: service.price, duration: service.duration, featured: service.featured,
   })),
@@ -154,7 +154,7 @@ const { container, unmount } = render(React.createElement(TemplateRenderer, { da
 await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
 
 await test('component load fetches booking context from the database API', async () => {
-  const contextCall = fetchCalls.find((call) => call.url.startsWith('/api/salons/royal-hair-studio/booking-context'));
+  const contextCall = fetchCalls.find((call) => call.url.startsWith('/api/salons/nexora-demo-salon/booking-context'));
   assert.ok(contextCall, 'No /api/salons/:slug/booking-context request on load');
 });
 
@@ -172,7 +172,7 @@ await test('"WhatsApp" renders https://wa.me/919876543210 with a pre-filled mess
   const parsed = new URL(href);
   assert.ok(parsed.searchParams.has('text'), 'WhatsApp message pre-fill missing');
   const message = parsed.searchParams.get('text');
-  assert.ok(message.includes('Royal Hair & Beauty Studio'), `WhatsApp pre-fill should name the salon: ${message}`);
+  assert.ok(message.includes('Nexora Demo Salon'), `WhatsApp pre-fill should name the salon: ${message}`);
 });
 
 /* ------------------------------------------------------------------ */
@@ -270,7 +270,7 @@ await test('full booking flow POSTs the guest payload and shows the reference', 
     const posts = fetchCalls.filter((call) => call.url === '/api/bookings' && call.init?.method === 'POST');
     assert.ok(posts.length > before, 'POST /api/bookings was not sent');
     const body = JSON.parse(posts[posts.length - 1].init.body);
-    assert.equal(body.salonSlug, 'royal-hair-studio');
+    assert.equal(body.salonSlug, 'nexora-demo-salon');
     assert.equal(body.serviceId, firstService.id);
     assert.equal(body.date, chosenDate);
     assert.equal(body.time, slotGrid[0].time);

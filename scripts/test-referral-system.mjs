@@ -169,17 +169,17 @@ const {
 } = await import('/home/user/FINAL-NEW-APP-TEMPLETE-/src/lib/referral.ts');
 
 await test('code format is NX-[SHORT]-2026 for the given examples', () => {
-  assert.equal(getReferralCode('Royal Hair Studio'), 'NX-ROYAL-2026');
-  assert.equal(getReferralCode('Royal Hair & Beauty Studio'), 'NX-ROYAL-2026');
+  assert.equal(getReferralCode('Nexora Demo Salon'), 'NX-NEXORA-2026');
+  assert.equal(getReferralCode('Nexora Demo Salon'), 'NX-NEXORA-2026');
   assert.equal(deriveSalonShortName('The Barber Collective'), 'BARBER');
   assert.equal(getReferralCode(''), 'NX-SALON-2026');
   assert.match(getReferralCode('Glow Spa'), /^NX-GLOW-\d{4}$/);
 });
 
 await test('referral link points at the Sign-Up page with the ref param', () => {
-  const link = buildReferralLink('Royal Hair Studio');
+  const link = buildReferralLink('Nexora Demo Salon');
   assert.ok(link.startsWith('https://'), 'link must be absolute');
-  assert.ok(link.includes('/signup?ref=NX-ROYAL-2026'), `unexpected link: ${link}`);
+  assert.ok(link.includes('/signup?ref=NX-NEXORA-2026'), `unexpected link: ${link}`);
 });
 
 await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouched)', () => {
@@ -192,11 +192,11 @@ await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouche
     removeItem: (k) => backing.delete(k),
   };
   globalThis.localStorage = storage;
-  globalThis.window = { location: { search: '?ref=nx-royal-2026&next=1' }, localStorage: storage };
+  globalThis.window = { location: { search: '?ref=nx-nexora-2026&next=1' }, localStorage: storage };
   const stored = captureReferralFromUrl();
-  assert.equal(stored, 'NX-ROYAL-2026');
-  assert.equal(backing.get('nexora_referral_code'), 'NX-ROYAL-2026');
-  assert.equal(readStoredReferralCode(), 'NX-ROYAL-2026');
+  assert.equal(stored, 'NX-NEXORA-2026');
+  assert.equal(backing.get('nexora_referral_code'), 'NX-NEXORA-2026');
+  assert.equal(readStoredReferralCode(), 'NX-NEXORA-2026');
 
   // Garbage is rejected; clean values pass.
   globalThis.window.location.search = '?ref=!!';
@@ -247,16 +247,16 @@ await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouche
   } = await import('/home/user/FINAL-NEW-APP-TEMPLETE-/src/lib/referralDashboard.ts');
 
   await test('sign-up records a Pending referral with zero credits', () => {
-    const entry = recordReferralSignup({ email: 'new@salon.com', code: 'NX-ROYAL-2026', salonName: 'New Glow Spa' });
+    const entry = recordReferralSignup({ email: 'new@salon.com', code: 'NX-NEXORA-2026', salonName: 'New Glow Spa' });
     assert.ok(entry, 'entry must be returned');
     assert.equal(entry.status, 'Pending');
     assert.equal(entry.credits, 0);
     assert.equal(entry.salonName, 'New Glow Spa');
 
     // Dedupe by email — no duplicate rows.
-    const again = recordReferralSignup({ email: 'NEW@salon.com', code: 'NX-ROYAL-2026' });
+    const again = recordReferralSignup({ email: 'NEW@salon.com', code: 'NX-NEXORA-2026' });
     assert.equal(again.email, 'new@salon.com');
-    const dash = getReferralDashboard('NX-ROYAL-2026');
+    const dash = getReferralDashboard('NX-NEXORA-2026');
     assert.equal(dash.entries.filter((e) => e.email === 'new@salon.com').length, 1);
   });
 
@@ -275,10 +275,10 @@ await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouche
   });
 
   await test('dashboard totals accumulate wallet credits and read the stored referral context', () => {
-    storeReferralCode('NX-ROYAL-2026');
-    const dash = getReferralDashboard('NX-ROYAL-2026');
-    assert.equal(dash.referredByCode, 'NX-ROYAL-2026', 'must read nexora_referral_code');
-    assert.equal(dash.ownCode, 'NX-ROYAL-2026');
+    storeReferralCode('NX-NEXORA-2026');
+    const dash = getReferralDashboard('NX-NEXORA-2026');
+    assert.equal(dash.referredByCode, 'NX-NEXORA-2026', 'must read nexora_referral_code');
+    assert.equal(dash.ownCode, 'NX-NEXORA-2026');
     assert.ok(dash.totals.referred >= 1);
     const activeRow = dash.entries.find((e) => e.email === 'new@salon.com');
     assert.equal(activeRow.credits, CREDITS_BY_STATUS.Active);
@@ -288,7 +288,7 @@ await test('captureReferralFromUrl parses ?ref= and stores it (pathname untouche
   await test('dashboard updates in real time (event subscription)', () => {
     let ticks = 0;
     const unsub = onReferralDashboardUpdated(() => ticks++);
-    recordReferralSignup({ email: 'live@salon.com', code: 'NX-ROYAL-2026' });
+    recordReferralSignup({ email: 'live@salon.com', code: 'NX-NEXORA-2026' });
     unsub();
     assert.ok(ticks >= 1, 'subscriber must be notified on registry mutation');
   });

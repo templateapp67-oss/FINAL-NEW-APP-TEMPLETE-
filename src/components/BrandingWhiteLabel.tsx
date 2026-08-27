@@ -423,7 +423,7 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
                       type="text"
                       value={metaTitle}
                       onChange={(e) => setMetaTitle(e.target.value)}
-                      placeholder="e.g. Royal Hair Studio | Luxury Hair & Spa in Mumbai"
+                      placeholder="e.g. Nexora Demo Salon | Luxury Hair & Spa in Mumbai"
                       className="w-full text-xs text-gray-900 border border-gray-200 bg-white rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-[#ac0053]/20 focus:border-[#ac0053]"
                     />
                   </div>

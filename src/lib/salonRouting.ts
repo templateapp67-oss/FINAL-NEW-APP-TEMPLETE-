@@ -9,7 +9,7 @@
  *    (lowercase, trimmed, slugified).
  *  - Decide whether an incoming slug should fall back to the configured
  *    default business (brand) profile when Supabase is unconfigured or the
- *    requested record is missing — this is what keeps `/royal-hair-studio`
+ *    requested record is missing — this is what keeps `/nexora-demo-salon`
  *    (and any other brand-default slug) from ever rendering "Salon Not Found".
  *  - Build a fully-renderable {@link SalonData} from the brand configuration
  *    so the fallback salon loads successfully without a backend record.
@@ -21,15 +21,15 @@ import { slugifySalonName } from './publicWebsiteUrl';
 
 /** Normalised slug stored on the configured default business. */
 export const BRAND_FALLBACK_SLUG =
-  slugifySalonName(DEFAULT_BRAND_CONFIG.defaultSalon.slug) || 'royal-hair-studio';
+  slugifySalonName(DEFAULT_BRAND_CONFIG.defaultSalon.slug) || 'nexora-demo-salon';
 
 /**
  * Normalise a raw `window.location.pathname` into a single canonical slug.
  *
  * Steps: strip leading/trailing slashes, lowercase, take the first path
  * segment, then slugify (collapse whitespace, strip invalid characters). This
- * makes `/Royal-Hair-Studio/`, `/Royal Hair Studio`, and `/royal-hair-studio`
- * all resolve to the same canonical `royal-hair-studio` slug.
+ * makes `/Nexora-Demo-Salon/`, `/Nexora Demo Salon`, and `/nexora-demo-salon`
+ * all resolve to the same canonical `nexora-demo-salon` slug.
  */
 export function normalizeRouteSlug(pathname: string): string {
   const segment = (pathname || '')
@@ -124,8 +124,8 @@ export function getBrandBaseHost(): string {
  * `*.vercel.app` base (Vercel does not support wildcard business subdomains;
  * those deployments resolve published sites through `base/<slug>` paths).
  * When the brand base host is `yourdomain.com`, a visit to
- * `royal-hair-studio.yourdomain.com` resolves to the slug
- * `royal-hair-studio`.
+ * `nexora-demo-salon.yourdomain.com` resolves to the slug
+ * `nexora-demo-salon`.
  */
 export function extractSubdomainSlug(hostname: string): string {
   const host = (hostname || '').split(':')[0].toLowerCase();

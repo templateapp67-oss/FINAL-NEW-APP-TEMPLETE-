@@ -1778,7 +1778,7 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                                   >
                                     <span className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider">{font.label}</span>
                                     <span className="block text-sm truncate text-gray-800" style={{ fontFamily: font.fontFamily, fontWeight: font.fontWeight, letterSpacing: font.letterSpacing, textTransform: font.textTransform }}>
-                                      {(data.salonName || 'Royal Salon').slice(0, 20)}
+                                      {(data.salonName || 'My Salon').slice(0, 20)}
                                     </span>
                                   </button>
                                 );

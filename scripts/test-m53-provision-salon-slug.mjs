@@ -185,7 +185,7 @@ const ownerAAgain = await provision(ids.a, 'Glow Studio', 'hair_studio_color_bar
 assert.equal(ownerAAgain.out_salon_id, ownerA.out_salon_id, 'provisioning is idempotent');
 assert.equal(ownerAAgain.out_already_existed, true);
 assert.equal(ownerAAgain.out_slug, ownerA.out_slug, 'the public URL never moves on re-login');
-// Scoped to this owner: the chain also seeds the `royal-hair-studio` demo row.
+// Scoped to this owner: the chain also seeds the `nexora-demo-salon` demo row.
 const tenantCount = (await db.query(
   `select count(*)::int as n from public.salons s
    join public.organization_members m on m.organization_id = s.organization_id

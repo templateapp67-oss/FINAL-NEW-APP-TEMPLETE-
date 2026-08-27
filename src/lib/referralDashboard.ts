@@ -86,7 +86,7 @@ function demoSeed(): ReferralEntry[] {
     id: `NX-1048${n}`,
     salonName,
     email,
-    code: 'NX-ROYAL-2026',
+    code: 'NX-NEXORA-2026',
     status,
     joinedAt: daysAgo(days),
     credits: CREDITS_BY_STATUS[status],

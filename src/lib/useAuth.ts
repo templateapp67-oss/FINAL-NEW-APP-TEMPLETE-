@@ -198,15 +198,40 @@ export function useAuth(): AuthState {
   return state;
 }
 
+/**
+ * Machine-readable classification of an auth failure. The UI uses this to
+ * give distinct feedback for "wrong credentials" (user should retry with
+ * other credentials) vs. "network" (transient, retry later) vs. "server"
+ * (Supabase-side failure) — instead of one opaque message for everything.
+ */
+export type AuthErrorKind =
+  | 'none'
+  | 'unconfigured'
+  | 'invalid-credentials'
+  | 'email-not-confirmed'
+  | 'already-registered'
+  | 'weak-password'
+  | 'rate-limited'
+  | 'network'
+  | 'server'
+  | 'other';
+
 /** Result of an email/password sign-in attempt. */
 export interface SignInResult {
   error: string | null;
+  /** Classification of the failure; 'none' when the sign-in succeeded. */
+  kind: AuthErrorKind;
   /** True when the account exists but its email has not been confirmed yet. */
   needsConfirmation: boolean;
 }
 
+/**
+ * Normalize an email before ANY validation, submission or lookup:
+ * lowercase + trim, so "  User@Example.COM " and "user@example.com" hit the
+ * same Supabase identity and never fail validation on casing/whitespace.
+ */
 export function normalizeAuthEmail(email: string): string {
-  return email.trim().toLowerCase();
+  return (email || '').toLowerCase().trim();
 }
 
 export function isValidAuthEmail(email: string): boolean {
@@ -217,27 +242,58 @@ function configuredError(): string {
   return supabaseConfigError || 'Authentication is not configured. Please set VITE_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY.';
 }
 
-function mapAuthError(message: string | undefined, fallback: string): string {
+/**
+ * Classify a raw Supabase/exception message into a stable kind + a
+ * user-safe message. Exported for regression tests and for UI surfaces that
+ * want to style/word feedback differently per failure class.
+ *
+ * `fallbackKind` decides how an unrecognized message is treated — sign-in
+ * treats unknowns as invalid credentials ONLY when Supabase explicitly says
+ * so; anything unrecognized is surfaced as a server-side problem, never
+ * silently blamed on the user's credentials.
+ */
+export function classifyAuthError(
+  message: string | undefined,
+  fallbackKind: AuthErrorKind = 'server',
+  fallbackMessage = 'Something went wrong. Please try again.',
+): { kind: AuthErrorKind; message: string } {
   const raw = message || '';
   if (/invalid login credentials|invalid_grant|invalid credentials/i.test(raw)) {
-    return 'Incorrect email or password.';
+    return { kind: 'invalid-credentials', message: 'Incorrect email or password.' };
   }
   if (/email not confirmed|email.*confirm/i.test(raw)) {
-    return "Your email hasn't been confirmed yet. Check your inbox for the confirmation link, or resend it below.";
+    return {
+      kind: 'email-not-confirmed',
+      message:
+        "Your email hasn't been confirmed yet. Check your inbox for the confirmation link, or resend it below.",
+    };
   }
   if (/rate limit|too many requests|over_email_send_rate_limit|email rate limit/i.test(raw)) {
-    return 'Too many requests. Please wait a minute, then try again.';
+    return { kind: 'rate-limited', message: 'Too many requests. Please wait a minute, then try again.' };
   }
-  if (/failed to fetch|network|fetch/i.test(raw)) {
-    return 'Unable to connect. Please try again.';
+  if (/failed to fetch|network|fetch|econn|timed? ?out|unreachable|abort/i.test(raw)) {
+    return { kind: 'network', message: 'Unable to connect. Please check your connection and try again.' };
   }
   if (/user already registered|already registered|already exists/i.test(raw)) {
-    return 'That email is already registered. Try logging in.';
+    return { kind: 'already-registered', message: 'That email is already registered. Try logging in.' };
   }
   if (/password/i.test(raw) && /weak|short|characters|length/i.test(raw)) {
-    return 'Password must be at least 6 characters.';
+    return { kind: 'weak-password', message: 'Password must be at least 6 characters.' };
   }
-  return fallback;
+  if (fallbackKind === 'network') {
+    return { kind: 'network', message: 'Unable to connect. Please check your connection and try again.' };
+  }
+  return { kind: fallbackKind, message: fallbackMessage };
+}
+
+/** Backwards-compatible wrapper returning only the user-safe message. */
+function mapAuthError(message: string | undefined, fallback: string): string {
+  // Sign-in historically reported unknowns as credential errors; keep that
+  // exact wording for the credential-class fallback only.
+  const fallbackKind: AuthErrorKind = /incorrect email or password/i.test(fallback)
+    ? 'invalid-credentials'
+    : 'server';
+  return classifyAuthError(message, fallbackKind, fallback).message;
 }
 
 /**
@@ -256,33 +312,55 @@ export async function signInWithPassword(
   if (!supabase) {
     return {
       error: configuredError(),
+      kind: 'unconfigured',
       needsConfirmation: false,
     };
   }
   try {
     const normalizedEmail = normalizeAuthEmail(email);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password,
     });
     if (error) {
       console.error('Sign-in failed:', error);
       const needsConfirmation = /email not confirmed|email.*confirm/i.test(error.message);
+      const classified = classifyAuthError(error.message, 'invalid-credentials', 'Incorrect email or password.');
       return {
-        error: mapAuthError(error.message, 'Incorrect email or password.'),
+        error: classified.message,
+        kind: needsConfirmation ? 'email-not-confirmed' : classified.kind,
         needsConfirmation,
       };
     }
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData.user) {
-      console.error('Signed in but getUser failed:', userError);
-      return { error: 'Unable to verify your session. Please try again.', needsConfirmation: false };
+    // Supabase accepted the credentials. Validate the fresh session through
+    // the SAME authoritative path the rest of the app uses (auth.getUser()
+    // with network retry/fallback) so a transient blip right after login
+    // never leaves the UI with an unverified or half-established session.
+    try {
+      const identity = await getAuthoritativeAuthIdentity('auth.sign_in', data.session ?? undefined);
+      if (!identity) {
+        return {
+          error: 'Unable to verify your session. Please try again.',
+          kind: 'server',
+          needsConfirmation: false,
+        };
+      }
+    } catch (verifyErr: any) {
+      console.error('Signed in but session verification failed:', verifyErr);
+      const classified = classifyAuthError(verifyErr?.message, 'server', 'Unable to verify your session. Please try again.');
+      return {
+        error: classified.message,
+        kind: classified.kind,
+        needsConfirmation: false,
+      };
     }
-    return { error: null, needsConfirmation: false };
+    return { error: null, kind: 'none', needsConfirmation: false };
   } catch (err: any) {
     console.error('Sign-in exception:', err);
+    const classified = classifyAuthError(err?.message, 'network');
     return {
-      error: mapAuthError(err?.message, 'Unable to connect. Please try again.'),
+      error: classified.message,
+      kind: classified.kind,
       needsConfirmation: false,
     };
   }
@@ -303,10 +381,11 @@ export async function signUpWithPassword(
   email: string,
   password: string,
   extras?: SignUpOptions,
-): Promise<{ error: string | null; needsConfirmation: boolean }> {
+): Promise<{ error: string | null; kind: AuthErrorKind; needsConfirmation: boolean }> {
   if (!supabase) {
     return {
       error: configuredError(),
+      kind: 'unconfigured',
       needsConfirmation: false,
     };
   }
@@ -337,8 +416,10 @@ export async function signUpWithPassword(
     });
     if (error) {
       console.error('Sign-up failed:', error);
+      const classified = classifyAuthError(error.message, 'server', 'Could not create the account. Please try again.');
       return {
-        error: mapAuthError(error.message, 'Could not create the account. Please try again.'),
+        error: classified.message,
+        kind: classified.kind,
         needsConfirmation: false,
       };
     }
@@ -347,13 +428,19 @@ export async function signUpWithPassword(
     // no identities and no session; do not create app records or pretend this
     // is a new signup.
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      return { error: 'That email is already registered. Try logging in.', needsConfirmation: false };
+      return {
+        error: 'That email is already registered. Try logging in.',
+        kind: 'already-registered',
+        needsConfirmation: false,
+      };
     }
-    return { error: null, needsConfirmation: !data.session };
+    return { error: null, kind: 'none', needsConfirmation: !data.session };
   } catch (err: any) {
     console.error('Sign-up exception:', err);
+    const classified = classifyAuthError(err?.message, 'network');
     return {
-      error: mapAuthError(err?.message, 'Unable to connect. Please try again.'),
+      error: classified.message,
+      kind: classified.kind,
       needsConfirmation: false,
     };
   }
@@ -367,10 +454,11 @@ export async function signUpWithPassword(
 export async function resendConfirmationEmail(
   email: string,
   options?: { accountIntent?: AuthAccountIntent; returnTo?: string },
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; kind: AuthErrorKind }> {
   if (!supabase) {
     return {
       error: configuredError(),
+      kind: 'unconfigured',
     };
   }
   try {
@@ -386,16 +474,14 @@ export async function resendConfirmationEmail(
     });
     if (error) {
       console.error('Resend confirmation failed:', error);
-      return {
-        error: mapAuthError(error.message, 'Could not resend the confirmation email. Please try again.'),
-      };
+      const classified = classifyAuthError(error.message, 'server', 'Could not resend the confirmation email. Please try again.');
+      return { error: classified.message, kind: classified.kind };
     }
-    return { error: null };
+    return { error: null, kind: 'none' };
   } catch (err: any) {
     console.error('Resend confirmation exception:', err);
-    return {
-      error: mapAuthError(err?.message, 'Unable to connect. Please try again.'),
-    };
+    const classified = classifyAuthError(err?.message, 'network');
+    return { error: classified.message, kind: classified.kind };
   }
 }
 
@@ -404,30 +490,55 @@ export async function signInWithGoogle(
   accountIntent: AuthAccountIntent = 'owner',
 ): Promise<{ error: string | null }> {
   if (!supabase || typeof window === 'undefined') {
-    return { error: 'Authentication is not configured.' };
+    return { error: configuredError() };
   }
-  const redirectTo = oauthRedirect(next, accountIntent);
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo, skipBrowserRedirect: false },
-  });
-  return { error: error?.message || null };
+  // Network/DOM failures of the OAuth kickoff must surface as a friendly
+  // result value — never as an unhandled rejection from a click handler.
+  try {
+    const redirectTo = oauthRedirect(next, accountIntent);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo, skipBrowserRedirect: false },
+    });
+    return { error: error ? classifyAuthError(error.message, 'server', error.message).message : null };
+  } catch (err: any) {
+    console.error('Google sign-in exception:', err);
+    return { error: classifyAuthError(err?.message, 'network').message };
+  }
 }
 
 export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
   if (!supabase || typeof window === 'undefined') {
     return { error: configuredError() };
   }
-  const redirectTo = passwordResetRedirect();
-  const { error } = await supabase.auth.resetPasswordForEmail(normalizeAuthEmail(email), { redirectTo });
-  return { error: error ? mapAuthError(error.message, 'Could not send the reset email. Please try again.') : null };
+  try {
+    const redirectTo = passwordResetRedirect();
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizeAuthEmail(email), { redirectTo });
+    if (error) {
+      const classified = classifyAuthError(error.message, 'server', 'Could not send the reset email. Please try again.');
+      return { error: classified.message };
+    }
+    return { error: null };
+  } catch (err: any) {
+    console.error('Password reset exception:', err);
+    return { error: classifyAuthError(err?.message, 'network').message };
+  }
 }
 
 export async function updatePassword(password: string): Promise<{ error: string | null }> {
   if (!supabase) return { error: configuredError() };
   if (password.length < 6) return { error: 'Password must be at least 6 characters.' };
-  const { error } = await supabase.auth.updateUser({ password });
-  return { error: error ? mapAuthError(error.message, 'Could not update the password. Please try again.') : null };
+  try {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      const classified = classifyAuthError(error.message, 'server', 'Could not update the password. Please try again.');
+      return { error: classified.message };
+    }
+    return { error: null };
+  } catch (err: any) {
+    console.error('Update password exception:', err);
+    return { error: classifyAuthError(err?.message, 'network').message };
+  }
 }
 
 export async function signOut(): Promise<void> {

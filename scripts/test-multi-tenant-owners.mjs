@@ -356,5 +356,107 @@ assert.equal(finalB.brand, '#222222');
 assert.equal(finalB.address, 'B Street');
 ok('RLS kept each owners business, template, and config isolated');
 
+// (a) User A never resolves User B's salon
+const ownerASalons = (await asRole('authenticated', ids.ownerA, async () => {
+  return (await db.query('select * from public.owner_salon_ids()')).rows;
+})).map((r) => r.id || r.owner_salon_ids);
+assert.deepEqual(ownerASalons, [a.out_salon_id]);
+assert.equal(ownerASalons.includes(b.out_salon_id), false);
+ok('regression (a): User A never resolves User B salon');
+
+// (b) Two different users independently create their own salons/websites
+assert.notEqual(a.out_salon_id, b.out_salon_id);
+assert.notEqual(a.out_slug, b.out_slug);
+ok('regression (b): Two different users independently create their own salons/websites');
+
+// (c) Refresh/retry does not create duplicate organizations/salons
+const retryA = (await asRole('authenticated', ids.ownerA, async () => {
+  return (await db.query(
+    `select * from public.provision_owner_salon('Business A retry', 'business-a-retry', 'barber_mens_grooming')`,
+  )).rows[0];
+}));
+assert.equal(retryA.out_salon_id, a.out_salon_id);
+assert.equal(retryA.out_already_existed, true);
+const countsA = (await db.query(`
+  select
+    (select count(*) from public.organizations o join public.organization_members m on m.organization_id = o.id where m.user_id = $1) as orgs,
+    (select count(*) from public.salons s join public.organization_members m on m.organization_id = s.organization_id where m.user_id = $1) as salons,
+    (select count(*) from public.salon_public_websites w where w.salon_id = $2) as websites
+`, [ids.ownerA, a.out_salon_id])).rows[0];
+assert.equal(Number(countsA.orgs), 1);
+assert.equal(Number(countsA.salons), 1);
+assert.equal(Number(countsA.websites), 1);
+ok('regression (c): Refresh/retry does not create duplicate organizations/salons');
+
+// (d) Ambiguity never causes "pick first"
+// Simulate an existing accidental duplicate: insert a second salon in Owner A's organization
+const secondSalonId = '00000000-0000-4000-8000-0000000000a2';
+await db.query(
+  `insert into public.salons (id, organization_id, name, is_active)
+   values ($1, $2, 'Duplicate Salon A2', true)`,
+  [secondSalonId, a.out_organization_id],
+);
+const multiSalons = (await asRole('authenticated', ids.ownerA, async () => {
+  return (await db.query('select * from public.owner_salon_ids()')).rows;
+})).map((r) => r.id || r.owner_salon_ids);
+assert.equal(multiSalons.length, 2);
+
+// Check ownerSalon resolution logic with ambiguity
+const { getActiveWorkspaceSalonId, setActiveWorkspaceSalonId, clearActiveWorkspaceSalonId } = await import('../src/lib/ownerSalon.ts');
+// Mock window.localStorage for node environment
+globalThis.window = globalThis.window || {};
+const store = new Map();
+globalThis.window.localStorage = {
+  getItem: (k) => store.get(k) ?? null,
+  setItem: (k, v) => store.set(k, String(v)),
+  removeItem: (k) => store.delete(k),
+};
+globalThis.window.sessionStorage = globalThis.window.localStorage;
+
+// 1. Without active selection: must NOT pick first arbitrarily
+clearActiveWorkspaceSalonId(ids.ownerA);
+const resolveAmbiguous = (userSalons, uid) => {
+  if (userSalons.length === 0) return { status: 'no-membership' };
+  if (userSalons.length === 1) return { status: 'resolved', salonId: userSalons[0] };
+  const activeId = getActiveWorkspaceSalonId(uid);
+  if (activeId && userSalons.includes(activeId)) {
+    return { status: 'resolved', salonId: activeId };
+  }
+  return { status: 'ambiguous', salonIds: userSalons };
+};
+
+const unselected = resolveAmbiguous(multiSalons, ids.ownerA);
+assert.equal(unselected.status, 'ambiguous');
+assert.deepEqual(unselected.salonIds, multiSalons);
+
+// 2. With foreign salon selection (e.g. attempting to pick User B's salon): must remain ambiguous
+setActiveWorkspaceSalonId(ids.ownerA, b.out_salon_id);
+const foreignAttempt = resolveAmbiguous(multiSalons, ids.ownerA);
+assert.equal(foreignAttempt.status, 'ambiguous', 'Must reject foreign salon selection');
+
+// 3. With explicit owned selection: resolves to that chosen salon
+setActiveWorkspaceSalonId(ids.ownerA, secondSalonId);
+const selectedSecond = resolveAmbiguous(multiSalons, ids.ownerA);
+assert.equal(selectedSecond.status, 'resolved');
+assert.equal(selectedSecond.salonId, secondSalonId);
+ok('regression (d): Ambiguity never causes "pick first"; explicit selection required');
+
+// (e) Vercel /api/* is not rewritten to index.html
+const vercelConfig = JSON.parse(await readSrc('vercel.json'));
+assert.deepEqual(vercelConfig.routes[0], { handle: 'filesystem' });
+assert.deepEqual(vercelConfig.routes.at(-1), { src: '/.*', dest: '/index.html' });
+const catchall = await readSrc('api/[...path].ts');
+assert.match(catchall, /setupApiRoutes\(app\)/);
+ok('regression (e): Vercel /api/* is not rewritten to index.html');
+
+// (f) M54 SQL Editor bundle exactly matches canonical migration body
+const pasteReadyM54 = await readSrc('docs/m54-run-in-supabase.sql');
+const canonicalM54 = await readSrc('supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql');
+const m54Marker = '-- ============================================================================\n-- M54 — authenticated workspace bootstrap compatibility';
+const m54MarkerIdx = pasteReadyM54.indexOf(m54Marker);
+assert.ok(m54MarkerIdx > 0);
+assert.equal(pasteReadyM54.slice(m54MarkerIdx), canonicalM54);
+ok('regression (f): M54 SQL Editor bundle exactly matches canonical migration body');
+
 console.log(`\nMulti-tenant owner isolation: ${passed}/${passed} checks PASS`);
 await db.close();

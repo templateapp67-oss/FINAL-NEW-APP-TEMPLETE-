@@ -59,6 +59,19 @@ export function isOwnerTemplateKey(value: unknown): value is OwnerTemplateKey {
   );
 }
 
+export class AmbiguousWorkspaceError extends Error {
+  readonly salonIds: string[];
+  constructor(salonIds: string[]) {
+    super('Multiple salons are linked to your account. Please select a salon workspace.');
+    this.name = 'AmbiguousWorkspaceError';
+    this.salonIds = salonIds;
+  }
+}
+
+export function isAmbiguousWorkspaceError(error: unknown): error is AmbiguousWorkspaceError {
+  return error instanceof AmbiguousWorkspaceError;
+}
+
 export interface ProvisionedOwnerSalon {
   salonId: string;
   organizationId: string;
@@ -230,7 +243,11 @@ export async function ensureOwnerSalon(input?: {
           alreadyExisted: true,
         };
       }
-    } catch {
+      if (existing.status === 'ambiguous') {
+        throw new AmbiguousWorkspaceError(existing.salonIds || []);
+      }
+    } catch (err) {
+      if (err instanceof AmbiguousWorkspaceError) throw err;
       // Preserve the original provisioning failure below.
     }
 
@@ -312,6 +329,7 @@ export async function resolveOrProvisionOwnerSalon(input?: {
   templateKey?: OwnerTemplateKey | string;
 }): Promise<
   | { salonId: string; slug?: string; provisioned: boolean }
+  | { status: 'ambiguous'; salonIds: string[] }
   | { error: string; diagnostic?: WorkspaceDiagnostic }
 > {
   if (!isSupabaseConfigured) {
@@ -337,6 +355,12 @@ export async function resolveOrProvisionOwnerSalon(input?: {
       provisioned: !provisioned.alreadyExisted,
     };
   } catch (err) {
+    if (err instanceof AmbiguousWorkspaceError) {
+      return {
+        status: 'ambiguous',
+        salonIds: err.salonIds,
+      };
+    }
     const diagnostic = err instanceof WorkspaceInitializationError
       ? err.diagnostic
       : diagnosticFromError({

@@ -362,4 +362,25 @@ assert.equal(anonBlocked, true);
 ok('anonymous callers remain unable to provision');
 
 await db.close();
+
+// Drift test: verify docs/m54-run-in-supabase.sql preserves operator header and
+// has a SQL transaction body byte-identical to the canonical migration.
+const pasteReadyM54 = await readFile(join(root, 'docs', 'm54-run-in-supabase.sql'), 'utf8');
+const canonicalM54 = await readFile(join(migrationDir, '20260825000501_m54_workspace_bootstrap_compatibility.sql'), 'utf8');
+const m54Marker = '-- ============================================================================\n-- M54 — authenticated workspace bootstrap compatibility';
+const m54MarkerIdx = pasteReadyM54.indexOf(m54Marker);
+assert.ok(m54MarkerIdx > 0, 'docs/m54-run-in-supabase.sql must include the operator header before migration marker');
+assert.ok(pasteReadyM54.includes('private.nexora_create_owner_organization'), 'docs/m54-run-in-supabase.sql must include private.nexora_create_owner_organization');
+assert.equal(
+  pasteReadyM54.slice(m54MarkerIdx),
+  canonicalM54,
+  'docs/m54-run-in-supabase.sql transaction body must be byte-identical to canonical M54 migration',
+);
+const m54LineCount = pasteReadyM54.split('\n').length;
+assert.ok(
+  m54LineCount >= 705 && m54LineCount <= 715,
+  `docs/m54-run-in-supabase.sql must be ~710 lines (got ${m54LineCount})`,
+);
+ok('paste-ready M54 bundle preserves operator header and is byte-identical to canonical migration');
+
 console.log(`\nM54 workspace bootstrap compatibility: ${passed}/${passed} checks PASS`);

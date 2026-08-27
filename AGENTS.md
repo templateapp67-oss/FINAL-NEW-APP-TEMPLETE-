@@ -35,7 +35,7 @@ The app contains:
   over `src/lib/siteBookingConfirmation.ts`), **Share Referral Premium**,
   **Branding White-label**.
 - **Website guest bookings (M41)** — the LEGACY public templates
-  (templateId `hair`, e.g. the deployed `/royal-hair-studio`) have all their
+  (templateId `hair`, e.g. the deployed `/nexora-demo-salon`) have all their
   Book CTAs (Book Slot / Book Bundle / Book with Stylist / Book Appointment /
   Book Online) wired to ONE shared `src/components/BookingModal.tsx`, prefilled
   with Service Name/Price/Duration, backed by `GET /api/salons/:slug/booking-context`
@@ -92,6 +92,12 @@ npm run build        # vite build + esbuild bundle of server.ts -> dist/
 npm run start        # run the production build (node dist/server.cjs)
 npm run preview      # vite preview on http://0.0.0.0:4173
 npm run lint         # type-check only: tsc --noEmit
+
+# Self-healing boot: dev/build/start/preview run scripts/ensure-deps.mjs
+# first. Sandbox/preview restarts wipe node_modules (it is not persisted);
+# the bootstrap detects missing tsx/vite/esbuild and re-runs npm install
+# automatically, so `npm run dev` always comes up instead of dying with
+# "tsx: not found". It is a silent ~30ms no-op when deps are present.
 npm run generate:theme-seed # regenerate M18 from src/lib/themeServices.ts
 npm run validate:migrations # source-check M18 + apply M01–M27 twice + tests A–U
 npm run test:theme-catalog # verify five-theme DB/RPC/UI read boundaries

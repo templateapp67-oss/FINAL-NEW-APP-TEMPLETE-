@@ -3,9 +3,9 @@
  *
  * Single source of truth for:
  *   - Dynamic referral code generation: `NX-[WEBSITE_SHORT_NAME]-<YEAR>`
- *     (e.g. "Royal Hair Studio" → `NX-ROYAL-2026`).
+ *     (e.g. "Nexora Demo Salon" → `NX-NEXORA-2026`).
  *   - Referral link construction pointing at the Sign-Up page:
- *     `https://final-new-app-templete.vercel.app/signup?ref=NX-ROYAL-2026`
+ *     `https://final-new-app-templete.vercel.app/signup?ref=NX-NEXORA-2026`
  *   - Persisting an incoming `?ref=` code into localStorage under the key
  *     `nexora_referral_code` so the Sign-Up page can auto-fill (and lock)
  *     the Referral Code input before the account is created.
@@ -32,7 +32,7 @@ const SHORT_NAME_STOPWORDS = new Set([
  *
  * Rules (deterministic — same name always yields the same code):
  *   1. First "meaningful" word (skips articles/stopwords), upper-cased.
- *      "Royal Hair Studio"        → "ROYAL"   → NX-ROYAL-2026
+ *      "Nexora Demo Salon"        → "NEXORA"  → NX-NEXORA-2026
  *      "The Barber Collective"    → "BARBER"  → NX-BARBER-2026
  *   2. If every word is a stopword, fall back to the acronym of the first
  *      three words ("RHS" style).
@@ -73,7 +73,7 @@ export function getReferralCode(salonName: string | undefined | null): string {
 /**
  * Canonical referral link — always targets the Sign-Up page with the code in
  * the `ref` query parameter, e.g.
- * `https://final-new-app-templete.vercel.app/signup?ref=NX-ROYAL-2026`.
+ * `https://final-new-app-templete.vercel.app/signup?ref=NX-NEXORA-2026`.
  *
  * The origin resolves to the canonical Vercel deployment in dev/preview
  * (via `getAuthRedirectOrigin`) and to the real origin in production, so the
@@ -94,7 +94,7 @@ export function buildReferralLink(salonName: string | undefined | null): string 
 /**
  * Sanitize an externally supplied code (URL param, form input). Returns the
  * normalized code or null when it is empty / not code-shaped.
- * Accepts the full standard format (`NX-ROYAL-2026`, case-insensitive) or a
+ * Accepts the full standard format (`NX-NEXORA-2026`, case-insensitive) or a
  * plain alphanumeric fragment.
  */
 export function normalizeReferralCode(raw: string | null | undefined): string | null {
@@ -137,7 +137,7 @@ export function storeReferralCode(code: string | null): boolean {
  *
  * Called once at app startup (before React renders) from `src/main.tsx`.
  * Query parameters are read from `location.search` only — `location.pathname`
- * is never consulted here, so `/royal-hair-studio?ref=...` keeps resolving
+ * is never consulted here, so `/nexora-demo-salon?ref=...` keeps resolving
  * its slug cleanly without 404s / "Salon Not Found" errors.
  *
  * Returns the stored code when one was captured, else null.

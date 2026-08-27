@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
@@ -45,13 +46,21 @@ app.use((req, res, next) => {
 setupApiRoutes(app);
 
 async function startServer() {
+  // One shared HTTP server for Express AND Vite HMR. Attaching the HMR
+  // websocket to this server keeps everything on port 3000 — previously
+  // middleware-mode Vite opened its own websocket port (24678), which showed
+  // up as a second, blank "preview" and confused users into a white screen.
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
         cors: true,
         allowedHosts: true as unknown as string[],
-        hmr: process.env.DISABLE_HMR !== 'true',
+        // HMR is disabled in AI Studio via DISABLE_HMR env var.
+        // Do not modify—file watching is disabled to prevent flickering during agent edits.
+        hmr: process.env.DISABLE_HMR !== 'true' ? { server: httpServer } : false,
       } as any,
       appType: 'spa',
     });
@@ -80,7 +89,7 @@ async function startServer() {
   }
 
   if (!process.env.VERCEL) {
-    app.listen(PORT, '0.0.0.0', () => {
+    httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://0.0.0.0:${PORT}`);
       console.log(`Health check: http://0.0.0.0:${PORT}/api/health`);
       console.log(`25 screens active | allowedHosts: true | cors: true | offline fallback enabled`);

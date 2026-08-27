@@ -36,6 +36,11 @@ import {
   isValidAuthEmail,
 } from '../lib/useAuth';
 import { isSupabaseConfigured, supabaseConfigError } from '../lib/supabaseClient';
+import {
+  isDemoAuthBypassAvailable,
+  demoAuthBypassNotice,
+  enterDemoOwnerWorkspace,
+} from '../lib/demoAuth';
 import { readStoredReferralCode, storeReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
@@ -46,9 +51,38 @@ export default function SignUpPage() {
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // True for the WHOLE request lifecycle (sign-up → provisioning →
+  // navigation), keeping every input and the submit button locked.
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Editing any credential field clears the stale error alert immediately.
+  const clearFieldError = () => {
+    setError(null);
+    setErrorKind(null);
+  };
+  const handleSalonChange = (value: string) => {
+    setSalonName(value);
+    clearFieldError();
+  };
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    clearFieldError();
+  };
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    clearFieldError();
+  };
+  const handlePasswordConfirmChange = (value: string) => {
+    setPasswordConfirm(value);
+    clearFieldError();
+  };
+  const raiseError = (message: string, kind: string | null = null) => {
+    setError(message);
+    setErrorKind(kind);
+  };
 
   // Referral code — auto-filled from `nexora_referral_code` (set by the
   // incoming `?ref=` link). `locked` = code came from the invite link, so it
@@ -93,50 +127,64 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (isSubmitting) return;
+    // Normalize (lowercase + trim) before ANY validation or submission.
     const mail = normalizeAuthEmail(email);
     if (!salonName.trim()) {
-      setError('Enter your salon or business name.');
+      raiseError('Enter your salon or business name.', 'validation');
       return;
     }
     if (!mail || !password) {
-      setError('Enter your email and password.');
+      raiseError('Enter your email and password.', 'validation');
       return;
     }
     if (!isValidAuthEmail(mail)) {
-      setError('Enter a valid email address.');
+      raiseError('Enter a valid email address.', 'validation');
       return;
     }
     if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+      raiseError('Password must be at least 6 characters.', 'validation');
       return;
     }
     if (!passwordConfirm) {
-      setError('Confirm your password.');
+      raiseError('Confirm your password.', 'validation');
       return;
     }
     if (password !== passwordConfirm) {
-      setError('Passwords do not match.');
+      raiseError('Passwords do not match.', 'validation');
       return;
     }
+    // No backend configured: continue smoothly through the local demo
+    // (preview) bypass instead of dead-ending or throwing. Only ever fires
+    // when Supabase is entirely unconfigured — never for a configured-but-
+    // unreachable backend.
     if (!isSupabaseConfigured) {
-      setError(
+      if (isDemoAuthBypassAvailable()) {
+        setError(null);
+        setErrorKind(null);
+        setNotice(demoAuthBypassNotice('owner'));
+        enterDemoOwnerWorkspace();
+        return;
+      }
+      raiseError(
         supabaseConfigError || 'Authentication is not configured. Please set VITE_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY.',
+        'unconfigured',
       );
       return;
     }
 
-    setBusy(true);
+    setIsSubmitting(true);
     setError(null);
+    setErrorKind(null);
     setNotice(null);
 
     try {
-      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password, {
+      const { error: err, kind, needsConfirmation } = await signUpWithPassword(mail, password, {
         salonName: salonName.trim() || undefined,
       });
-      setBusy(false);
       if (err) {
-        setError(err);
+        setIsSubmitting(false);
+        raiseError(err, kind);
         return;
       }
 
@@ -158,25 +206,33 @@ export default function SignUpPage() {
       }
 
       if (needsConfirmation) {
+        setIsSubmitting(false);
         setError(null);
+        setErrorKind(null);
         setNotice(null);
         setUnconfirmedEmail(mail);
         return;
       }
       setPassword('');
       setPasswordConfirm('');
+      // Owner provisioning + navigation run while the form stays locked.
       const session = await completeOwnerAuthSession({
         salonName: salonName.trim() || undefined,
       });
       if ('error' in session) {
-        setError(session.error);
+        setIsSubmitting(false);
+        raiseError(session.error, 'server');
         return;
       }
       setNotice('Opening business setup…');
       await enterOwnerWorkspace();
+      setIsSubmitting(false);
     } catch (err: any) {
-      setBusy(false);
-      setError(err?.message || 'An unexpected error occurred. Please try again.');
+      setIsSubmitting(false);
+      const message = /fetch|network/i.test(err?.message || '')
+        ? 'Unable to connect. Please check your connection and try again.'
+        : err?.message || 'An unexpected error occurred. Please try again.';
+      raiseError(message, /fetch|network/i.test(err?.message || '') ? 'network' : 'server');
     }
   };
 
@@ -304,7 +360,7 @@ export default function SignUpPage() {
                 </a>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="mt-5 space-y-3.5" noValidate data-testid="signup-form">
+              <form onSubmit={handleSubmit} className="mt-5 space-y-3.5" noValidate data-testid="signup-form" aria-busy={isSubmitting}>
                 {/* Referral code — auto-filled from the invite link */}
                 <div data-testid="signup-referral-block">
                   <div className="mb-1 flex items-center justify-between">
@@ -346,14 +402,14 @@ export default function SignUpPage() {
                         // attribute matches what the owner typed.
                         storeReferralCode(e.target.value);
                       }}
-                      placeholder="e.g. NX-ROYAL-2026"
-                      disabled={busy || codeLocked}
+                      placeholder="e.g. NX-NEXORA-2026"
+                      disabled={isSubmitting || codeLocked}
                       readOnly={codeLocked}
                       className={`w-full rounded-xl border pl-10 pr-10 py-2.5 text-sm font-mono font-bold tracking-wider outline-none transition-all placeholder:text-gray-400 placeholder:font-sans placeholder:font-normal placeholder:tracking-normal ${
                         codeLocked
                           ? 'border-[#ac0053]/40 bg-[#ffd9e1]/25 text-[#3f001a] select-all'
                           : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1]'
-                      } ${busy || codeLocked ? 'opacity-90' : ''}`}
+                      } ${isSubmitting || codeLocked ? 'opacity-90' : ''}`}
                     />
                     {codeLocked && (
                       <Lock className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#ac0053]" />
@@ -382,9 +438,10 @@ export default function SignUpPage() {
                       type="text"
                       autoComplete="organization"
                       value={salonName}
-                      onChange={(e) => setSalonName(e.target.value)}
-                      placeholder="e.g. Royal Hair Studio"
-                      disabled={busy}
+                      onChange={(e) => handleSalonChange(e.target.value)}
+                      placeholder="e.g. Nexora Demo Salon"
+                      disabled={isSubmitting}
+                      aria-invalid={Boolean(error)}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
                     />
                   </div>
@@ -403,9 +460,10 @@ export default function SignUpPage() {
                       type="email"
                       autoComplete="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => handleEmailChange(e.target.value)}
                       placeholder="you@salon.com"
-                      disabled={busy}
+                      disabled={isSubmitting}
+                      aria-invalid={Boolean(error)}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
                     />
                   </div>
@@ -427,9 +485,10 @@ export default function SignUpPage() {
                       type={showPassword ? 'text' : 'password'}
                       autoComplete="new-password"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => handlePasswordChange(e.target.value)}
                       placeholder="At least 6 characters"
-                      disabled={busy}
+                      disabled={isSubmitting}
+                      aria-invalid={Boolean(error)}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-10 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
                     />
                     <button
@@ -456,9 +515,10 @@ export default function SignUpPage() {
                       type={showPassword ? 'text' : 'password'}
                       autoComplete="new-password"
                       value={passwordConfirm}
-                      onChange={(e) => setPasswordConfirm(e.target.value)}
+                      onChange={(e) => handlePasswordConfirmChange(e.target.value)}
                       placeholder="Re-enter password"
-                      disabled={busy}
+                      disabled={isSubmitting}
+                      aria-invalid={Boolean(error)}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
                     />
                   </div>
@@ -471,7 +531,13 @@ export default function SignUpPage() {
                   </div>
                 )}
                 {error && (
-                  <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800" data-testid="signup-error-banner">
+                  <div
+                    className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800"
+                    data-testid="signup-error-banner"
+                    data-error-kind={errorKind || 'unknown'}
+                    role="alert"
+                    aria-live="assertive"
+                  >
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
                     <span>{error}</span>
                   </div>
@@ -486,17 +552,22 @@ export default function SignUpPage() {
                         Authentication form is ready, but Supabase is not connected. Configure
                         VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart the app.
                       </p>
+                      <p className="mt-0.5 text-amber-800">
+                        Until then you can still explore: submit the form to continue in local
+                        preview mode (no account is created).
+                      </p>
                     </div>
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  disabled={busy}
+                  disabled={isSubmitting}
+                  aria-busy={isSubmitting}
                   data-testid="signup-submit-btn"
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#ac0053] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#ba005b] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {busy ? (
+                  {isSubmitting ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       <span>Please wait...</span>

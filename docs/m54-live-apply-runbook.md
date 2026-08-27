@@ -4,6 +4,15 @@
 **Migration:** `supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql`
 **Status from this sandbox:** ❌ cannot apply — see "Blocker 3" below.
 
+> **✅ RESOLVED (2026-08-27):** M54 was applied live via the SQL Editor path
+> below and `public.verify_m54_workspace_bootstrap()` returns all **6/6 ok**.
+> Live shape at apply time: `organization_members.status` writable
+> (`is_generated = NEVER`), no `is_active` column — the status-backed variant,
+> which M54's compatibility layer covers (verifier check
+> "status/generated membership writes are compatibility-aware" = true).
+> The historical blockers below remain accurate for why the sandbox itself
+> cannot reach Supabase.
+
 ---
 
 ## What was asked

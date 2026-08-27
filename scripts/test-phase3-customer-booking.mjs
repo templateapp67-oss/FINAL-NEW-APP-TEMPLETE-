@@ -255,8 +255,8 @@ logPass('CUSTOMER AUTH', 'Authenticated customer resolves own profile from auth.
 // ===========================================================================
 let salonA, salonB;
 await asRole('authenticated', ids.ownerA, async () => {
-  salonA = (await db.query(`select * from public.provision_owner_salon('Royal Hair Studio', 'client-val', 'hair_studio_color_bar')`)).rows[0];
-  await db.query(`select * from public.publish_owner_salon_website('royal-hair-studio', 'hair_studio_color_bar', '{"salonName":"Royal Hair Studio","tagline":"Best Hair Studio"}'::jsonb)`);
+  salonA = (await db.query(`select * from public.provision_owner_salon('Nexora Demo Salon', 'client-val', 'hair_studio_color_bar')`)).rows[0];
+  await db.query(`select * from public.publish_owner_salon_website('nexora-demo-salon', 'hair_studio_color_bar', '{"salonName":"Nexora Demo Salon","tagline":"Best Hair Studio"}'::jsonb)`);
 });
 
 await asRole('authenticated', ids.ownerB, async () => {
@@ -284,7 +284,7 @@ await db.query(`insert into public.services (id, salon_id, theme_id, name, descr
 // 2. CUSTOMER → BUSINESS FLOW: Browse services on public website
 // ===========================================================================
 const publicServicesA = await asRole('anon', '', async () => (
-  await db.query(`select * from public.get_public_salon_services('royal-hair-studio')`)
+  await db.query(`select * from public.get_public_salon_services('nexora-demo-salon')`)
 ).rows);
 
 assert.equal(publicServicesA.length, 1);
@@ -420,7 +420,7 @@ const custABookings = await asRole('authenticated', ids.customerA, async () => {
 
 assert.equal(custABookings.length, 1);
 assert.equal(custABookings[0].booking_id, bookingResultA.booking_id);
-assert.equal(custABookings[0].business_name, 'Royal Hair Studio');
+assert.equal(custABookings[0].business_name, 'Nexora Demo Salon');
 assert.deepEqual(custABookings[0].service_names, ['Haircut & Styling']);
 assert.equal(Number(custABookings[0].total_amount_paise), 100000);
 assert.equal(Number(custABookings[0].advance_amount_paise), 25000);
@@ -447,7 +447,7 @@ const ownerABookings = await asRole('authenticated', ids.ownerA, async () => {
 
 assert.equal(ownerABookings.length, 1);
 assert.equal(ownerABookings[0].booking_id, bookingResultA.booking_id);
-assert.equal(ownerABookings[0].business_name, 'Royal Hair Studio');
+assert.equal(ownerABookings[0].business_name, 'Nexora Demo Salon');
 assert.equal(ownerABookings[0].customer_name, 'Customer A');
 assert.deepEqual(ownerABookings[0].service_names, ['Haircut & Styling']);
 assert.equal(Number(ownerABookings[0].total_amount_paise), 100000);

@@ -25,7 +25,11 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       headers: {
-        'X-Frame-Options': 'ALLOWALL',
+        // IMPORTANT: never send an invalid X-Frame-Options here. 'ALLOWALL'
+        // is NOT a valid value — browsers treat an invalid value as DENY and
+        // silently refuse to render the app inside the preview iframe, which
+        // shows up as a WHITE SCREEN. Allow embedding explicitly via CSP.
+        'Content-Security-Policy': 'frame-ancestors *',
       },
     },
     preview: {

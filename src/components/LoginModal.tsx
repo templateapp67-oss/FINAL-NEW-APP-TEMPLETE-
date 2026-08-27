@@ -23,6 +23,11 @@ import {
   isValidAuthEmail,
 } from '../lib/useAuth';
 import { isSupabaseConfigured, supabaseConfigError } from '../lib/supabaseClient';
+import {
+  isDemoAuthBypassAvailable,
+  demoAuthBypassNotice,
+  enterDemoOwnerWorkspace,
+} from '../lib/demoAuth';
 import { readStoredReferralCode } from '../lib/referral';
 import { recordReferralSignup } from '../lib/referralDashboard';
 import { completeOwnerAuthSession, enterOwnerWorkspace } from '../lib/ownerSession';
@@ -37,6 +42,17 @@ import { safeAuthContinuation, type AuthAccountIntent } from '../lib/authRedirec
  * overflow/transform/stacking context clipping.
  */
 export type AuthMode = 'login' | 'signup';
+
+/**
+ * Safe env access — `import.meta.env` is undefined outside Vite (tsx tests,
+ * node tooling), and the auth modal must never crash on render there.
+ */
+const modalEnv: Record<string, string | undefined> =
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? import.meta.env
+    : typeof process !== 'undefined' && process.env
+      ? (process.env as Record<string, string | undefined>)
+      : {};
 
 export interface LoginModalProps {
   open: boolean;
@@ -60,8 +76,12 @@ export default function LoginModal({
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // True for the WHOLE duration of an auth request — from submit through
+  // session verification and owner provisioning — so inputs and buttons stay
+  // locked until the flow finishes or fails.
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Email-confirmation flow: after signup (or a blocked sign-in) the user is
@@ -72,18 +92,45 @@ export default function LoginModal({
     { kind: 'sent' | 'error'; message: string } | null
   >(null);
 
-  // Reset transient state and honour the button that opened the form.
+  // Reset transient state and honour the button that opened the form. This
+  // guarantees a fresh toggle between Log In and Sign Up with no residual
+  // error/notice/confirmation state from a previous attempt.
   useEffect(() => {
     if (!open) return;
     setMode(initialMode);
     setError(null);
+    setErrorKind(null);
     setNotice(null);
-    setBusy(false);
+    setIsSubmitting(false);
     setPasswordConfirm('');
     setUnconfirmedEmail(null);
     setResendBusy(false);
     setResendStatus(null);
   }, [open, initialMode, accountIntent, returnTo]);
+
+  // Editing a credential field immediately clears any stale error alert, so
+  // the user is never blocked by a message that no longer applies.
+  const clearFieldError = () => {
+    setError(null);
+    setErrorKind(null);
+  };
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    clearFieldError();
+  };
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    clearFieldError();
+  };
+  const handlePasswordConfirmChange = (value: string) => {
+    setPasswordConfirm(value);
+    clearFieldError();
+  };
+
+  const raiseError = (message: string, kind: string | null = null) => {
+    setError(message);
+    setErrorKind(kind);
+  };
 
   // Handle Escape key
   useEffect(() => {
@@ -129,9 +176,13 @@ export default function LoginModal({
     await enterOwnerWorkspace();
   };
 
+  // Seamless Log In ⇄ Sign Up toggle: every alert, notice and confirmation
+  // panel is dropped so no residual error state leaks across modes.
   const switchMode = (newMode: AuthMode) => {
+    if (isSubmitting) return; // never switch modes mid-request
     setMode(newMode);
     setError(null);
+    setErrorKind(null);
     setNotice(null);
     setPasswordConfirm('');
     setUnconfirmedEmail(null);
@@ -167,108 +218,149 @@ export default function LoginModal({
   };
 
   const handlePasswordReset = async () => {
+    if (isSubmitting) return;
     const mail = normalizeAuthEmail(email);
     if (!mail) {
-      setError('Enter your email address first.');
+      raiseError('Enter your email address first.', 'validation');
       return;
     }
-    setBusy(true);
+    setIsSubmitting(true);
     setError(null);
-    const result = await sendPasswordReset(mail);
-    setBusy(false);
-    if (result.error) setError(result.error);
-    else setNotice('Password reset link sent. Check your email.');
+    setErrorKind(null);
+    try {
+      const result = await sendPasswordReset(mail);
+      if (result.error) raiseError(result.error, 'server');
+      else setNotice('Password reset link sent. Check your email.');
+    } catch (err: any) {
+      raiseError(err?.message || 'Unable to connect. Please try again.', 'network');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleGoogle = async () => {
-    setBusy(true);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setError(null);
-    const result = await signInWithGoogle(returnTo, accountIntent);
-    if (result.error) {
-      setBusy(false);
-      setError(result.error);
+    setErrorKind(null);
+    try {
+      const result = await signInWithGoogle(returnTo, accountIntent);
+      if (result.error) {
+        raiseError(result.error, 'server');
+        setIsSubmitting(false);
+      }
+      // On success the browser navigates to Google; keep the locked state.
+    } catch (err: any) {
+      raiseError(err?.message || 'Unable to connect. Please try again.', 'network');
+      setIsSubmitting(false);
     }
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    if (busy) return;
+    if (isSubmitting) return;
+    // Credentials are ALWAYS normalized (lowercase + trim) before any
+    // validation or submission.
     const mail = normalizeAuthEmail(email);
     if (!mail || !password) {
-      setError('Enter your email and password.');
+      raiseError('Enter your email and password.', 'validation');
       return;
     }
     if (!isValidAuthEmail(mail)) {
-      setError('Enter a valid email address.');
+      raiseError('Enter a valid email address.', 'validation');
       return;
     }
     if (mode === 'signup') {
       if (password.length < 6) {
-        setError('Password must be at least 6 characters.');
+        raiseError('Password must be at least 6 characters.', 'validation');
         return;
       }
       if (!passwordConfirm) {
-        setError('Confirm your password.');
+        raiseError('Confirm your password.', 'validation');
         return;
       }
       if (password !== passwordConfirm) {
-        setError('Passwords do not match.');
+        raiseError('Passwords do not match.', 'validation');
         return;
       }
     }
+    // No backend configured: continue smoothly through the local demo
+    // (preview) bypass instead of dead-ending or throwing. This ONLY ever
+    // fires when Supabase is entirely unconfigured — a configured-but-
+    // unreachable backend still requires real credentials.
     if (!isSupabaseConfigured) {
-      setError(
+      if (isDemoAuthBypassAvailable()) {
+        setError(null);
+        setErrorKind(null);
+        if (isCustomer) {
+          setNotice(demoAuthBypassNotice('customer'));
+          onClose();
+          return;
+        }
+        setNotice(demoAuthBypassNotice('owner'));
+        onClose();
+        enterDemoOwnerWorkspace();
+        return;
+      }
+      raiseError(
         supabaseConfigError || 'Authentication is not configured. Please set VITE_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY.',
+        'unconfigured',
       );
       return;
     }
 
-    setBusy(true);
+    setIsSubmitting(true);
     setError(null);
+    setErrorKind(null);
     setNotice(null);
 
     try {
       if (mode === 'login') {
-        const { error: err, needsConfirmation } = await signInWithPassword(mail, password);
-        setBusy(false);
+        const { error: err, kind, needsConfirmation } = await signInWithPassword(mail, password);
         if (err) {
+          setIsSubmitting(false);
           if (needsConfirmation) {
             // Account exists but the email link was never clicked — switch to
             // the confirmation panel with a resend option instead of the raw
             // "Email not confirmed" error.
             setError(null);
+            setErrorKind(null);
             setNotice(null);
             setUnconfirmedEmail(mail);
             return;
           }
-          setError(err);
+          raiseError(err, kind);
           return;
         }
         setPassword('');
         setPasswordConfirm('');
         if (!isCustomer) {
+          // Owner provisioning runs while the form stays locked
+          // (isSubmitting remains true until the flow completes or fails).
           const session = await completeOwnerAuthSession();
           if ('error' in session) {
-            setError(session.error);
+            setIsSubmitting(false);
+            raiseError(session.error, 'server');
             return;
           }
         }
         onSignedIn?.();
         onClose();
+        setIsSubmitting(false);
         // A public customer remains on the salon/booking journey. Owner entry
         // points alone hydrate/provision and navigate to the owner workspace.
         if (!isCustomer) await navigateAfterOwnerAuth();
         return;
       }
 
-      const { error: err, needsConfirmation } = await signUpWithPassword(mail, password, {
+      const { error: err, kind, needsConfirmation } = await signUpWithPassword(mail, password, {
         accountIntent,
         returnTo,
       });
-      setBusy(false);
       if (err) {
-        setError(err);
+        setIsSubmitting(false);
+        raiseError(err, kind);
         return;
       }
 
@@ -285,7 +377,9 @@ export default function LoginModal({
       if (needsConfirmation) {
         // Account created — Supabase emailed a confirmation link. Guide the
         // user through confirming instead of dropping them at a dead end.
+        setIsSubmitting(false);
         setError(null);
+        setErrorKind(null);
         setNotice(null);
         setUnconfirmedEmail(mail);
         setMode('login');
@@ -296,16 +390,21 @@ export default function LoginModal({
         // this user's metadata and otherwise uses the neutral “My Salon”.
         const session = await completeOwnerAuthSession();
         if ('error' in session) {
-          setError(session.error);
+          setIsSubmitting(false);
+          raiseError(session.error, 'server');
           return;
         }
       }
       onSignedIn?.();
       onClose();
+      setIsSubmitting(false);
       if (!isCustomer) await navigateAfterOwnerAuth();
     } catch (err: any) {
-      setBusy(false);
-      setError(err?.message || 'An unexpected error occurred. Please try again.');
+      setIsSubmitting(false);
+      const message = /fetch|network/i.test(err?.message || '')
+        ? 'Unable to connect. Please check your connection and try again.'
+        : err?.message || 'An unexpected error occurred. Please try again.';
+      raiseError(message, /fetch|network/i.test(err?.message || '') ? 'network' : 'server');
     }
   };
 
@@ -444,7 +543,9 @@ export default function LoginModal({
             type="button"
             data-testid="auth-login-tab"
             onClick={() => switchMode('login')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+            disabled={isSubmitting}
+            aria-pressed={isLogin}
+            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 ${
               isLogin
                 ? 'bg-white text-[#ac0053] shadow-xs'
                 : 'text-gray-600 hover:text-gray-900'
@@ -457,7 +558,9 @@ export default function LoginModal({
             type="button"
             data-testid="auth-signup-tab"
             onClick={() => switchMode('signup')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+            disabled={isSubmitting}
+            aria-pressed={!isLogin}
+            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 ${
               !isLogin
                 ? 'bg-white text-[#ac0053] shadow-xs'
                 : 'text-gray-600 hover:text-gray-900'
@@ -468,11 +571,11 @@ export default function LoginModal({
           </button>
         </div>
 
-        {import.meta.env.VITE_GOOGLE_OAUTH_ENABLED === 'true' && (
+        {modalEnv.VITE_GOOGLE_OAUTH_ENABLED === 'true' && (
           <button
             type="button"
             onClick={() => void handleGoogle()}
-            disabled={busy || !isSupabaseConfigured}
+            disabled={isSubmitting || !isSupabaseConfigured}
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Continue with Google
@@ -491,6 +594,9 @@ export default function LoginModal({
               <p className="mt-0.5 text-amber-800">
                 Authentication form is ready, but Supabase is not connected. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart the app.
               </p>
+              <p className="mt-0.5 text-amber-800">
+                Until then you can still explore: submit the form to continue in local preview mode (no account is created).
+              </p>
             </div>
           </div>
         )}
@@ -500,6 +606,7 @@ export default function LoginModal({
           data-testid="auth-form"
           onSubmit={handleSubmit}
           className="mt-4 space-y-3.5"
+          aria-busy={isSubmitting}
           noValidate
         >
           <div>
@@ -518,9 +625,10 @@ export default function LoginModal({
                 data-testid="auth-email-input"
                 autoComplete="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => handleEmailChange(e.target.value)}
                 placeholder={isCustomer ? 'you@example.com' : 'you@salon.com'}
-                disabled={busy}
+                disabled={isSubmitting}
+                aria-invalid={Boolean(error)}
                 className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
               />
             </div>
@@ -538,7 +646,7 @@ export default function LoginModal({
                 <button
                   type="button"
                   onClick={() => void handlePasswordReset()}
-                  disabled={busy}
+                  disabled={isSubmitting}
                   className="text-[11px] font-semibold text-[#ac0053] hover:underline disabled:opacity-50"
                 >
                   Forgot password?
@@ -558,9 +666,10 @@ export default function LoginModal({
                 data-testid="auth-password-input"
                 autoComplete={isLogin ? 'current-password' : 'new-password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => handlePasswordChange(e.target.value)}
                 placeholder={isLogin ? 'Enter password' : 'At least 6 characters'}
-                disabled={busy}
+                disabled={isSubmitting}
+                aria-invalid={Boolean(error)}
                 className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-10 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
               />
               <button
@@ -595,9 +704,10 @@ export default function LoginModal({
                   data-testid="auth-password-confirm-input"
                   autoComplete="new-password"
                   value={passwordConfirm}
-                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  onChange={(e) => handlePasswordConfirmChange(e.target.value)}
                   placeholder="Re-enter password"
-                  disabled={busy}
+                  disabled={isSubmitting}
+                  aria-invalid={Boolean(error)}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-4 py-2.5 text-sm text-[#1a1c1c] outline-none transition-all placeholder:text-gray-400 focus:border-[#ac0053] focus:bg-white focus:ring-2 focus:ring-[#ffd9e1] disabled:opacity-60"
                 />
               </div>
@@ -615,10 +725,14 @@ export default function LoginModal({
             </div>
           )}
 
-          {/* Error banner */}
+          {/* Error banner — distinct wording per failure class (invalid
+              credentials vs network vs server) comes from classifyAuthError */}
           {error && (
             <div
               data-testid="auth-error-banner"
+              data-error-kind={errorKind || 'unknown'}
+              role="alert"
+              aria-live="assertive"
               className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800"
             >
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
@@ -626,14 +740,15 @@ export default function LoginModal({
             </div>
           )}
 
-          {/* Submit button */}
+          {/* Submit button — locked for the whole request lifecycle */}
           <button
             type="submit"
             data-testid="auth-submit-btn"
-            disabled={busy}
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#ac0053] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#ba005b] shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy ? (
+            {isSubmitting ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span>Please wait...</span>
@@ -657,7 +772,8 @@ export default function LoginModal({
               type="button"
               data-testid="auth-switch-mode-btn"
               onClick={() => switchMode(isLogin ? 'signup' : 'login')}
-              className="text-xs text-gray-500 hover:text-[#ac0053] transition-colors"
+              disabled={isSubmitting}
+              className="text-xs text-gray-500 hover:text-[#ac0053] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLogin ? (
                 <>

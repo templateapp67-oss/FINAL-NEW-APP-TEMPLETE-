@@ -11,6 +11,7 @@ import { Lock, Scissors, ArrowRight } from 'lucide-react';
 import { useAuth } from '../lib/useAuth';
 import { useAuthModal } from './AuthModalProvider';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { isDemoAuthBypassAvailable, enterDemoOwnerWorkspace } from '../lib/demoAuth';
 import {
   getAuthRedirectOrigin,
   normalizeAuthIntent,
@@ -104,7 +105,35 @@ export default function AuthLoginPage() {
               <Lock className="h-4 w-4" /> Open log in
             </button>
           )
-        ) : null}
+        ) : (
+          /* No backend configured: never a dead end. Offer the same local
+             preview bypass the protected routes use (ProtectedApp renders
+             the app without an auth gate in this exact case). This never
+             fires for a configured-but-unreachable backend. */
+          isDemoAuthBypassAvailable() ? (
+            <>
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+                Supabase is not connected, so real accounts are unavailable
+                here. You can still explore the {isCustomer ? 'salon experience' : 'workspace'} in
+                local preview mode.
+              </p>
+              <button
+                data-testid="auth-login-page-demo-btn"
+                onClick={() => {
+                  if (isCustomer) {
+                    window.location.assign(context.next || '/');
+                    return;
+                  }
+                  enterDemoOwnerWorkspace();
+                }}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#ac0053] px-5 py-2.5 text-sm font-semibold text-white"
+              >
+                <ArrowRight className="h-4 w-4" />
+                {isCustomer ? 'Continue in preview mode' : 'Open workspace preview'}
+              </button>
+            </>
+          ) : null
+        )}
         <a
           href={isCustomer ? `${context.next}#book` : '/signup'}
           className="mt-3 block text-sm font-semibold text-[#ac0053]"

@@ -113,9 +113,9 @@ await db.exec(`
   $$;
 
   insert into public.salons (id, organization_id, name)
-    values ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 'Royal Hair & Beauty Studio');
+    values ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 'Nexora Demo Salon');
   insert into public.salon_public_websites (salon_id, slug, is_published, published_at)
-    values ('11111111-1111-4111-8111-111111111111', 'royal-hair-studio', true, now());
+    values ('11111111-1111-4111-8111-111111111111', 'nexora-demo-salon', true, now());
   insert into public.services (id, salon_id, name, price_paise, duration_minutes, is_active, is_featured, display_order)
     values ('33333333-3333-4333-8333-333333333333', '11111111-1111-4111-8111-111111111111', 'Haircut & Blow-Dry Styling', 35000, 30, true, true, 1);
   insert into public.services (id, salon_id, name, price_paise, duration_minutes, is_active, is_featured, display_order)
@@ -183,23 +183,23 @@ await test('RLS enabled, deny-by-default (no client policies)', async () => {
 await test('rejects when not service_role', async () => {
   await db.exec(`select set_config('nexora.role', 'anon', false)`);
   await expectError(() => callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: null,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: null,
     p_appointment_date: FUTURE, p_start_time: '10:00', p_customer_name: 'A', p_customer_phone: '9876543210',
   }), '42501');
   await db.exec(`select set_config('nexora.role', 'service_role', false)`);
 });
 
 await test('rejects unpublished salon (P0002)', async () => {
-  await db.exec(`update public.salon_public_websites set is_published = false where slug = 'royal-hair-studio'`);
+  await db.exec(`update public.salon_public_websites set is_published = false where slug = 'nexora-demo-salon'`);
   await expectError(() => callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: null,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: null,
     p_appointment_date: FUTURE, p_start_time: '10:00', p_customer_name: 'Aisha', p_customer_phone: '+91 98765 43210',
   }), 'P0002');
-  await db.exec(`update public.salon_public_websites set is_published = true where slug = 'royal-hair-studio'`);
+  await db.exec(`update public.salon_public_websites set is_published = true where slug = 'nexora-demo-salon'`);
 });
 
 await test('rejects unknown service / bad phone / past date', async () => {
-  const base = { p_salon_slug: 'royal-hair-studio', p_staff_id: null, p_start_time: '10:00', p_customer_name: 'Aisha' };
+  const base = { p_salon_slug: 'nexora-demo-salon', p_staff_id: null, p_start_time: '10:00', p_customer_name: 'Aisha' };
   await expectError(() => callCreateBooking({
     ...base, p_service_id: '99999999-9999-4999-8999-999999999999',
     p_appointment_date: FUTURE, p_customer_phone: '9876543210',
@@ -214,7 +214,7 @@ await test('rejects unknown service / bad phone / past date', async () => {
 
 await test('rejects unknown stylist (P0002)', async () => {
   await expectError(() => callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: '55555555-5555-4555-8555-555555555555',
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: '55555555-5555-4555-8555-555555555555',
     p_appointment_date: FUTURE, p_start_time: '10:00', p_customer_name: 'Aisha', p_customer_phone: '9876543210',
   }), 'P0002');
 });
@@ -222,7 +222,7 @@ await test('rejects unknown stylist (P0002)', async () => {
 let created;
 await test('creates a guest booking with server-priced snapshot + NX- reference', async () => {
   const rows = await callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: STAFF_ID,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: STAFF_ID,
     p_appointment_date: FUTURE, p_start_time: '10:00', p_customer_name: 'Aisha Verma',
     p_customer_phone: '+91 98765 43210', p_customer_email: 'aisha@example.com', p_note: 'near the college',
   });
@@ -242,14 +242,14 @@ await test('creates a guest booking with server-priced snapshot + NX- reference'
 
 await test('same slot conflicts (23P01)', async () => {
   await expectError(() => callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: null,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: null,
     p_appointment_date: FUTURE, p_start_time: '10:15', p_customer_name: 'B', p_customer_phone: '9876500000',
   }), '23P01');
 });
 
 await test('non-overlapping slot on the same day succeeds', async () => {
   const rows = await callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: null,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: null,
     p_appointment_date: FUTURE, p_start_time: '14:00', p_customer_name: 'B K', p_customer_phone: '9876500000',
   });
   assert.equal(rows.length, 1);
@@ -262,7 +262,7 @@ await test('canonical bookings also block slots (cross-system conflict)', async 
     values ($1, $2::date::timestamp + '12:30'::interval, $2::date::timestamp + '13:00'::interval, 'confirmed')`,
     [SALON_ID, FUTURE]);
   await expectError(() => callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: SERVICE_ID, p_staff_id: null,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: SERVICE_ID, p_staff_id: null,
     p_appointment_date: FUTURE, p_start_time: '18:00', p_customer_name: 'C', p_customer_phone: '9876511111',
   }), '23P01');
 });
@@ -271,7 +271,7 @@ await test('late slot that overflows closing time is rejected', async () => {
   // 45-min service starting at 23:30 wraps past midnight → end <= start.
   const spaService = '33333333-3333-4333-8333-333333333334';
   await expectError(() => callCreateBooking({
-    p_salon_slug: 'royal-hair-studio', p_service_id: spaService, p_staff_id: null,
+    p_salon_slug: 'nexora-demo-salon', p_service_id: spaService, p_staff_id: null,
     p_appointment_date: FUTURE, p_start_time: '23:30', p_customer_name: 'D', p_customer_phone: '9876522222',
   }), '22023');
 });

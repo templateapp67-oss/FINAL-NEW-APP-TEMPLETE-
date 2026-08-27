@@ -252,11 +252,11 @@ const asRole = async (role, uid, fn) => {
 let row;
 await asRole('authenticated', ids.ownerA, async () => {
   const res = await db.query(
-    `select * from public.provision_owner_salon('Royal Hair Studio','royal-hair-studio','beauty_skin_spa')`,
+    `select * from public.provision_owner_salon('Nexora Demo Salon','nexora-demo-salon','beauty_skin_spa')`,
   );
   row = res.rows[0];
 });
-assert.equal(row.out_slug, 'royal-hair-studio');
+assert.equal(row.out_slug, 'nexora-demo-salon');
 assert.equal(row.out_template_id, 'beauty_skin_spa');
 assert.equal(row.out_is_published, true);
 assert.equal(row.out_already_existed, false);
@@ -266,7 +266,7 @@ ok('provisioning creates a PUBLISHED website at the requested slug');
 const counts = (await db.query(`
   select
     (select count(*)::int from public.organization_members where user_id=$1 and role='owner')::int as is_owner,
-    (select count(*)::int from public.salon_public_websites where slug='royal-hair-studio' and is_published)::int as live
+    (select count(*)::int from public.salon_public_websites where slug='nexora-demo-salon' and is_published)::int as live
 `, [ids.ownerA])).rows[0];
 assert.equal(counts.is_owner, 1);
 assert.equal(counts.live, 1);
@@ -276,7 +276,7 @@ ok('owner membership + published salon_public_websites row exist');
 let again;
 await asRole('authenticated', ids.ownerA, async () => {
   const res = await db.query(
-    `select * from public.provision_owner_salon('Different Name','royal-hair-studio','nail_lash_studio')`,
+    `select * from public.provision_owner_salon('Different Name','nexora-demo-salon','nail_lash_studio')`,
   );
   again = res.rows[0];
 });
@@ -290,7 +290,7 @@ ok('re-provisioning is idempotent (no duplicate org/slug; template unchanged)');
 // 3. Slug uniqueness — B cannot steal A's slug.
 await asRole('authenticated', ids.ownerB, async () => {
   await assert.rejects(
-    () => db.query(`select * from public.provision_owner_salon('Copy','royal-hair-studio','barber_mens_grooming')`),
+    () => db.query(`select * from public.provision_owner_salon('Copy','nexora-demo-salon','barber_mens_grooming')`),
     /already in use|23505/i,
   );
 });
@@ -316,7 +316,7 @@ await db.query(
 );
 await db.query(
   `insert into public.business_locations (salon_id,name,address_line1,city,latitude,longitude)
-   values ($1,'Royal Hair Studio — Bandra','12 Lake Road','Mumbai',19.0600,72.8300)`,
+   values ($1,'Nexora Demo Salon — Bandra','12 Lake Road','Mumbai',19.0600,72.8300)`,
   [row.out_salon_id],
 );
 const serviceId = (await db.query(
@@ -478,7 +478,7 @@ ok('visual-config RPC accepts only presentation keys and preserves every protect
 let anonRow;
 await asRole('anon', '', async () => {
   const res = await db.query(
-    `select slug, template_key from public.salon_public_websites where slug='royal-hair-studio' and is_published=true`,
+    `select slug, template_key from public.salon_public_websites where slug='nexora-demo-salon' and is_published=true`,
   );
   anonRow = res.rows[0];
 });

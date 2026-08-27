@@ -55,6 +55,7 @@ import {
   logWorkspaceFailure,
   workspaceUserMessage,
   WorkspaceInitializationError,
+  type WorkspaceDiagnostic,
 } from './lib/workspaceDiagnostics';
 import {
   MAX_OWNER_STEP_INDEX,
@@ -172,6 +173,10 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [backendHydratedUser, setBackendHydratedUser] = useState<string | null>(null);
   const [ambiguousSalonIds, setAmbiguousSalonIds] = useState<string[] | null>(null);
   const [ownerHydrationError, setOwnerHydrationError] = useState('');
+  // Structured, token-redacted diagnostic of the last workspace failure.
+  // Shown collapsed on the error screen so a failure is diagnosable from one
+  // login attempt without opening DevTools.
+  const [ownerHydrationDiagnostic, setOwnerHydrationDiagnostic] = useState<WorkspaceDiagnostic | null>(null);
   const [ownerHydrationRetry, setOwnerHydrationRetry] = useState(0);
   const templateSwitchQueue = useRef<Promise<void>>(Promise.resolve());
   const latestData = useRef(data);
@@ -226,6 +231,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     backendHydratedFor.current = user.id;
     setBackendHydratedUser(null);
     setOwnerHydrationError('');
+    setOwnerHydrationDiagnostic(null);
     setData(emptyOwnerSalonData());
 
     let active = true;
@@ -316,6 +322,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         return;
       }
       if (!(error instanceof WorkspaceInitializationError)) logWorkspaceFailure(diagnostic);
+      setOwnerHydrationDiagnostic(diagnostic);
       setOwnerHydrationError(
         error instanceof WorkspaceInitializationError
           ? error.message
@@ -663,12 +670,35 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
                   setBackendHydratedUser(null);
                   setAmbiguousSalonIds(null);
                   setOwnerHydrationError('');
+                  setOwnerHydrationDiagnostic(null);
                   setOwnerHydrationRetry((current) => current + 1);
                 }}
                 className="mt-5 rounded-xl bg-[#ac0053] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#8d0044]"
               >
                 Try again
               </button>
+              {ownerHydrationDiagnostic && (
+                <details
+                  data-testid="owner-workspace-diagnostic"
+                  className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-left"
+                >
+                  <summary className="cursor-pointer text-[11px] font-semibold text-gray-500">
+                    Technical details (share with support)
+                  </summary>
+                  <dl className="mt-2 space-y-1 break-words text-[11px] leading-relaxed text-gray-600">
+                    <div><dt className="inline font-semibold">code: </dt><dd className="inline">{ownerHydrationDiagnostic.code || '—'}</dd></div>
+                    <div><dt className="inline font-semibold">stage: </dt><dd className="inline">{ownerHydrationDiagnostic.stage}</dd></div>
+                    <div><dt className="inline font-semibold">operation: </dt><dd className="inline">{ownerHydrationDiagnostic.operation}</dd></div>
+                    <div><dt className="inline font-semibold">message: </dt><dd className="inline">{ownerHydrationDiagnostic.message || '—'}</dd></div>
+                    {ownerHydrationDiagnostic.hint && (
+                      <div><dt className="inline font-semibold">hint: </dt><dd className="inline">{ownerHydrationDiagnostic.hint}</dd></div>
+                    )}
+                    {ownerHydrationDiagnostic.details && (
+                      <div><dt className="inline font-semibold">details: </dt><dd className="inline">{ownerHydrationDiagnostic.details}</dd></div>
+                    )}
+                  </dl>
+                </details>
+              )}
             </>
           ) : (
             <>

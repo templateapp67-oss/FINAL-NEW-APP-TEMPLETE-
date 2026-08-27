@@ -430,6 +430,12 @@ function sanitizeProvisionError(message: string | undefined, code?: string): str
   if (/3.{0,3}60|lowercase|hyphen|characters/.test(msg)) {
     return 'Website address must be 3–60 lowercase letters, numbers or hyphens.';
   }
+  if (/invalid or expired invitation|invitation/.test(msg)) {
+    return 'The workspace invitation is invalid or expired.';
+  }
+  if (/already a member/.test(msg)) {
+    return 'You are already a member of this workspace.';
+  }
   // Deterministic backend faults (missing column/constraint, undefined
   // function, permission) can NEVER be fixed by the owner pressing "Try
   // again", so we must not tell them to. Surfaced as a support-path message

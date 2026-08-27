@@ -119,6 +119,15 @@ export function workspaceUserMessage(diagnostic: WorkspaceDiagnostic): string {
   if (code === 'P0003' || /multiple (salons|businesses)/.test(raw)) {
     return 'Multiple salons are linked to this account. Please contact support so we can select the canonical workspace.';
   }
+  if (code === 'P0001' || /server-activated invitation|invalid or expired invitation|already a member/.test(raw)) {
+    if (/already a member/.test(raw)) {
+      return 'You are already a member of this workspace.';
+    }
+    if (/invitation/.test(raw)) {
+      return 'The workspace invitation is invalid, expired, or requires server activation.';
+    }
+    return 'The workspace operation was rejected by server-side validation.';
+  }
   if (code === '42501' || code === 'PGRST301' || /permission denied|not have permission|forbidden/.test(raw)) {
     return 'Your account is authenticated, but it is not authorized to read this salon workspace. Please contact support.';
   }

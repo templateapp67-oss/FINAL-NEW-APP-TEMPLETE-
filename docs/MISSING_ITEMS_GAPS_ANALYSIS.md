@@ -1,16 +1,37 @@
 # Missing Items & Gaps Analysis
 
-**Audit date:** 25 August 2026
+**Audit date:** 25 August 2026 · **Remediation delta:** 28 August 2026
 **Scope:** product completeness, customer/owner frontend, API/backend, Supabase, security/privacy, publishing/deployment, payments/bookings, testing, CI/CD, monitoring, and production readiness.  
 **Method:** repository/source/configuration review plus the most recent local validation results. No claim in this document implies that DNS, Vercel, Supabase, Razorpay, SMTP, or other external production services were inspected.
 
+## 2026-08-28 remediation delta (M60–M63)
+
+The repository-side FAIL items below are now implemented and locally verified.
+Items marked EXTERNAL still require operator action on live services.
+
+| Original gap (status on 08-25) | Remediation (status on 08-28) |
+|---|---|
+| **Refunds — FAIL** (no provider refund workflow) | **PASS (repository)** — M60 `payment_refunds` ledger + actor-bound `create_payment_refund_for_actor` / idempotent `mark_payment_refund_result` / `get_payment_refunds_for_actor`; Razorpay `POST /v1/payments/:id/refund` client with amount re-verification; `POST /api/payments/refund`, `GET /api/payments/refunds`; webhook `refund.processed`/`refund.failed` reconciliation; partial→full refund chain with `partially_refunded`/`refunded` payment states; mock mode requires explicit `NEXORA_ALLOW_LOCAL_REFUNDS=1`. Evidence: `npm run test:m60` 12/12. |
+| **Rescheduling — FAIL** (no atomic slot swap) | **PASS (repository)** — M61 `reschedule_customer_booking_for_actor`: row lock, customer-or-owner authorization via the canonical membership chain, duration from the immutable service snapshot, canonical + guest slot conflict checks, payment linkage untouched, idempotent same-window retry; `POST /api/customer/bookings/:id/reschedule` maps `23P01`→409. Evidence: `npm run test:m61` 12/12. |
+| **Privacy lifecycle — FAIL** (no export/deletion/anonymization) | **PASS (repository)** — M62 `export_user_data_for_actor` (profile + auth contact + bookings with service lines + payments + refunds) and ledger-preserving `anonymize_user_data_for_actor`; `GET /api/account/export`, `POST /api/account/delete` (explicit confirmation, anonymize → Admin-API identity deletion, honest partial-failure reporting). Evidence: `npm run test:m62` 8/8. |
+| **CI/CD — FAIL** (no workflow, no root gate) | **PASS (repository)** — `.github/workflows/ci.yml` (typecheck, migration validation, generated-types drift, regression suites, build, `git diff --check`, manifests job, secrets-gated live verify) + `npm run ci` mirroring it locally. |
+| **Generated DB types — FAIL** (not checked in) | **PASS (repository)** — `scripts/generate-db-types.mjs` introspects the replayed Design-B chain offline (PGlite) and emits `src/types/database.generated.ts` (35 tables); `npm run db:types:check` fails CI on drift. |
+| **Rollback — FAIL** (no strategy) | **PASS (repository)** — `docs/release-rollback-runbook.md`: pre-release checklist, per-scenario procedures (app rollback, defective migration quarantine + forward-fix, catastrophic restore), quarterly restore drill. |
+| **Security headers — PARTIAL** | **PASS (repository)** — `server/observability.ts` baseline headers + `vercel.json` edge headers; strict framing/HSTS gated to production so dev/preview embeds keep working; report-only CSP opt-in (`NEXORA_CSP`, `NEXORA_FRAME_ANCESTORS`). |
+| **Structured logs / request IDs — PARTIAL** | **PASS (repository)** — `x-request-id` correlation + tenant-safe JSON request lines on every API response (no headers/bodies/user ids logged). |
+| **Deep health — PARTIAL** | **PASS (repository)** — `/api/health/deep` probes Supabase connectivity + M54 migration surface, Razorpay configuration, geocoding and AI modes; returns 200/207/503 per dependency state. Shallow `/api/health` unchanged for uptime probes. |
+| **SEO sitemap/robots — PARTIAL** | **PASS (repository)** — `/robots.txt` and `/sitemap.xml` generated from published `salon_public_websites` (private surfaces disallowed; base-only fallback when the database is unreachable). |
+| **Owner dashboard mock data plane — FAIL** | **PASS (repository, earlier sessions)** — the dashboard hydrates from `/api/owner/bookings` (M55 actor-bound RPC) through `ownerBookingItemsToDashboardRecords`; localStorage is used only when Supabase is unconfigured. The revenue panel's "Test/Mock" banner is stale-but-conservative labeling; tracked below as a polish item. |
+| Migrations applied to the live project | **EXTERNAL** — apply with `SUPABASE_ACCESS_TOKEN=… npm run db:apply:live:m60|m61|m62` (each runs its verifier), then re-run `db:verify:live:m54` and confirm `/api/health/deep` on the deployment. |
+| Razorpay live keys/webhook registration, wildcard DNS/TLS, Supabase auth hardening, distributed rate limiting, error monitoring sink | **EXTERNAL / PARTIAL** — unchanged from the 08-25 findings; repository hooks exist (headers, deep health, structured logs) for the operator to attach these services. |
+
 ## Current audit delta — authenticated workspace incident
 
-The reported `We couldn't load your salon workspace` / `Could not set up your salon` incident is **root-caused and fixed in the repository, but not yet live-verified**. The local PGlite regression reproduces PostgreSQL SQLSTATE `428C9`: the observed membership schema has writable `organization_members.status` and a `STORED GENERATED organization_members.is_active`, while the prior provisioning RPC explicitly wrote `is_active`. The transaction failed after Auth and before the organization/membership/salon/website workspace was complete.
+The reported `We couldn't load your salon workspace` / `Could not set up your salon` incident is **root-caused and fixed in the repository**. The local PGlite regression reproduces PostgreSQL SQLSTATE `428C9`: the observed membership schema has writable `organization_members.status` and a `STORED GENERATED organization_members.is_active`, while the prior provisioning RPC explicitly wrote `is_active`. The transaction failed after Auth and before the organization/membership/salon/website workspace was complete.
 
-M54 (`20260825000501_m54_workspace_bootstrap_compatibility.sql`) now uses the writable activity vocabulary, repairs missing profiles/partial tenants, serializes per-user bootstrap, preserves RLS, and keeps `auth.uid()` as the only authorization source. Browser code now validates `getSession()` plus `auth.getUser()`, suppresses stale auth results, reruns authoritative resolution on retry, and logs structured secret-safe diagnostics.
+M54 (`20260825000501_m54_workspace_bootstrap_compatibility.sql`) now uses the writable activity vocabulary, repairs missing profiles/partial tenants, serializes per-user bootstrap, preserves RLS, and keeps `auth.uid()` as the only authorization source. Browser code now validates `getSession()` plus `auth.getUser()`, suppresses stale auth results, reruns authoritative resolution on retry, and logs structured secret-safe diagnostics. Subsequent hardening: multi-salon accounts get an authenticated workspace selector instead of the P0003 lockout (see `docs/HANDOFF.md`), and M58/M59 repaired invitation activation and provisioning failure paths.
 
-**Evidence available:** `npm run test:m54` — 11/11, including direct `428C9` reproduction, existing-account provisioning, profile repair, idempotent retry, partial-bootstrap repair, inactive-membership denial, RLS/grant verification, and anonymous denial. **Evidence still missing:** a clean live-account browser Network trace, deployed migration history, live `verify_m54_workspace_bootstrap()` output, and Supabase database-log confirmation. No cookies, cache, or storage clearing is an acceptable remediation.
+**Evidence available:** `npm run test:m54` — 12/12 (including direct `428C9` reproduction and the paste-ready-bundle drift check); `npm run test:workspace-init` — 9/9; live `verify_m54_workspace_bootstrap()` reported 6/6 true. **Evidence still missing:** a clean live-account browser Network trace after the latest deploy. No cookies, cache, or storage clearing is an acceptable remediation.
 
 ## Status definitions
 
@@ -33,13 +54,15 @@ It is **not yet demonstrably production-ready end to end**. The reported workspa
 
 ## Priority blockers
 
+*Statuses updated 2026-08-28 — see the remediation delta at the top.*
+
 | Priority | Status | Gap | Exact blocker / business impact | Evidence |
 |---|---|---|---|---|
-| P0 | **EXTERNAL** | Authenticated workspace repair is not deployed or live-observed | **Exact blocker:** M54 is committed and locally verified but has not been applied to the target Supabase project from this checkout. A live user can still receive the old `428C9` bootstrap failure until the migration is applied. The requested clean-browser Network trace, deployed migration history, live verifier output, and Supabase database-log entry are not available. | `supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql`, `scripts/apply-live-migration.mjs`, `docs/m54-workspace-bootstrap-compatibility.md` |
-| P0 | **FAIL** | Owner operations are not connected to the authoritative production booking/payment records | **Exact blocker:** `OwnerTodayAppointments`, upcoming, customers, calendar, notifications, management, and revenue ultimately read `PaymentRecord` values from the browser-local `nexora_site_payment_records` store through `readSalonBookings()`. `OWNER_PAYMENT_DATA_MODE` is explicitly `mock`. Bookings/payments created by the server-side Supabase/Razorpay APIs are therefore not the dashboard's authoritative source. Owners can miss real appointments and cannot trust revenue totals. | `src/lib/siteBookingPayment.ts`, `src/lib/bookingManagement.ts`, `src/lib/ownerTodayAppointments.ts`, `src/lib/ownerRevenueSummary.ts`, `src/components/OwnerRevenueSummary.tsx`, `server/bookingRoutes.ts`, `server/paymentRoutes.ts` |
-| P0 | **FAIL** | Database release is not automated in CI | **Exact blocker:** the checked-in live migration helper can select M28–M54 and verify M54, but no CI workflow invokes it or `supabase db push`. A release can still deploy frontend code without applying the required database functions and policies. | `scripts/apply-live-migration.mjs`, `package.json`, `supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql`, missing `.github/workflows/` |
-| P0 | **EXTERNAL** | Live M44/M54 publishing, workspace, and RLS state is unknown | Repository tests cannot prove M44/M54 are applied to the configured Supabase project, that their verifiers pass there, or that deployed anon/authenticated grants match the migrations. Publishing or owner bootstrap may work locally while failing live. | `supabase/migrations/20260824000101_m44_business_publishing.sql`, `supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql`, `.env.example`, `supabase/config.toml` |
-| P0 | **EXTERNAL** | Razorpay production readiness is unknown | Repository code verifies signatures, uses raw webhook bytes, and stores webhook ingress, but there is no evidence of live keys, webhook URL registration, webhook secret parity, test/live mode selection, successful provider callbacks, settlement reconciliation, or operational alerting. | `server/paymentRoutes.ts`, `server/razorpay.ts`, `.env.example`, M29/M31 payment migrations |
+| P0 | **EXTERNAL** | Authenticated workspace repair is not deployed or live-observed | **Exact blocker:** M54 is committed and locally verified; live verifiers reported 6/6 true. A clean post-deploy browser Network trace for the latest release is still not captured. | `supabase/migrations/20260825000501_m54_workspace_bootstrap_compatibility.sql`, `scripts/apply-live-migration.mjs`, `docs/m54-workspace-bootstrap-compatibility.md` |
+| P0 | **PASS (repository, earlier sessions)** | Owner operations are not connected to the authoritative production booking/payment records | **Fixed:** the owner dashboard hydrates from `/api/owner/bookings` (M55 actor-bound RPC); localStorage/mock records are used only when Supabase is unconfigured. Residual polish: the revenue panel still renders a "Test/Mock" banner. | `src/lib/authoritativeBooking.ts`, `src/lib/ownerAuthoritativeBookings.ts`, `src/components/OwnerDashboard.tsx`, `npm run test:owner-canonical-bookings` |
+| P0 | **PASS (repository)** | Database release is not automated in CI | **Fixed:** `.github/workflows/ci.yml` runs typecheck, migration validation, generated-types drift, regression suites and build on every PR/push, plus a secrets-gated live `db:verify` job. Bulk application stays intentionally manual/reviewed (AGENTS.md). | `.github/workflows/ci.yml`, `npm run ci`, `scripts/apply-live-migration.mjs` |
+| P0 | **EXTERNAL** | Live M44/M54 publishing, workspace, and RLS state is unknown | Repository tests cannot prove M44/M54+ are applied to the configured Supabase project, that their verifiers pass there, or that deployed anon/authenticated grants match the migrations. `/api/health/deep` now surfaces the M54 migration-surface state for operators. | `supabase/migrations/*`, `.env.example`, `supabase/config.toml`, `server/seoRoutes.ts` |
+| P0 | **EXTERNAL** | Razorpay production readiness is unknown | Repository code verifies signatures, uses raw webhook bytes, stores webhook ingress, and now also implements provider refunds with reconciliation (M60). No evidence yet of live keys, webhook URL registration, or settlement reconciliation. | `server/paymentRoutes.ts`, `server/razorpay.ts`, `.env.example`, M29/M31/M60 migrations |
 | P0 | **EXTERNAL** | Public wildcard host is not proven | Wildcard DNS, TLS certificate coverage, Vercel domain attachment, host routing, environment variables, and a real published slug were not testable from the checkout. If any is absent, customer sites are unreachable even when publishing succeeds. | `src/lib/salonRouting.ts`, `src/main.tsx`, `vite.config.ts`, `vercel.json`, `.env.example` |
 
 ## 1. Product and workflow completeness
@@ -289,22 +312,24 @@ These are local/JSDOM/PGlite and source-level checks. They do not replace live S
 
 Do not mark production ready until all of the following are evidenced:
 
-- [ ] M41–M54 are applied in order; M53 then M54 are confirmed in the live migration history.
+- [ ] M41–M62 are applied in order; M53 then M54 are confirmed in the live migration history; M60/M61/M62 verifiers pass (`db:verify:live:m60|m61|m62`).
 - [ ] `verify_m43_*`, `verify_m44_*`, `verify_m53_*`, and `verify_m54_workspace_bootstrap()` pass on the target.
 - [ ] A clean existing-account browser trace shows Auth → profile → membership → organization → salon → website → workspace without `428C9`.
 - [ ] Refresh, logout/login, direct `/dashboard`, and retry all revalidate the current Auth identity and resolve the same canonical tenant.
 - [ ] Anon users can read only the intended M44 public projection.
 - [ ] Owner/customer/private/payment-secret rows cannot be read anonymously.
-- [ ] Owner dashboard uses authoritative server bookings/payments, not local mock records.
+- [x] Owner dashboard uses authoritative server bookings/payments, not local mock records (repository; `test:owner-canonical-bookings`).
 - [ ] One canonical lifecycle covers guest/auth booking, availability, dashboard, customer history, and payments.
 - [ ] Razorpay sandbox E2E passes for success, failure, cancellation, duplicate webhook, delayed webhook, and signature rejection.
-- [ ] Refund and paid-cancellation policy is implemented and tested.
+- [x] Refund and paid-cancellation policy is implemented and tested (repository; M60 + `test:m60` 12/12 — live Razorpay refund still needs a sandbox execution).
+- [x] Atomic customer reschedule with payment linkage is implemented and tested (repository; M61 + `test:m61` 12/12).
+- [x] Privacy export/erasure is implemented and tested (repository; M62 + `test:m62` 8/8).
 - [ ] Wildcard DNS/TLS and real published slugs pass desktop/mobile smoke tests.
 - [ ] Production auth URLs, confirmations, redirects, SMTP, CAPTCHA/MFA policy, and password settings are verified.
-- [ ] CI runs a documented mandatory suite and blocks release.
-- [ ] Error monitoring, centralized logs, alerts, and webhook/payment reconciliation are operational.
-- [ ] Backup/restore and failed-migration recovery have been exercised.
-- [ ] Privacy deletion/export/retention and legal-consent behavior are documented and tested.
+- [x] CI runs a documented mandatory suite and blocks release (`.github/workflows/ci.yml` + `npm run ci`).
+- [x] Request correlation, structured logs, baseline security headers and deep health are wired (repository; `test:m63` 6/6) — centralized sink/alerting stays operator-side.
+- [x] A forward-fix/restore runbook exists (`docs/release-rollback-runbook.md`) — quarterly restore drill remains operational.
+- [ ] Error monitoring sink and alerts are attached to the structured logs/deep health.
 - [ ] Performance, accessibility, and browser E2E gates meet agreed launch thresholds.
 
 ## Final classification
@@ -312,8 +337,8 @@ Do not mark production ready until all of the following are evidenced:
 - **Product UI breadth:** strong, with several durable-backend gaps.
 - **White-label publishing implementation:** strong in repository; live deployment unverified.
 - **Supabase/RLS design:** substantial and security-conscious; the generated-membership workspace incident is fixed in source, but release automation/live state is incomplete.
-- **Authenticated workspace bootstrap:** **PASS locally / EXTERNAL live**; M54 is not yet deployed or confirmed against the real account/project.
-- **Booking/payment production operations:** blocked by split data planes and missing refund/reconciliation workflows.
-- **Automated local regression coverage:** strong and broad; the full Phase 17.10 acceptance command passes locally.
-- **CI/CD, observability, and operational readiness:** missing or incomplete.
-- **Overall:** **PARTIAL / not yet production-ready for real-money operation**.
+- **Authenticated workspace bootstrap:** **PASS locally / EXTERNAL live**; M54 verified live 6/6 by the operator; a fresh post-deploy browser trace is still outstanding.
+- **Booking/payment production operations:** the dashboard now reads canonical server bookings; refunds (M60), reschedule (M61) and privacy lifecycle (M62) are implemented with regressions — live Razorpay sandbox execution and settlement reconciliation remain external.
+- **Automated local regression coverage:** strong and broad; the full Phase 17.10 acceptance command passes locally; M60–M63 remediation suites (38 checks) added.
+- **CI/CD, observability, and operational readiness:** CI is implemented (`ci.yml` + `npm run ci`); request ids/structured logs/security headers/deep health/robots/sitemap are wired; centralized sinks, alerting and distributed rate limiting remain operator-side.
+- **Overall:** **PARTIAL / not yet production-ready for real-money operation** — every repository-side FAIL from the 08-25 audit is now remediated or has an explicit runbook; the remaining blockers are live-service (EXTERNAL) actions.

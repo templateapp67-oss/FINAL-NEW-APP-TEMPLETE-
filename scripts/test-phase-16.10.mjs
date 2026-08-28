@@ -1304,6 +1304,7 @@ section('J. Static hygiene — no secrets, placeholder env, no invented stores')
       'nexora_offline_bookings', // legacy public site — offline booking fallback (per-salon suffix, never identity beyond name/phone the visitor typed)
       'nexora_owner_dashboard_section', // 17.1 — owner dashboard UI preference (never identity)
       'nexora_owner_salon_ids',
+      'nexora_active_workspace_salon_', // workspace selector — per-user active salon choice (prefix + user id; strictly validated against owner_salon_ids(), never a new authority)
       'nexora_referral_code', // referral system — captured ?ref= code (never identity)
       'nexora_referral_registry', // referral system — codes earned by the signed-in owner
       'nexora_service_form_draft',

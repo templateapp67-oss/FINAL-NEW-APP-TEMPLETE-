@@ -2,7 +2,9 @@ import type { Express, Request, Response } from 'express';
 import { getSupabaseAdmin, requireAuthenticatedUser } from './supabaseAdmin';
 import {
   createRazorpayOrder,
+  createRazorpayRefund,
   getRazorpayServerConfig,
+  isRazorpayProviderConfigured,
   verifyRazorpayPaymentSignature,
   verifyRazorpayWebhookSignature,
 } from './razorpay';
@@ -35,6 +37,146 @@ function rpcRow(value: unknown): Record<string, unknown> | null {
 }
 
 export function setupPaymentRoutes(app: Express): void {
+  /**
+   * M60 — owner-initiated refund. The actor must be the authenticated owner
+   * (or manager) of the payment's salon; authorization happens inside the
+   * actor-bound RPC, never from a request-supplied salon id. The amount is
+   * validated against the database ledger, executed at the provider when
+   * Razorpay keys are configured, and settled idempotently. Preview/test
+   * deployments without provider keys must opt in explicitly via
+   * NEXORA_ALLOW_LOCAL_REFUNDS so mock and real payment behavior can never be
+   * confused (audit gap §7).
+   */
+  app.post('/api/payments/refund', async (req: Request, res: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const paymentId = text(req.body?.paymentId);
+      const amountPaise = Number(req.body?.amountPaise);
+      const idempotencyKey = text(req.body?.idempotencyKey);
+      const reason = text(req.body?.reason).slice(0, 500) || null;
+
+      if (!UUID_PATTERN.test(paymentId)) {
+        return res.status(400).json({ error: 'A valid payment id is required.' });
+      }
+      if (!Number.isSafeInteger(amountPaise) || amountPaise <= 0) {
+        return res.status(400).json({ error: 'A positive refund amount (paise) is required.' });
+      }
+      if (!/^[A-Za-z0-9._:-]{16,128}$/.test(idempotencyKey)) {
+        return res.status(400).json({ error: 'A valid idempotency key is required.' });
+      }
+
+      const providerConfigured = isRazorpayProviderConfigured();
+      if (!providerConfigured && process.env.NEXORA_ALLOW_LOCAL_REFUNDS !== '1') {
+        return res.status(409).json({
+          error: 'Refunds require configured Razorpay credentials. Preview deployments can set NEXORA_ALLOW_LOCAL_REFUNDS=1 for deterministic local refunds.',
+        });
+      }
+
+      const admin = getSupabaseAdmin();
+      const { data: created, error: createError } = await admin.rpc('create_payment_refund_for_actor', {
+        p_actor_user_id: user.id,
+        p_payment_id: paymentId,
+        p_amount_paise: amountPaise,
+        p_idempotency_key: idempotencyKey,
+        p_reason: reason,
+      });
+      if (createError) throw createError;
+      const refundRow = rpcRow(created);
+      const refundId = text(refundRow?.refund_id);
+      if (!refundId) throw new Error('The refund RPC returned no refund id.');
+
+      // Already-settled idempotent replay: return the original state.
+      if (refundRow?.status === 'processed' || refundRow?.status === 'failed') {
+        return res.json({
+          refundId,
+          status: refundRow.status,
+          amountPaise: Number(refundRow.amount_paise),
+          providerRefundId: text(refundRow.provider_refund_id) || null,
+          reused: true,
+        });
+      }
+
+      let providerRefundId: string | null = null;
+      if (providerConfigured) {
+        const payment = await admin
+          .from('payments')
+          .select('provider_payment_id')
+          .eq('id', paymentId)
+          .maybeSingle();
+        const providerPaymentId = text(payment.data?.provider_payment_id);
+        if (!providerPaymentId) throw new Error('The payment has no provider payment id to refund.');
+        const providerRefund = await createRazorpayRefund({
+          providerPaymentId,
+          amountPaise,
+          notes: { payment_id: paymentId, refund_id: refundId },
+          receipt: `rfnd_${refundId.replaceAll('-', '').slice(0, 24)}`,
+        });
+        providerRefundId = providerRefund.id;
+      }
+
+      const { data: marked, error: markError } = await admin.rpc('mark_payment_refund_result', {
+        p_status: 'processed',
+        p_refund_id: refundId,
+        p_provider_refund_id: providerRefundId,
+        p_provider_response: null,
+      });
+      if (markError) throw markError;
+      const settled = rpcRow(marked);
+
+      return res.status(201).json({
+        refundId,
+        status: text(settled?.status) || 'processed',
+        paymentStatus: text(settled?.payment_status) || null,
+        amountPaise,
+        providerRefundId,
+        reused: false,
+      });
+    } catch (error) {
+      const message = publicError(error);
+      const code = (error as { code?: string })?.code;
+      const status = /Authentication is required|session/i.test(message) ? 401
+        : code === '42501' ? 403
+          : code === 'P0002' ? 404
+            : code === '22023' || /amount|payment id|idempotency|provider/i.test(message) ? 400 : 409;
+      return res.status(status).json({ error: message });
+    }
+  });
+
+  /** M60 — owner refund ledger read (actor-bound, salon-scoped). */
+  app.get('/api/payments/refunds', async (req: Request, res: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const bookingId = text(req.query.bookingId);
+      if (bookingId && !UUID_PATTERN.test(bookingId)) {
+        return res.status(400).json({ error: 'A valid booking id is required.' });
+      }
+      const { data, error } = await getSupabaseAdmin().rpc('get_payment_refunds_for_actor', {
+        p_actor_user_id: user.id,
+        p_booking_id: bookingId || null,
+      });
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : [];
+      return res.json({
+        refunds: rows.map((row: Record<string, unknown>) => ({
+          refundId: row.refund_id,
+          bookingId: row.booking_id,
+          paymentId: row.payment_id,
+          providerRefundId: row.provider_refund_id || null,
+          amountPaise: Number(row.amount_paise),
+          currency: row.currency,
+          status: row.status,
+          reason: row.reason || null,
+          createdAt: row.created_at,
+        })),
+      });
+    } catch (error) {
+      const message = publicError(error);
+      const status = /Authentication is required|session/i.test(message) ? 401 : 409;
+      return res.status(status).json({ error: message });
+    }
+  });
+
+
   /** Create a provider order from the database booking amount, never body amount. */
   app.post('/api/payments/razorpay/orders', async (req: Request, res: Response) => {
     try {
@@ -178,6 +320,7 @@ export function setupPaymentRoutes(app: Express): void {
       const paymentEntity = payload?.payload?.payment?.entity;
       const providerOrderId = text(paymentEntity?.order_id);
       const providerPaymentId = text(paymentEntity?.id);
+      const refundEntity = payload?.payload?.refund?.entity;
       if (eventType === 'payment.captured' && providerOrderId && providerPaymentId) {
         const { error: confirmError } = await admin.rpc('confirm_verified_razorpay_payment', {
           p_user_id: null,
@@ -194,6 +337,18 @@ export function setupPaymentRoutes(app: Express): void {
           p_reason: text(paymentEntity?.error_description) || null,
         });
         if (failureError) throw failureError;
+      } else if (
+        (eventType === 'refund.processed' || eventType === 'refund.failed')
+        && refundEntity && typeof refundEntity.id === 'string'
+      ) {
+        // M60 reconciliation: provider-settled refunds update the ledger by
+        // provider refund id, so replays and out-of-order events stay exact.
+        const { error: refundMarkError } = await admin.rpc('mark_payment_refund_result', {
+          p_status: eventType === 'refund.processed' ? 'processed' : 'failed',
+          p_provider_refund_id: text(refundEntity.id),
+          p_provider_response: { amount: refundEntity.amount ?? null, status: text(refundEntity.status) || eventType },
+        });
+        if (refundMarkError && refundMarkError.code !== 'P0002') throw refundMarkError;
       }
 
       const { error: processError } = await admin.rpc('process_payment_webhook', {

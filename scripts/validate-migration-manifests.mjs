@@ -37,11 +37,14 @@ const overlap = designA.files.filter((file) => existing.files.includes(file));
 assert.deepEqual(overlap, []);
 assert.ok(designA.files.every((file) => /_m(?:0[1-9]|1\d|2[0-7])_/.test(file)));
 assert.ok(existing.files[0].includes('_m28_'));
-assert.ok(existing.files.at(-4).includes('_m55_'));
-assert.ok(existing.files.at(-3).includes('_m56_'));
-assert.ok(existing.files.at(-2).includes('_m57_'));
-assert.ok(existing.files.at(-1).includes('_m58_'));
-ok('Design-A M01-M27 and canonical M28-M58 tracks cannot be conflated');
+assert.ok(existing.files.at(-8).includes('_m55_'));
+assert.ok(existing.files.at(-7).includes('_m56_'));
+assert.ok(existing.files.at(-6).includes('_m57_'));
+assert.ok(existing.files.at(-5).includes('_m58_'));
+assert.ok(existing.files.at(-4).includes('_m59_'));
+assert.ok(existing.files.at(-3).includes('_m60_'));
+assert.ok(existing.files.at(-1).includes('_m62_'));
+ok('Design-A M01-M27 and canonical M28-M62 tracks cannot be conflated');
 
 const helpers = [
   '20260821203500_setup_public_salon_v2.sql',

@@ -179,7 +179,21 @@
     "test:auth-intent": "tsx scripts/test-auth-intent-routing.mjs",
     "test:runtime-boundaries": "tsx scripts/test-runtime-boundaries.mjs",
     "test:owner-canonical-bookings": "tsx scripts/test-owner-canonical-booking-consumer.mjs",
-    "test:workspace-init": "tsx scripts/test-workspace-initialization.mjs"
+    "test:workspace-init": "tsx scripts/test-workspace-initialization.mjs",
+    "test:m60": "tsx scripts/test-m60-payment-refunds.mjs",
+    "test:m61": "tsx scripts/test-m61-booking-reschedule.mjs",
+    "test:m62": "tsx scripts/test-m62-privacy-lifecycle.mjs",
+    "test:m63": "tsx scripts/test-m63-server-remediation.mjs",
+    "test:remediation": "npm run test:m60 && npm run test:m61 && npm run test:m62 && npm run test:m63",
+    "db:apply:live:m60": "node scripts/apply-live-migration.mjs --m60 --verify",
+    "db:apply:live:m61": "node scripts/apply-live-migration.mjs --m61 --verify",
+    "db:apply:live:m62": "node scripts/apply-live-migration.mjs --m62 --verify",
+    "db:verify:live:m60": "node scripts/apply-live-migration.mjs --m60 --verify-only",
+    "db:verify:live:m61": "node scripts/apply-live-migration.mjs --m61 --verify-only",
+    "db:verify:live:m62": "node scripts/apply-live-migration.mjs --m62 --verify-only",
+    "db:types:local": "tsx scripts/generate-db-types.mjs",
+    "db:types:check": "tsx scripts/generate-db-types.mjs && git diff --exit-code -- src/types/database.generated.ts",
+    "ci": "npm run lint && npm run validate:migrations && npm run db:types:check && npm run test:m54 && npm run test:workspace-init && npm run test:remediation && npm run test:owner-canonical-bookings && npm run test:auth && npm run build && git diff --check"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

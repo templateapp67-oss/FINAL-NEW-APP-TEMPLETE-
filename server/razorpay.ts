@@ -9,6 +9,16 @@ export interface RazorpayOrder {
   created_at: number;
 }
 
+export interface RazorpayRefund {
+  id: string;
+  payment_id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  speed_processed?: string;
+  created_at: number;
+}
+
 export interface RazorpayServerConfig {
   keyId: string;
   keySecret: string;
@@ -24,6 +34,13 @@ export function getRazorpayServerConfig(options: { requireWebhook?: boolean } = 
     throw new Error('The Razorpay webhook secret is not configured.');
   }
   return { keyId, keySecret, webhookSecret };
+}
+
+/** Non-throwing probe so routes can separate provider mode from local mode. */
+export function isRazorpayProviderConfigured(): boolean {
+  const keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
+  const keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  return Boolean(keyId && keySecret);
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -115,6 +132,55 @@ export async function createRazorpayOrder(input: {
   }
   if (payload.amount !== input.amountPaise || payload.currency !== input.currency) {
     throw new Error('Razorpay returned an order with mismatched amount or currency.');
+  }
+  return payload;
+}
+
+/**
+ * M60 — provider-backed refund. The refund amount is always taken from the
+ * database ledger (never the request body) by the calling route, and the
+ * provider response amount is verified against it before the ledger is
+ * marked, so a provider/payload mismatch can never settle a wrong value.
+ */
+export async function createRazorpayRefund(input: {
+  providerPaymentId: string;
+  amountPaise: number;
+  speed?: 'normal' | 'optimum';
+  notes?: Record<string, string>;
+  receipt?: string;
+}): Promise<RazorpayRefund> {
+  if (!/^[A-Za-z0-9_-]{4,128}$/.test(input.providerPaymentId)) {
+    throw new Error('The provider payment id is invalid.');
+  }
+  if (!Number.isSafeInteger(input.amountPaise) || input.amountPaise <= 0) {
+    throw new Error('The authoritative refund amount is invalid.');
+  }
+  const config = getRazorpayServerConfig();
+  const authorization = Buffer.from(`${config.keyId}:${config.keySecret}`, 'utf8').toString('base64');
+  const response = await fetch(
+    `https://api.razorpay.com/v1/payments/${encodeURIComponent(input.providerPaymentId)}/refund`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${authorization}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        amount: input.amountPaise,
+        speed: input.speed || 'optimum',
+        ...(input.receipt ? { receipt: input.receipt.slice(0, 40) } : {}),
+        notes: input.notes || {},
+      }),
+    },
+  );
+
+  const payload = await response.json().catch(() => null) as RazorpayRefund | { error?: unknown } | null;
+  if (!response.ok || !payload || !('id' in payload) || typeof payload.id !== 'string') {
+    throw new Error(`Razorpay refund creation failed (${response.status}).`);
+  }
+  if (payload.amount !== input.amountPaise) {
+    throw new Error('Razorpay returned a refund with a mismatched amount.');
   }
   return payload;
 }

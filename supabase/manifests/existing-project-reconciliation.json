@@ -63,7 +63,11 @@
     "20260825000601_m55_actor_bound_booking_authorization.sql",
     "20260825000701_m56_owner_profile_theme_preflight.sql",
     "20260826000101_m57_detach_legacy_showcase_tenant.sql",
-    "20260827000101_m58_workspace_membership_activation_p0001_fix.sql"
+    "20260827000101_m58_workspace_membership_activation_p0001_fix.sql",
+    "20260827000201_m59_owner_provision_invitation_fix.sql",
+    "20260828000101_m60_payment_refunds.sql",
+    "20260828000201_m61_booking_reschedule.sql",
+    "20260828000301_m62_privacy_lifecycle.sql"
   ],
   "excludedFiles": [
     "20260811000101_m01_extensions_enums.sql through 20260815000101_m27_social_video_likes_weekly.sql",

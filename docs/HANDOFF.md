@@ -1,10 +1,72 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-27** (Production White-Label Multi-Tenant Owner Workspace Recovery: authenticated workspace selector for multi-salon accounts, zero hardcoding, M54 paste-ready synchronization + drift test, and isolation hardening).
+> Last updated: **2026-08-28** (Missing-Items remediation M60–M63: payment refunds, atomic reschedule, privacy lifecycle, CI + observability + SEO + rollback runbook).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Multi-Tenant Owner Workspace Recovery & Workspace Selector (Current PR)
+## Missing-Items & Gaps remediation — M60/M61/M62/M63 (current PR)
+
+Scope: every repository-side FAIL/PARTIAL from
+`docs/MISSING_ITEMS_GAPS_ANALYSIS.md` (see its 2026-08-28 remediation delta
+table for the full mapping).
+
+- **M60 — provider-backed refunds** (`supabase/migrations/20260828000101_m60_payment_refunds.sql`):
+  `payment_refunds` ledger (RLS deny-all, idempotency-key unique, composite
+  payment/booking FK), actor-bound `create_payment_refund_for_actor`,
+  idempotent `mark_payment_refund_result` (used by BOTH the server response
+  path and `refund.processed`/`refund.failed` webhooks by provider refund id),
+  `get_payment_refunds_for_actor` owner read, `verify_m60_payment_refunds()`.
+  Payments transition `captured → partially_refunded → refunded`. Server:
+  `createRazorpayRefund` (amount re-verified), `POST /api/payments/refund`,
+  `GET /api/payments/refunds`. Local/deterministic refunds require
+  `NEXORA_ALLOW_LOCAL_REFUNDS=1` so preview mode can never masquerade as
+  provider settlement. Regression: `npm run test:m60` — 12/12.
+- **M61 — atomic reschedule** (`..._m61_booking_reschedule.sql`):
+  `reschedule_customer_booking_for_actor` locks the booking row, authorizes
+  the actor as the booking's customer OR an active owner/manager of the
+  salon (`private.nexora_single_actor_salon_id`), recomputes the end from the
+  immutable `booking_services` snapshot, serializes with the M31 advisory
+  lock, checks canonical + guest (`website_bookings`) conflicts, and updates
+  ONLY `appointment_start/appointment_end` — payments/refunds/amounts keep
+  their linkage. Same-window retry is an idempotent no-op. Route:
+  `POST /api/customer/bookings/:id/reschedule` (`23P01`→409). Regression:
+  `npm run test:m61` — 12/12.
+- **M62 — privacy lifecycle** (`..._m62_privacy_lifecycle.sql`):
+  `export_user_data_for_actor` (profile + auth contact + bookings with
+  service lines + payments + refunds as one JSON document) and
+  ledger-preserving `anonymize_user_data_for_actor` (scrub profile PII,
+  cancel upcoming slots, fail pending refund intents; amounts/history stay
+  as pseudonymous business records). Routes: `GET /api/account/export`,
+  `POST /api/account/delete` (requires `{"confirm":"DELETE"}`; anonymize →
+  Admin-API identity deletion; honest partial-failure reporting). The
+  data subject is ALWAYS the bearer-token user. Regression:
+  `npm run test:m62` — 8/8.
+- **M63 — infra**: `server/observability.ts` (`x-request-id`, tenant-safe
+  JSON request logs, baseline security headers; strict framing/HSTS gated to
+  production so dev/preview embeds keep working), `server/seoRoutes.ts`
+  (`/robots.txt`, `/sitemap.xml` from published slugs, `/api/health/deep`
+  with Supabase/M54-surface + Razorpay + geocode + AI checks),
+  `vercel.json` edge headers, `.env.example` documentation. Regression:
+  `npm run test:m63` — 6/6.
+- **CI + release gates**: `.github/workflows/ci.yml` and the mirrored
+  `npm run ci` (typecheck → migration validation → generated-types drift →
+  M54/workspace-init/remediation/canonical-bookings/auth suites → build →
+  `git diff --check`), plus a `migration-manifests` job and a secrets-gated
+  live `db:verify` job. `supabase/manifests/existing-project-reconciliation.json`
+  and `scripts/validate-migration-manifests.mjs` now cover through M62
+  (the manifest check was already failing on untracked M59 before this PR).
+- **Generated DB types checked in**: `scripts/generate-db-types.mjs`
+  replays the Design-B chain in PGlite and introspects it offline —
+  `src/types/database.generated.ts` (35 tables) is committed and
+  `npm run db:types:check` fails CI on drift (no live credentials needed).
+- **Rollback**: `docs/release-rollback-runbook.md` (app rollback, defective
+  migration quarantine + forward-fix, catastrophic restore, quarterly drill).
+- **Apply to live (owner go-ahead received 2026-08-28)** — two supported paths:
+  - **CLI (Management API):** `SUPABASE_ACCESS_TOKEN=… npm run db:apply:live:m60 -- --confirm-project=qwaehqsmodekbgvnaavz` then the same for `m61` and `m62` (each applies + runs its verifier). The runner refuses writes without the exact project confirmation.
+  - **SQL Editor paste (no token needed):** run `docs/m60-run-in-supabase.sql`, then `docs/m61-run-in-supabase.sql`, then `docs/m62-run-in-supabase.sql` — in that order. Each bundle is operator-instruction header + byte-identical canonical migration (drift-checked by `test:m60/m61/m62`), one transaction, with pre-check and `verify_mXX_*()` post-check queries inside.
+  - After either path: confirm `/api/health/deep` (`supabase: ok`) on the deployment and one owner login → dashboard.
+
+## Multi-Tenant Owner Workspace Recovery & Workspace Selector (previous PR)
 
 ### Confirmed Production Facts vs Hypotheses
 - **Confirmed Fact 1 (M54 Live Status):** `public.verify_m54_workspace_bootstrap()` all 6 checks are `true`. Function `private.nexora_create_owner_organization(text,text)` is installed and active in live Supabase.

@@ -3,30 +3,43 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef } from 'react';
-import Landing from './screens/Landing';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import HeroSplit from './screens/HeroSplit';
-import StepTemplate from './screens/StepTemplate';
-import StepDetails from './screens/StepDetails';
-import StepServices from './screens/StepServices';
-import StepTeam from './screens/StepTeam';
-import StepPhotos from './screens/StepPhotos';
-import StepSocials from './screens/StepSocials';
-import StepLocation from './screens/StepLocation';
-import StepContactBooking from './screens/StepContactBooking';
-import StepPublish from './screens/StepPublish';
-import StepAIContentReview from './screens/StepAIContentReview';
-import StepFullWebsitePreview from './screens/StepFullWebsitePreview';
-import StepPublishSetup from './screens/StepPublishSetup';
-import StepPublishSuccess from './screens/StepPublishSuccess';
-import StaffManagementModule from './components/StaffManagementModule';
-import OwnerDashboard from './components/OwnerDashboard';
+
+// The post-launch owner workspace (screens 18–25). It renders only behind
+// `activeModule === 'dashboard' && hasAuthoritativePublishState`, i.e. for an
+// authenticated owner with a published site, so it is code-split out of the
+// entry chunk that every visitor downloads.
+const Landing = lazy(() => import('./screens/Landing'));
+
+// The setup wizard screens are code-split. Each one renders behind a
+// `{step === N && ...}` guard, so at most one is ever mounted — keeping them
+// in the entry chunk meant shipping ~13 screens of wizard UI to every visitor,
+// including customers who only ever see the public site.
+const StepTemplate = lazy(() => import('./screens/StepTemplate'));
+const StepDetails = lazy(() => import('./screens/StepDetails'));
+const StepServices = lazy(() => import('./screens/StepServices'));
+const StepTeam = lazy(() => import('./screens/StepTeam'));
+const StepPhotos = lazy(() => import('./screens/StepPhotos'));
+const StepSocials = lazy(() => import('./screens/StepSocials'));
+const StepLocation = lazy(() => import('./screens/StepLocation'));
+const StepContactBooking = lazy(() => import('./screens/StepContactBooking'));
+const StepPublish = lazy(() => import('./screens/StepPublish'));
+const StepAIContentReview = lazy(() => import('./screens/StepAIContentReview'));
+const StepFullWebsitePreview = lazy(() => import('./screens/StepFullWebsitePreview'));
+const StepPublishSetup = lazy(() => import('./screens/StepPublishSetup'));
+const StepPublishSuccess = lazy(() => import('./screens/StepPublishSuccess'));
+
+// Owner-only surfaces. Guarded by `activeModule === '...'` early returns, so a
+// public-site visitor never downloads the dashboard or the staff module.
+const StaffManagementModule = lazy(() => import('./components/StaffManagementModule'));
+const OwnerDashboard = lazy(() => import('./components/OwnerDashboard'));
 import TopBar from './components/TopBar';
 import { initialData, SalonData } from './types';
 import { normalizeThemeId, type ThemeId } from './lib/themeServices';
 import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, ArrowRight } from 'lucide-react';
+import { CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useLocationSync } from './hooks/useLocationSync';
 import { redirectToOwnerLoginForSessionLoss, useAuth } from './lib/useAuth';
@@ -61,6 +74,18 @@ import {
   MAX_OWNER_STEP_INDEX,
   TOTAL_OWNER_STEPS,
 } from './lib/ownerFlow';
+
+/** Shared Suspense fallback for the code-split owner surfaces. */
+function LazyModuleFallback() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3">
+      <Loader2 className="w-5 h-5 animate-spin text-accent-500" />
+      <span className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-400">
+        Loading
+      </span>
+    </div>
+  );
+}
 
 const STORAGE_KEY = OWNER_ONBOARDING_CACHE_KEY;
 const DASHBOARD_TAB_KEY = OWNER_DASHBOARD_TAB_CACHE_KEY;
@@ -728,16 +753,18 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         <main className="flex-1 flex overflow-hidden min-h-0 w-full">
           {/* A dashboard is shown only from the real hydrated publish state.
               Never manufacture a published flag or URL for this surface. */}
-          <Landing
-            data={data}
-            setData={setData}
-            onNext={nextStep}
-            goToStep={goToStep}
-            onOpenStaffManagement={() => setActiveModule('staff-management')}
-            forcedActiveTab={dashboardTab as any}
-            onTabChange={(tab: any) => setDashboardTab(tab)}
-            onThemeChange={handleThemeChange}
-          />
+          <Suspense fallback={<LazyModuleFallback />}>
+            <Landing
+              data={data}
+              setData={setData}
+              onNext={nextStep}
+              goToStep={goToStep}
+              onOpenStaffManagement={() => setActiveModule('staff-management')}
+              forcedActiveTab={dashboardTab as any}
+              onTabChange={(tab: any) => setDashboardTab(tab)}
+              onThemeChange={handleThemeChange}
+            />
+          </Suspense>
         </main>
         <AnimatePresence>
           {toastMessage && (
@@ -771,7 +798,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           onNavigate={navigateToScreen}
         />
         <main className="flex-1 flex overflow-hidden">
-          <OwnerDashboard />
+          <Suspense fallback={<LazyModuleFallback />}>
+            <OwnerDashboard />
+          </Suspense>
         </main>
         <AnimatePresence>
           {toastMessage && (
@@ -802,12 +831,14 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           onNavigate={navigateToScreen}
         />
         <main className="flex-1 flex overflow-hidden">
-          <StaffManagementModule
-            data={data}
-            setData={setData}
-            onSave={handleSave}
-            onBackToWizard={() => setActiveModule('wizard')}
-          />
+          <Suspense fallback={<LazyModuleFallback />}>
+            <StaffManagementModule
+              data={data}
+              setData={setData}
+              onSave={handleSave}
+              onBackToWizard={() => setActiveModule('wizard')}
+            />
+          </Suspense>
         </main>
         <AnimatePresence>
           {toastMessage && (
@@ -894,7 +925,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       </AnimatePresence>
       
       <main className="flex-1 flex overflow-hidden">
-        <>
+        <Suspense fallback={<LazyModuleFallback />}>
           {/* Business Setup (steps 2–8). Every step persists into the owner
               draft before the owner chooses a template. */}
           {step === 1 && <StepDetails data={data} setData={setData} onNext={nextStep} onPrev={prevStep} onSave={handleSave} onThemeChange={handleThemeChange} />}
@@ -941,7 +972,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             // success screen. Return to the real Supabase publish action.
             <StepPublishSetup data={data} setData={setData} onNext={nextStep} onPrev={() => setStep(11)} onSave={handleSave} />
           ) : null}
-        </>
+        </Suspense>
       </main>
 
       {/* Toast Notification */}

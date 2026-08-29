@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { SalonData, Service, Package, TeamMember, StaffStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import TemplateRenderer from '../components/TemplateRenderer';
-import ShareReferralPremium from '../components/ShareReferralPremium';
-import BrandingWhiteLabel from '../components/BrandingWhiteLabel';
 import TemplateSelectionDashboard from '../components/TemplateSelectionDashboard';
 import TemplateConfigPanel from '../components/TemplateConfigPanel';
 import ThemeSwitcher from '../components/ThemeSwitcher';
@@ -80,7 +78,6 @@ import { openOriginalVideoDestination } from '../lib/originalVideoDestination';
 import { normalizeThemeId } from '../lib/themeServices';
 import { switchSalonTemplatePresentation } from '../lib/templateConfig';
 import type { SiteHeaderThemeId } from '../lib/siteNavigation';
-import BookingManagementPanel from '../components/BookingManagementPanel';
 import { resolveBookingActor } from '../lib/bookingManagement';
 import type { BookingActorContext } from '../lib/bookingManagement';
 import { bookingBusinessId } from '../lib/siteBookingFlow';
@@ -89,6 +86,34 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { resolveOwnerSalonId } from '../lib/ownerSalon';
 import { videoGalleryChrome } from '../lib/siteVideoGalleryI18n';
 import { useSiteLocale } from '../components/SiteHeader';
+
+// Owner-only premium panels (screens 23–25) are code-split. They render behind
+// `{activeTab === '...'}` guards inside the owner dashboard, so public-site
+// visitors — the majority of traffic — never download them.
+const BookingManagementPanel = lazy(() => import('../components/BookingManagementPanel'));
+const ShareReferralPremium = lazy(() => import('../components/ShareReferralPremium'));
+const BrandingWhiteLabel = lazy(() => import('../components/BrandingWhiteLabel'));
+
+// Screen 21 — Payments & Revenue. Extracted into its own module so the owner
+// workspace chunk no longer carries every tab's markup.
+const PaymentsPanel = lazy(() => import('../components/dashboard/PaymentsPanel'));
+// Screen 23 — Salon Settings.
+const SettingsPanel = lazy(() => import('../components/dashboard/SettingsPanel'));
+// Screen 22 — Share & Referral Marketing.
+const SharePanel = lazy(() => import('../components/dashboard/SharePanel'));
+// Screen 18 — Dashboard Overview.
+const OverviewPanel = lazy(() => import('../components/dashboard/OverviewPanel'));
+import type { Appointment as DashboardAppointment } from '../components/dashboard/PaymentsPanel';
+import { appointmentTotals } from '../components/dashboard/appointmentTotals';
+
+/** Suspense fallback for the code-split owner panels. */
+function PanelFallback() {
+  return (
+    <div className="py-16 flex items-center justify-center text-sm text-slate-400">
+      Loading…
+    </div>
+  );
+}
 
 interface Props {
   data: SalonData;
@@ -101,19 +126,9 @@ interface Props {
   onThemeChange?: (id: ThemeId) => Promise<void> | void;
 }
 
-interface Appointment {
-  id: string;
-  time: string;
-  customerName: string;
-  phone: string;
-  serviceId: string;
-  serviceName: string;
-  staffId: string;
-  staffName: string;
-  price: number;
-  depositPaid: number;
-  status: 'Confirmed' | 'Pending' | 'Completed' | 'Cancelled';
-}
+// Appointment rows are shared with the extracted payments tab, so the shape
+// now lives in one place rather than being redeclared per module.
+type Appointment = DashboardAppointment;
 
 export default function Landing({ data, setData, onNext, goToStep, onOpenStaffManagement, forcedActiveTab, onTabChange, onThemeChange }: Props) {
   const { platform } = useBrandConfig();
@@ -301,9 +316,6 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
   ]);
 
   // Payments tab filters & drawer state
-  const [paymentsFilter, setPaymentsFilter] = useState<'All'|'Verified'|'Pending'|'Failed'|'Refunded'>('All');
-  const [paymentsSearch, setPaymentsSearch] = useState('');
-  const [selectedPaymentId, setSelectedPaymentId] = useState<string>('a1');
 
   const liveSlug = suggestedWebsiteSlug(data);
   const liveUrl = publicWebsiteHref(liveSlug, platform.websiteUrl);
@@ -961,16 +973,10 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
     setAppointments(prev => prev.filter(a => a.id !== apptId));
   };
 
-  // Dynamic statistics calculation
-  const totalBookingsValue = appointments
-    .filter(a => a.status === 'Confirmed' || a.status === 'Completed')
-    .reduce((sum, a) => sum + a.price, 0);
-
-  const totalAdvanceCollected = appointments
-    .filter(a => a.status === 'Confirmed' || a.status === 'Completed')
-    .reduce((sum, a) => sum + a.depositPaid, 0);
-
-  const totalRemainingAtSalon = totalBookingsValue - totalAdvanceCollected;
+  // Dynamic statistics calculation. Shared with the extracted payments tab so
+  // both surfaces always report identical figures.
+  const { totalBookingsValue, totalAdvanceCollected, totalRemainingAtSalon } =
+    appointmentTotals(appointments);
 
   const activeServicesCount = data.services.length;
   const staffTeamCount = data.team.length;
@@ -1325,374 +1331,36 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
             
             {/* TAB: OVERVIEW */}
             {activeTab === 'overview' && (
-              <motion.div 
-                key="overview"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 15 }}
-                className="space-y-6 max-w-6xl mx-auto"
-              >
-                {/* Live Banner card */}
-                <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div className="z-10">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <h3 className="font-bold text-gray-900 text-sm">Your website is online & active!</h3>
-                    </div>
-                    <p className="text-xs font-bold text-[#ac0053] font-mono select-all break-all">{liveUrl}</p>
-                  </div>
-                  <div className="flex gap-2 w-full md:w-auto z-10 shrink-0">
-                    <button 
-                      onClick={handleCopyLink}
-                      className="flex-1 md:flex-none px-4 py-2 border border-gray-200 rounded-xl bg-white text-gray-700 font-bold text-xs hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      {copied ? 'Copied URL!' : 'Copy Link'}
-                    </button>
-                    <button 
-                      onClick={() => setActiveTab('website')}
-                      className="flex-1 md:flex-none px-4 py-2 bg-[#ac0053] text-white font-bold text-xs hover:bg-[#ba005b] rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Monitor className="w-3.5 h-3.5" />
-                      View Layout
-                    </button>
-                  </div>
-                  <div className="absolute right-0 top-0 w-32 h-32 bg-[#ac0053]/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-                </div>
-
-                {/* Dashboard statistics blocks */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs flex flex-col justify-between h-32">
-                    <div className="flex justify-between items-start">
-                      <span className="p-2 rounded-xl bg-[#ffd9e1]/40 text-[#ac0053]">
-                        <Calendar className="w-5 h-5" />
-                      </span>
-                      <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">Active</span>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Today's Bookings</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{todayActiveBookings}</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs flex flex-col justify-between h-32">
-                    <div className="flex justify-between items-start">
-                      <span className="p-2 rounded-xl bg-[#ffd9e1]/40 text-[#ac0053]">
-                        <DollarSign className="w-5 h-5" />
-                      </span>
-                      <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">+12%</span>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Month Revenue</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">₹{totalBookingsValue.toLocaleString()}</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs flex flex-col justify-between h-32">
-                    <div className="flex justify-between items-start">
-                      <span className="p-2 rounded-xl bg-[#ffd9e1]/40 text-[#ac0053]">
-                        <Scissors className="w-5 h-5" />
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Active Services</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">
-                        {activeServicesCount} <span className="text-xs font-medium text-gray-400">Live</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs flex flex-col justify-between h-32">
-                    <div className="flex justify-between items-start">
-                      <span className="p-2 rounded-xl bg-[#ffd9e1]/40 text-[#ac0053]">
-                        <Users className="w-5 h-5" />
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Staff Roster</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">
-                        {staffTeamCount} <span className="text-xs font-medium text-emerald-600">Sync'd</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Main Bento content grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  
-                  {/* Left panel: Today's active appointments */}
-                  <div className="lg:col-span-8 bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden flex flex-col">
-                    <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-sm">Today's Appointments</h3>
-                        <p className="text-[11px] text-gray-400">Manage statuses, cancellations and payment advances</p>
-                      </div>
-                      <button 
-                        onClick={() => setShowNewAppointmentModal(true)}
-                        className="text-xs font-bold text-[#ac0053] bg-[#ffd9e1]/30 hover:bg-[#ffd9e1]/50 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Book Client
-                      </button>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50/30">
-                            <th className="py-3 px-6">Time</th>
-                            <th className="py-3 px-6">Customer</th>
-                            <th className="py-3 px-6">Treatment & Stylist</th>
-                            <th className="py-3 px-6">Price</th>
-                            <th className="py-3 px-6">Advance Paid</th>
-                            <th className="py-3 px-6 text-right">Actions / Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {appointments.map(appt => (
-                            <tr key={appt.id} className="border-b border-gray-100 hover:bg-gray-50/60 transition-colors">
-                              <td className="py-4 px-6 text-xs font-semibold text-gray-500 whitespace-nowrap">
-                                <span className="flex items-center gap-1.5">
-                                  <Clock className="w-3.5 h-3.5 text-[#ac0053]" />
-                                  {appt.time}
-                                </span>
-                              </td>
-                              <td className="py-4 px-6 whitespace-nowrap">
-                                <div className="text-xs font-bold text-gray-900">{appt.customerName}</div>
-                                <div className="text-[10px] text-gray-400 font-medium">{appt.phone}</div>
-                              </td>
-                              <td className="py-4 px-6 whitespace-nowrap">
-                                <div className="text-xs font-semibold text-gray-800">{appt.serviceName}</div>
-                                <div className="text-[10px] text-[#ac0053] font-bold">with {appt.staffName}</div>
-                              </td>
-                              <td className="py-4 px-6 text-xs font-bold text-gray-900 whitespace-nowrap">
-                                ₹{appt.price}
-                              </td>
-                              <td className="py-4 px-6 whitespace-nowrap">
-                                {appt.depositPaid > 0 ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
-                                    ₹{appt.depositPaid} (25%)
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-semibold text-gray-400">Pending</span>
-                                )}
-                              </td>
-                              <td className="py-4 px-6 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end gap-2">
-                                  {appt.status === 'Pending' ? (
-                                    <button 
-                                      onClick={() => handleUpdateApptStatus(appt.id, 'Confirmed')}
-                                      className="text-[10px] font-bold bg-amber-50 hover:bg-emerald-50 border border-amber-200 hover:border-emerald-200 text-amber-700 hover:text-emerald-700 px-2 py-1 rounded-lg transition-colors"
-                                    >
-                                      Confirm Booking
-                                    </button>
-                                  ) : (
-                                    <select 
-                                      value={appt.status}
-                                      onChange={(e) => handleUpdateApptStatus(appt.id, e.target.value as any)}
-                                      className="text-[10px] font-bold border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700 outline-none"
-                                    >
-                                      <option value="Confirmed">Confirmed</option>
-                                      <option value="Completed">Completed</option>
-                                      <option value="Cancelled">Cancelled</option>
-                                    </select>
-                                  )}
-                                  <button 
-                                    onClick={() => handleDeleteAppt(appt.id)}
-                                    className="p-1 text-gray-300 hover:text-rose-600 rounded transition-colors"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Right bento panel: Quick Actions + Revenue summary */}
-                  <div className="lg:col-span-4 space-y-6 flex flex-col">
-                    
-                    {/* Quick Actions Panel */}
-                    <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs">
-                      <h3 className="font-bold text-gray-900 text-sm mb-4">Quick Actions</h3>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button 
-                          onClick={() => {
-                            setEditingService(null);
-                            setNewServiceName('');
-                            setNewServiceCategory('Hair Styling');
-                            setNewServicePrice(400);
-                            setNewServiceDuration(30);
-                            setNewServiceDesc('');
-                            setNewServiceFeatured(false);
-                            setShowServiceDrawer(true);
-                          }}
-                          className="flex flex-col items-center justify-center p-4 bg-gray-50 hover:bg-[#ffd9e1]/10 rounded-2xl border border-gray-200 hover:border-[#ac0053]/40 transition-all group text-center"
-                        >
-                          <Plus className="w-5 h-5 text-gray-400 group-hover:text-[#ac0053] mb-2" />
-                          <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#ac0053]">Add Service</span>
-                        </button>
-
-                        <button 
-                          onClick={onOpenStaffManagement}
-                          className="flex flex-col items-center justify-center p-4 bg-gray-50 hover:bg-[#ffd9e1]/10 rounded-2xl border border-gray-200 hover:border-[#ac0053]/40 transition-all group text-center"
-                        >
-                          <Users className="w-5 h-5 text-gray-400 group-hover:text-[#ac0053] mb-2" />
-                          <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#ac0053]">Add Staff</span>
-                        </button>
-
-                        <button 
-                          onClick={() => { goToStep(6) }}
-                          className="flex flex-col items-center justify-center p-4 bg-gray-50 hover:bg-[#ffd9e1]/10 rounded-2xl border border-gray-200 hover:border-[#ac0053]/40 transition-all group text-center"
-                        >
-                          <Sparkles className="w-5 h-5 text-gray-400 group-hover:text-[#ac0053] mb-2" />
-                          <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#ac0053]">Manage Gallery</span>
-                        </button>
-
-                        <button 
-                          onClick={() => setActiveTab('website')}
-                          className="flex flex-col items-center justify-center p-4 bg-gray-50 hover:bg-[#ffd9e1]/10 rounded-2xl border border-gray-200 hover:border-[#ac0053]/40 transition-all group text-center"
-                        >
-                          <Laptop className="w-5 h-5 text-gray-400 group-hover:text-[#ac0053] mb-2" />
-                          <span className="text-[11px] font-bold text-gray-700 group-hover:text-[#ac0053]">Edit Website</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Revenue summary Ledger card */}
-                    <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs">
-                      <h3 className="font-bold text-gray-900 text-sm mb-4">Financial Ledger Summary</h3>
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-end pb-3 border-b border-gray-100">
-                          <div>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase">Total Booking Value</p>
-                            <p className="text-xl font-bold text-gray-900 mt-1">₹{totalBookingsValue.toLocaleString()}</p>
-                          </div>
-                          <TrendingUp className="w-5 h-5 text-emerald-500 mb-1" />
-                        </div>
-                        <div className="flex justify-between items-center text-xs font-semibold py-1">
-                          <span className="text-gray-400">Advance Collected</span>
-                          <span className="text-gray-900">₹{totalAdvanceCollected.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-xs font-bold py-1">
-                          <span className="text-gray-400">Remaining at Salon</span>
-                          <span className="text-[#ac0053]">₹{totalRemainingAtSalon.toLocaleString()}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Staff availability quick glance */}
-                    <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs">
-                      <h3 className="font-bold text-gray-900 text-sm mb-4">Live Staff Status</h3>
-                      <div className="space-y-2">
-                        {data.team.map(member => {
-                          const isAvailable = member.status === 'Available';
-                          const isBusy = member.status === 'Busy';
-                          return (
-                            <div 
-                              key={member.id} 
-                              onClick={() => handleToggleStaffStatus(member.id)}
-                              className="flex items-center justify-between p-2.5 rounded-xl border border-gray-100 hover:border-gray-200 bg-gray-50/50 cursor-pointer transition-all"
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-full overflow-hidden border border-gray-200">
-                                  <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
-                                </div>
-                                <div>
-                                  <div className="text-xs font-bold text-gray-800">{member.name}</div>
-                                  <div className="text-[9px] text-gray-400 font-semibold">{member.role}</div>
-                                </div>
-                              </div>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg uppercase ${
-                                isAvailable 
-                                  ? 'bg-emerald-50 text-emerald-700' 
-                                  : isBusy 
-                                    ? 'bg-amber-50 text-amber-700' 
-                                    : 'bg-gray-100 text-gray-600'
-                              }`}>
-                                {member.status || 'Available'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* PHASE 15.9 — Weekly Top Videos (dashboard, reuse 15.8 engine, strict theme isolation) */}
-                    <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
-                            <Trophy className="w-4 h-4 text-[#ac0053]" /> {chrome.weeklyTitle}
-                          </h3>
-                          <p className="text-[10px] text-gray-400 mt-0.5">{chrome.weeklyBody}</p>
-                        </div>
-                        <span className="text-[9px] px-2 py-0.5 rounded bg-[#ffd9e1]/40 text-[#ac0053] font-bold uppercase tracking-wider">This Week</span>
-                      </div>
-
-                      {!dashboardWeeklyTop || dashboardWeeklyTop.length === 0 ? (
-                        <div className="text-center py-8 border border-dashed border-gray-200 rounded-xl bg-gray-50/50">
-                          <Trophy className="w-8 h-8 mx-auto text-gray-300 mb-2" />
-                          <p className="text-xs font-semibold text-gray-500">{chrome.weeklyEmpty}</p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {dashboardWeeklyTop.map((entry, idx) => {
-                            const item = entry.item;
-                            const hasThumb = !!item.thumbnailUrl;
-                            const kindLabel = item.kind === 'short' ? chrome.shortBadge : chrome.longBadge;
-                            return (
-                              <div
-                                key={item.id}
-                                onClick={() => openOriginalVideoDestination(item.originalPlatformUrl, item.platform, item.externalVideoId)}
-                                className="group border border-gray-200 rounded-xl overflow-hidden cursor-pointer hover:border-[#ac0053]/40 transition-all bg-white flex flex-col"
-                              >
-                                <div className="relative aspect-video bg-gray-100 overflow-hidden">
-                                  {hasThumb ? (
-                                    <img
-                                      src={item.thumbnailUrl}
-                                      alt={item.title}
-                                      loading="lazy"
-                                      decoding="async"
-                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                    />
-                                  ) : (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                                      <Video className="w-7 h-7 text-gray-300" />
-                                    </div>
-                                  )}
-                                  <span className="absolute top-1.5 left-1.5 text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#ac0053] text-white tracking-wider">
-                                    {kindLabel}
-                                  </span>
-                                  <div className="absolute top-1.5 right-1.5 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
-                                    <Heart className="w-3 h-3" fill="currentColor" /> {formatLikeCount(entry.weeklyLikes)}
-                                  </div>
-                                </div>
-                                <div className="p-3 flex-1 flex flex-col">
-                                  <p className="text-xs font-bold text-gray-900 line-clamp-2 group-hover:text-[#ac0053] transition-colors">{item.title}</p>
-                                  <div className="mt-auto pt-2 flex items-center justify-between text-[10px]">
-                                    <span className="font-semibold text-gray-500">{chrome.platforms[item.platform]}</span>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); openOriginalVideoDestination(item.originalPlatformUrl, item.platform, item.externalVideoId); }}
-                                      className="text-[#ac0053] hover:underline font-bold flex items-center gap-1"
-                                    >
-                                      <Play className="w-3 h-3" /> {chrome.view}
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                  </div>
-                </div>
-              </motion.div>
+              <Suspense fallback={<PanelFallback />}>
+                <OverviewPanel
+                  data={data}
+                  appointments={appointments}
+                  dashboardWeeklyTop={dashboardWeeklyTop}
+                  totalBookingsValue={totalBookingsValue}
+                  totalAdvanceCollected={totalAdvanceCollected}
+                  totalRemainingAtSalon={totalRemainingAtSalon}
+                  activeServicesCount={activeServicesCount}
+                  liveUrl={liveUrl}
+                  copied={copied}
+                  onCopyLink={handleCopyLink}
+                  chrome={chrome}
+                  onDeleteAppointment={handleDeleteAppt}
+                  onToggleStaffStatus={handleToggleStaffStatus}
+                  onUpdateAppointmentStatus={handleUpdateApptStatus}
+                  goToStep={goToStep}
+                  setActiveTab={setActiveTab}
+                  onOpenStaffManagement={onOpenStaffManagement}
+                  setEditingService={setEditingService}
+                  setNewServiceName={setNewServiceName}
+                  setNewServiceCategory={setNewServiceCategory}
+                  setNewServicePrice={setNewServicePrice}
+                  setNewServiceDuration={setNewServiceDuration}
+                  setNewServiceDesc={setNewServiceDesc}
+                  setNewServiceFeatured={setNewServiceFeatured}
+                  setShowNewAppointmentModal={setShowNewAppointmentModal}
+                  setShowServiceDrawer={setShowServiceDrawer}
+                />
+              </Suspense>
             )}
 
             {/* TAB: WEBSITE CONTENT MANAGER */}
@@ -2914,12 +2582,14 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
               >
                 {/* PHASE 16.7 — real website bookings for THIS salon only
                     (session-resolved actor; data layer re-checks access). */}
-                <BookingManagementPanel
-                  actor={bookingActor}
-                  businessId={bookingTenantId}
-                  themeId={currentThemeId}
-                  onShowToast={(msg) => { setBookingToast(msg); }}
-                />
+                <Suspense fallback={<PanelFallback />}>
+                  <BookingManagementPanel
+                    actor={bookingActor}
+                    businessId={bookingTenantId}
+                    themeId={currentThemeId}
+                    onShowToast={(msg) => { setBookingToast(msg); }}
+                  />
+                </Suspense>
                 {bookingToast && (
                   <div
                     data-testid="booking-management-toast"
@@ -3083,478 +2753,37 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
 
             {/* TAB: PAYMENTS — Premium Revenue Dashboard matching Nexora spec */}
             {activeTab === 'payments' && (
-              <motion.div 
-                key="payments"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 15 }}
-                className="space-y-6 max-w-[1440px] mx-auto w-full"
-              >
-                {/* 1. TOP HEADER */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                  <div className="space-y-1">
-                    <h1 className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">Payments & Revenue</h1>
-                    <p className="text-xs md:text-sm text-gray-500">Track booking payments and salon revenue.</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:border-[#ac0053]/30 transition-colors">
-                      <Calendar className="w-4 h-4" />
-                      <span>01 Aug 2026 - 31 Aug 2026</span>
-                      <ChevronRight className="w-4 h-4 rotate-90" />
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-                      <span className="material-symbols-outlined text-[18px] hidden">download</span>
-                      <Download className="w-4 h-4" />
-                      <span>Export</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3. BUSINESS RULE BANNER */}
-                <div className="flex items-center gap-3 px-4 py-3 bg-[#ac0053]/[0.06] border border-[#ac0053]/20 rounded-xl">
-                  <span className="w-8 h-8 rounded-full bg-[#ac0053]/10 flex items-center justify-center text-[#ac0053] shrink-0">
-                    <AlertCircle className="w-4 h-4" />
-                  </span>
-                  <p className="text-xs font-semibold text-[#ac0053]">Online bookings collect {25}% advance. Remaining balance is due at the salon.</p>
-                </div>
-
-                {/* 2. SUMMARY CARDS */}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex flex-col gap-2">
-                    <div className="flex items-center justify-between text-gray-500">
-                      <span className="text-xs font-semibold uppercase tracking-wider">Total Booking Value</span>
-                      <span className="w-8 h-8 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500">
-                        <DollarSign className="w-4 h-4" />
-                      </span>
-                    </div>
-                    <div className="text-2xl md:text-3xl font-black text-gray-900 mt-2">₹{totalBookingsValue.toLocaleString()}</div>
-                    <div className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 mt-1">
-                      <TrendingUp className="w-3.5 h-3.5" />
-                      <span>+12% from last month</span>
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex flex-col gap-2">
-                    <div className="flex items-center justify-between text-gray-500">
-                      <span className="text-xs font-semibold uppercase tracking-wider">Advance Collected</span>
-                      <span className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
-                        <CheckCircle2 className="w-4 h-4" />
-                      </span>
-                    </div>
-                    <div className="text-2xl md:text-3xl font-black text-gray-900 mt-2">₹{totalAdvanceCollected.toLocaleString()}</div>
-                    <div className="text-[11px] font-semibold text-gray-500 mt-1">Verified online payments</div>
-                  </div>
-                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex flex-col gap-2">
-                    <div className="flex items-center justify-between text-gray-500">
-                      <span className="text-xs font-semibold uppercase tracking-wider">Remaining at Salon</span>
-                      <span className="w-8 h-8 rounded-xl bg-[#ffd9e1]/40 border border-[#ffd9e1] flex items-center justify-center text-[#ac0053]">
-                        <Users className="w-4 h-4" />
-                      </span>
-                    </div>
-                    <div className="text-2xl md:text-3xl font-black text-gray-900 mt-2">₹{totalRemainingAtSalon.toLocaleString()}</div>
-                    <div className="text-[11px] font-semibold text-gray-500 mt-1">Due from customers</div>
-                  </div>
-                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex flex-col gap-2">
-                    <div className="flex items-center justify-between text-gray-500">
-                      <span className="text-xs font-semibold uppercase tracking-wider">Verified Payments</span>
-                      <span className="w-8 h-8 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500">
-                        <ClipboardList className="w-4 h-4" />
-                      </span>
-                    </div>
-                    <div className="text-2xl md:text-3xl font-black text-gray-900 mt-2">{appointments.filter(a=>a.depositPaid>0 && a.status!=='Cancelled').length}</div>
-                    <div className="text-[11px] font-semibold text-gray-500 mt-1">Successful deposits this month</div>
-                  </div>
-                </div>
-
-                {/* BENTO GRID MAIN AREA */}
-                <div className="flex flex-col xl:flex-row gap-4">
-                  {/* Left Column */}
-                  <div className="flex-1 flex flex-col gap-4 min-w-0">
-                    {/* 7. REVENUE BREAKDOWN */}
-                    <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-                      <h2 className="text-sm font-bold text-gray-900 mb-6">Revenue Overview</h2>
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-end">
-                          <div>
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Advance Collected ({25}%)</span>
-                            <span className="text-xl font-black text-[#ac0053]">₹{totalAdvanceCollected.toLocaleString()}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Due at Salon ({100 - (25)}%)</span>
-                            <span className="text-xl font-black text-gray-900">₹{totalRemainingAtSalon.toLocaleString()}</span>
-                          </div>
-                        </div>
-                        <div className="w-full h-4 rounded-full bg-gray-100 overflow-hidden flex">
-                          <div className="h-full bg-[#ac0053] transition-all duration-700" style={{ width: `${totalBookingsValue ? Math.round((totalAdvanceCollected/totalBookingsValue)*100) : 25}%` }} />
-                          <div className="h-full bg-gray-200 border-l border-white/20 transition-all duration-700" style={{ width: `${totalBookingsValue ? 100 - Math.round((totalAdvanceCollected/totalBookingsValue)*100) : 75}%` }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 5. PAYMENTS TABLE SECTION */}
-                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
-                      {/* 4. FILTERS & SEARCH */}
-                      <div className="p-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4 bg-gray-50/50">
-                        <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                          {(['All','Verified','Pending','Failed','Refunded'] as const).map(f => (
-                            <button
-                              key={f}
-                              onClick={()=>setPaymentsFilter(f)}
-                              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors border ${paymentsFilter===f ? 'bg-[#ac0053] text-white border-[#ac0053] shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-[#ac0053]/30 hover:text-[#ac0053]' }`}
-                            >{f}</button>
-                          ))}
-                        </div>
-                        <div className="relative w-full md:w-auto">
-                          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                          <input value={paymentsSearch} onChange={e=>setPaymentsSearch(e.target.value)} className="w-full md:w-64 pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold focus:border-[#ac0053] focus:ring-1 focus:ring-[#ac0053]/20 outline-none" placeholder="Search ID or Mobile..." type="text"/>
-                        </div>
-                      </div>
-
-                      {/* Table */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left whitespace-nowrap">
-                          <thead className="bg-gray-50 border-b border-gray-100 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                            <tr>
-                              <th className="px-6 py-3">Date & ID</th>
-                              <th className="px-6 py-3">Customer / Service</th>
-                              <th className="px-6 py-3 text-right">Total</th>
-                              <th className="px-6 py-3 text-right">Advance</th>
-                              <th className="px-6 py-3 text-right">Remaining</th>
-                              <th className="px-6 py-3 text-center">Payment</th>
-                              <th className="px-6 py-3 text-center">Booking</th>
-                              <th className="px-6 py-3"></th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100 text-xs">
-                            {appointments
-                              .filter(a=>{
-                                if(paymentsFilter==='Verified') return a.depositPaid>0 && a.status!=='Cancelled';
-                                if(paymentsFilter==='Pending') return a.depositPaid===0 || a.status==='Pending';
-                                if(paymentsFilter==='Failed') return false;
-                                if(paymentsFilter==='Refunded') return a.status==='Cancelled';
-                                return true;
-                              })
-                              .filter(a=>{
-                                if(!paymentsSearch) return true;
-                                const q=paymentsSearch.toLowerCase();
-                                return a.id.toLowerCase().includes(q) || a.customerName.toLowerCase().includes(q) || a.phone.includes(q) || a.serviceName.toLowerCase().includes(q);
-                              })
-                              .map(appt=>{
-                                const isSelected = selectedPaymentId===appt.id;
-                                const isVerified = appt.depositPaid>0 && appt.status!=='Cancelled';
-                                const isPending = appt.depositPaid===0 || appt.status==='Pending';
-                                return (
-                                  <tr key={appt.id} onClick={()=>setSelectedPaymentId(appt.id)} className={`hover:bg-[#ac0053]/[0.04] transition-colors cursor-pointer border-l-4 ${isSelected ? 'bg-[#ac0053]/[0.06] border-l-[#ac0053]' : 'border-l-transparent'}`}>
-                                    <td className="px-6 py-4">
-                                      <div className="text-xs font-bold text-gray-900">10 Aug 2026</div>
-                                      <div className="text-[11px] text-gray-400 font-mono">#{appt.id.toUpperCase()}</div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                      <div className="text-xs font-bold text-gray-900">{appt.customerName}</div>
-                                      <div className="text-[11px] text-gray-500">{appt.serviceName}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-right font-bold text-gray-900">₹{appt.price.toLocaleString()}</td>
-                                    <td className="px-6 py-4 text-right font-bold text-[#ac0053]">₹{appt.depositPaid}</td>
-                                    <td className="px-6 py-4 text-right font-bold text-gray-500">₹{appt.price - appt.depositPaid}</td>
-                                    <td className="px-6 py-4 text-center">
-                                      {isVerified ? (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
-                                          <CheckCircle2 className="w-3 h-3" /> Verified
-                                        </span>
-                                      ) : isPending ? (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 text-gray-600 text-[11px] font-bold border border-gray-200">
-                                          <Clock className="w-3 h-3" /> Pending
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 text-[11px] font-bold border border-rose-200">Failed</span>
-                                      )}
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                      <span className={`inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold border ${appt.status==='Confirmed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : appt.status==='Pending' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>{appt.status}</span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                      <button className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#ac0053] transition-colors">
-                                        <Search className="w-4 h-4" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="p-4 border-t border-gray-100 bg-gray-50/30 flex justify-between items-center text-[11px] font-semibold text-gray-500">
-                        <span>Showing {appointments.length} of {appointments.length} entries</span>
-                        <div className="flex gap-1">
-                          <button className="px-3 py-1 border border-gray-200 rounded-lg bg-white hover:border-[#ac0053] transition-colors">Prev</button>
-                          <button className="px-3 py-1 border border-[#ac0053] bg-[#ac0053] text-white rounded-lg">1</button>
-                          <button className="px-3 py-1 border border-gray-200 rounded-lg bg-white hover:border-[#ac0053] transition-colors">Next</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column SIDE DRAWER */}
-                  <aside className="w-full xl:w-96 shrink-0">
-                    <div className="bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden sticky top-4">
-                      {(() => {
-                        const appt = appointments.find(a=>a.id===selectedPaymentId) || appointments[0];
-                        if(!appt) return null;
-                        const remaining = appt.price - appt.depositPaid;
-                        return (
-                          <>
-                            <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-                              <div>
-                                <h3 className="text-sm font-black text-gray-900">Booking #{appt.id.toUpperCase()}</h3>
-                                <p className="text-xs text-gray-500 mt-1">10 Aug 2026, {appt.time} - {appt.time}</p>
-                              </div>
-                              <button onClick={()=>setSelectedPaymentId(appointments[0]?.id || 'a1')} className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 hover:text-[#ac0053] hover:border-[#ac0053] transition-colors">
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                            <div className="p-6 space-y-6">
-                              <div>
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-3">Customer Profile</span>
-                                <div className="flex items-center gap-4">
-                                  <div className="w-12 h-12 rounded-full bg-[#ffd9e1] border border-[#ac0053]/20 flex items-center justify-center text-[#ac0053] font-black text-sm">
-                                    {appt.customerName.charAt(0)}
-                                  </div>
-                                  <div className="flex-1">
-                                    <h4 className="text-xs font-bold text-gray-900">{appt.customerName}</h4>
-                                    <p className="text-xs text-gray-500">{appt.phone}</p>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <a href={`https://wa.me/${appt.phone.replace(/\D/g,'')}`} target="_blank" className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                                      <MessageSquare className="w-4 h-4" />
-                                    </a>
-                                    <a href={`tel:${appt.phone}`} className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center text-[#ac0053] hover:bg-[#ffd9e1]/30 hover:border-[#ac0053]/20 transition-colors">
-                                      <Phone className="w-4 h-4" />
-                                    </a>
-                                  </div>
-                                </div>
-                              </div>
-                              <hr className="border-gray-100"/>
-                              <div>
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-3">Service Booked</span>
-                                <div className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
-                                  <div>
-                                    <span className="text-xs font-bold text-gray-900 block">{appt.serviceName}</span>
-                                    <span className="text-[11px] text-gray-500">with {appt.staffName}</span>
-                                  </div>
-                                  <span className="text-xs font-black text-gray-900">₹{appt.price.toLocaleString()}</span>
-                                </div>
-                              </div>
-                              <hr className="border-gray-100"/>
-                              <div>
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-3">Payment Summary</span>
-                                <div className="space-y-3 text-xs">
-                                  <div className="flex justify-between text-gray-500">
-                                    <span>Total Service Value</span>
-                                    <span className="font-bold text-gray-900">₹{appt.price}</span>
-                                  </div>
-                                  <div className="flex justify-between text-emerald-700 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-100 -mx-2">
-                                    <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Advance Collected (Online)</span>
-                                    <span>- ₹{appt.depositPaid}</span>
-                                  </div>
-                                  <div className="flex justify-between font-black text-gray-900 pt-2 border-t border-gray-100">
-                                    <span>Balance Due</span>
-                                    <span className="text-[#ac0053]">₹{remaining}</span>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex gap-2">
-                                <span className="px-3 py-1 bg-gray-50 rounded-full text-[11px] font-bold text-gray-700 border border-gray-200">Booking: {appt.status}</span>
-                                <span className={`px-3 py-1 rounded-full text-[11px] font-bold border ${appt.depositPaid>0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>Payment: {appt.depositPaid>0 ? 'Partial' : 'Pending'}</span>
-                              </div>
-                            </div>
-                            <div className="p-6 border-t border-gray-100 bg-gray-50/50">
-                              <button onClick={()=>{
-                                setAppointments(prev=>prev.map(p=>p.id===appt.id ? {...p, depositPaid: p.price, status:'Completed' as any} : p));
-                                setNotifications(n=>[{id:`n-${Date.now()}`, text:`Balance collected for ${appt.customerName} ₹${remaining}`, time:'Just now', read:false},...n]);
-                              }} className="w-full bg-[#ac0053] hover:bg-[#ba005b] text-white py-3 rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all flex justify-center items-center gap-2">
-                                <DollarSign className="w-4 h-4" />
-                                Mark Balance Collected (₹{remaining})
-                              </button>
-                              <p className="text-center text-[11px] font-semibold text-gray-400 mt-3">Confirming records an offline salon payment.</p>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </aside>
-                </div>
-              </motion.div>
+              <Suspense fallback={<PanelFallback />}>
+                <PaymentsPanel
+                  appointments={appointments}
+                  setAppointments={setAppointments}
+                  onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
+                />
+              </Suspense>
             )}
 
             {/* TAB: SHARE & REFERRAL MARKETING */}
             {activeTab === 'share' && (
-              <motion.div 
-                key="share"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 15 }}
-                className="space-y-6 max-w-4xl mx-auto"
-              >
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                  
-                  {/* Left QR Kit */}
-                  <div className="md:col-span-5 bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs text-center flex flex-col justify-between">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-sm mb-1">Visual Share Kit</h3>
-                      <p className="text-xs text-gray-400 mb-6">Scan QR code to open your premium live website immediately</p>
-
-                      <div className="bg-gray-50 p-4 rounded-2xl inline-block border border-gray-100">
-                        <img 
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://${liveUrl}`)}`}
-                          alt="QR Code"
-                          className="w-40 h-40 mx-auto"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                      
-                      <div className="text-xs font-mono select-all break-all border border-dashed border-gray-200 p-2.5 rounded-xl bg-gray-50 text-gray-400 mt-4">
-                        {liveUrl}
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={handleCopyLink}
-                      className="w-full mt-6 bg-[#ac0053] hover:bg-[#ba005b] text-white font-bold text-xs py-3 rounded-xl transition-colors"
-                    >
-                      {copied ? 'Copied Link!' : 'Copy Link Address'}
-                    </button>
-                  </div>
-
-                  {/* Right Promotion Kit */}
-                  <div className="md:col-span-7 bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs space-y-6">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-sm mb-1">Marketing templates</h3>
-                      <p className="text-xs text-gray-400">Pre-written outreach campaigns for your digital launch</p>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[11px] font-bold text-gray-400 uppercase">WhatsApp Message</span>
-                          <button 
-                            onClick={() => {
-                              navigator.clipboard.writeText(`Hey! Our salon has a shiny new website where you can view prices and book instantly! Check it out: https://${liveUrl}`);
-                              showNotifications && setNotifications(prev => [{ id: `${Date.now()}`, text: 'Copied WhatsApp Template!', time: 'Just now', read: false }, ...prev]);
-                            }}
-                            className="text-[11px] font-bold text-[#ac0053] hover:underline flex items-center gap-1"
-                          >
-                            <Copy className="w-3 h-3" /> Copy
-                          </button>
-                        </div>
-                        <p className="text-xs text-gray-600 leading-relaxed italic">
-                          "Hey! Our salon has a shiny new website where you can view prices and book instantly! Check it out: https://{liveUrl}"
-                        </p>
-                      </div>
-
-                      <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[11px] font-bold text-gray-400 uppercase">Email Invitation</span>
-                          <button 
-                            onClick={() => {
-                              navigator.clipboard.writeText(`Subject: We are Live! Book Your Next Session Online\n\nDear Client,\n\nWe are proud to introduce our new online portal! Save time by scheduling with your favorite stylist directly on our website:\nhttps://${liveUrl}`);
-                            }}
-                            className="text-[11px] font-bold text-[#ac0053] hover:underline flex items-center gap-1"
-                          >
-                            <Copy className="w-3 h-3" /> Copy
-                          </button>
-                        </div>
-                        <p className="text-xs text-gray-600 leading-relaxed italic font-mono text-[10px] bg-white p-2.5 rounded-lg border border-gray-100">
-                          Subject: We are Live! Book Your Next Session Online<br /><br />
-                          Dear Client,<br /><br />
-                          We are proud to introduce our new online portal! Save time by scheduling with your favorite stylist directly on our website:<br />
-                          https://{liveUrl}
-                        </p>
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-              </motion.div>
+              <Suspense fallback={<PanelFallback />}>
+                <SharePanel
+                  liveUrl={liveUrl}
+                  copied={copied}
+                  onCopyLink={handleCopyLink}
+                  notificationsOpen={showNotifications}
+                  onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
+                />
+              </Suspense>
             )}
 
             {/* TAB: SALON RULES & SETTINGS */}
             {activeTab === 'settings' && (
-              <motion.div 
-                key="settings"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 15 }}
-                className="space-y-6 max-w-4xl mx-auto"
-              >
-                <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs space-y-6">
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-sm mb-1">Salon Booking Rules</h3>
-                    <p className="text-xs text-gray-400">These parameters control what clients can request on your website</p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Minimum Notice Period</label>
-                      <input 
-                        type="text" 
-                        value={data.bookingRules?.minNotice || '1 hour'}
-                        onChange={(e) => {
-                          setData(prev => ({
-                            ...prev,
-                            bookingRules: { ...prev.bookingRules!, minNotice: e.target.value }
-                          }));
-                        }}
-                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold"
-                      />
-                    </div>
-                    <div className="rounded-xl border border-[#ac0053]/15 bg-[#ffd9e1]/20 px-4 py-3">
-                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Advance Deposit</label>
-                      <p className="text-xs font-semibold text-[#ac0053]">25% fixed company policy</p>
-                      <p className="mt-1 text-[11px] text-gray-500">Customers pay 25% online; the remaining 75% is paid at the salon.</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Allow Staff Selection</label>
-                      <select
-                        value={data.bookingRules?.allowStaffSelection ? 'yes' : 'no'}
-                        onChange={(e) => {
-                          setData(prev => ({
-                            ...prev,
-                            bookingRules: { ...prev.bookingRules!, allowStaffSelection: e.target.value === 'yes' }
-                          }));
-                        }}
-                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold"
-                      >
-                        <option value="yes">Yes - let clients choose provider</option>
-                        <option value="no">No - assign randomly</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Landmark Address Info</label>
-                      <input 
-                        type="text" 
-                        value={data.address?.landmark || ''}
-                        onChange={(e) => {
-                          setData(prev => ({
-                            ...prev,
-                            address: { ...prev.address!, landmark: e.target.value }
-                          }));
-                        }}
-                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-gray-100 flex justify-end gap-2">
-                    <button 
-                      onClick={() => {
-                        setNotifications(prev => [{ id: `${Date.now()}`, text: 'Saved Salon Rules!', time: 'Just now', read: false }, ...prev]);
-                      }}
-                      className="px-6 py-2 rounded-xl bg-[#ac0053] hover:bg-[#ba005b] text-white font-bold text-xs"
-                    >
-                      Save Configuration
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
+              <Suspense fallback={<PanelFallback />}>
+                <SettingsPanel
+                  data={data}
+                  setData={setData}
+                  onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
+                />
+              </Suspense>
             )}
 
             {/* TAB: SHARE & REFERRAL PREMIUM (Screen 24) */}
@@ -3566,11 +2795,13 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                 exit={{ opacity: 0, y: 15 }}
                 className="max-w-[1440px] mx-auto w-full"
               >
-                <ShareReferralPremium
-                  salonName={data.salonName}
-                  liveUrl={liveUrl}
-                  onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
-                />
+                <Suspense fallback={<PanelFallback />}>
+                  <ShareReferralPremium
+                    salonName={data.salonName}
+                    liveUrl={liveUrl}
+                    onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
+                  />
+                </Suspense>
               </motion.div>
             )}
 
@@ -3583,11 +2814,13 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                 exit={{ opacity: 0, y: 15 }}
                 className="max-w-[1440px] mx-auto w-full"
               >
-                <BrandingWhiteLabel
-                  data={data}
-                  setData={setData}
-                  onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
-                />
+                <Suspense fallback={<PanelFallback />}>
+                  <BrandingWhiteLabel
+                    data={data}
+                    setData={setData}
+                    onNotify={(msg) => setNotifications(prev => [{ id: `n-${Date.now()}`, text: msg, time: 'Just now', read: false }, ...prev])}
+                  />
+                </Suspense>
               </motion.div>
             )}
 

@@ -10,6 +10,7 @@ import PasswordResetPage from './components/PasswordResetPage.tsx';
 import SignUpPage from './components/SignUpPage.tsx';
 import AuthLoginPage from './components/AuthLoginPage.tsx';
 import { AuthModalProvider, useAuthModal } from './components/AuthModalProvider.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { useAuth } from './lib/useAuth.ts';
 import { applyBrandConfigToDocument } from './config/brandConfig.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
@@ -243,9 +244,11 @@ function RootRouter() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthModalProvider>
-      <RootRouter />
-    </AuthModalProvider>
+    <ErrorBoundary>
+      <AuthModalProvider>
+        <RootRouter />
+      </AuthModalProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
 

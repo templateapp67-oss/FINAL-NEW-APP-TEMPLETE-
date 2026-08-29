@@ -57,6 +57,3 @@ enable_confirmations = false
 [edge_runtime]
 enabled = true
 policy = "oneshot"
-
-[analytics]
-enabled = false

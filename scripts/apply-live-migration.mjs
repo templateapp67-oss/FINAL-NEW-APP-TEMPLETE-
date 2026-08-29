@@ -59,6 +59,14 @@ const TARGETS = {
     file: '20260826000101_m57_detach_legacy_showcase_tenant.sql',
     verifier: 'verify_m57_showcase_tenant_detachment',
   },
+  m63: {
+    file: '20260829000101_m63_owner_provisioning_invitation_guard_fix.sql',
+    verifier: 'verify_m63_owner_provisioning',
+  },
+  m64: {
+    file: '20260829000201_m64_deprecate_m58_workspace_membership.sql',
+    verifier: 'verify_m64_m58_deprecation',
+  },
 };
 
 function parseProjectRef(configText) {

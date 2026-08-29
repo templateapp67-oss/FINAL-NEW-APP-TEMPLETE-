@@ -123,6 +123,13 @@ export function workspaceUserMessage(diagnostic: WorkspaceDiagnostic): string {
     if (/already a member/.test(raw)) {
       return 'You are already a member of this workspace.';
     }
+    // The membership-activation guard fires on a database-side rule. An owner
+    // opening their own salon was never sent an invitation, so telling them
+    // about one would be wrong — and the raw guard text is an internal detail.
+    // This is deterministic: retrying cannot change the outcome.
+    if (/server[- ]activated/.test(raw)) {
+      return 'Your salon workspace could not be activated because of a setup problem on our side. Please contact support — retrying will not help.';
+    }
     if (/invitation/.test(raw)) {
       return 'The workspace invitation is invalid, expired, or requires server activation.';
     }

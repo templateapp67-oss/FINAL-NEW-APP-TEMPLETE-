@@ -20,6 +20,11 @@
 
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { getAuthoritativeAuthIdentity } from './authIdentity';
+// Static rather than dynamic: `ownerSalon` is already statically imported by
+// ownerBusinessSetup / ownerDashboard / ownerSession / salonWebsiteService, so
+// it always lands in the entry chunk. A dynamic import here bought no
+// splitting and only produced a Rollup mixed-import warning.
+import { resolveOwnerSalonId } from './ownerSalon';
 import { suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
 import {
   diagnosticError,
@@ -217,7 +222,6 @@ export async function ensureOwnerSalon(input?: {
   // an active salon in the database (e.g. signed up previously).
   if (error) {
     try {
-      const { resolveOwnerSalonId } = await import('./ownerSalon');
       const existing = await resolveOwnerSalonId();
       if (existing.status === 'resolved' && existing.salonId) {
         const { data: salonRow } = await client
@@ -413,7 +417,8 @@ export async function setOwnerTemplate(
   };
 }
 
-function sanitizeProvisionError(message: string | undefined, code?: string): string {
+/** Exported for tests: proves raw database text never reaches the owner UI. */
+export function sanitizeProvisionError(message: string | undefined, code?: string): string {
   const msg = `${code || ''} ${message || ''}`.toLowerCase();
   if (/please log in|not authenticated|28000/.test(msg)) {
     return 'Please log in to set up your salon.';
@@ -429,6 +434,13 @@ function sanitizeProvisionError(message: string | undefined, code?: string): str
   }
   if (/3.{0,3}60|lowercase|hyphen|characters/.test(msg)) {
     return 'Website address must be 3–60 lowercase letters, numbers or hyphens.';
+  }
+  // The membership-activation guard raises P0001 with an internal message
+  // ("new memberships require server-activated invitations"). An owner opening
+  // their own salon was never sent an invitation, so route this to the support
+  // path instead of the invitation copy, and never echo the raw text.
+  if (/server[- ]activated/.test(msg)) {
+    return 'Your salon workspace could not be created because of a setup problem on our side. Please contact support — retrying will not help.';
   }
   if (/invalid or expired invitation|invitation/.test(msg)) {
     return 'The workspace invitation is invalid or expired.';

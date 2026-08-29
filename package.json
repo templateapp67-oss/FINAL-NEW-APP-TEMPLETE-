@@ -176,10 +176,20 @@
     "db:verify:live:m55": "node scripts/apply-live-migration.mjs --m55 --verify-only",
     "db:verify:live:m56": "node scripts/apply-live-migration.mjs --m56 --verify-only",
     "db:verify:live:m57": "node scripts/apply-live-migration.mjs --m57 --verify-only",
+    "db:apply:live:m63": "node scripts/apply-live-migration.mjs --m63",
+    "db:verify:live:m63": "node scripts/apply-live-migration.mjs --m63 --verify-only",
+    "db:apply:live:m64": "node scripts/apply-live-migration.mjs --m64",
+    "db:verify:live:m64": "node scripts/apply-live-migration.mjs --m64 --verify-only",
     "test:auth-intent": "tsx scripts/test-auth-intent-routing.mjs",
     "test:runtime-boundaries": "tsx scripts/test-runtime-boundaries.mjs",
     "test:owner-canonical-bookings": "tsx scripts/test-owner-canonical-booking-consumer.mjs",
-    "test:workspace-init": "tsx scripts/test-workspace-initialization.mjs"
+    "test:workspace-init": "tsx scripts/test-workspace-initialization.mjs",
+    "test:m63-owner-provisioning": "tsx scripts/test-m63-owner-provisioning-invitation-guard.mjs",
+    "test:profiles-rls": "tsx scripts/test-profiles-rls-column-isolation.mjs",
+    "validate:all": "npm run validate:migrations && npm run validate:migration-manifests",
+    "test:auth-flow": "tsx scripts/test-auth-redirect-origin.mjs && tsx scripts/test-workspace-error-sanitization.mjs && tsx scripts/test-cache-clear-auth-recovery.mjs && tsx scripts/test-auth-intent-routing.mjs && tsx scripts/test-auth-modal.mjs",
+    "verify:bundle-integrity": "node scripts/verify-suspense-coverage.mjs && node scripts/verify-dynamic-imports.mjs",
+    "test": "npm run lint && npm run validate:all && npm run test:workspace-init && npm run test:m63-owner-provisioning && npm run test:profiles-rls && npm run test:auth-flow && tsx scripts/test-m54-workspace-bootstrap-compatibility.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

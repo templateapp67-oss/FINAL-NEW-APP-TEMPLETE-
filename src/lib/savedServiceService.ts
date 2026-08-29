@@ -504,7 +504,6 @@ export async function savePredefinedServices(
   themeId: DatabaseCatalogThemeId,
   predefinedServiceIds: string[],
 ): Promise<SavePredefinedServicesResult> {
-  const { isSupabaseConfigured } = await import('./supabaseClient');
   if (!isSupabaseConfigured) {
     return {
       businessId: 'mock-business',
@@ -637,7 +636,6 @@ export async function createSavedService(
   themeId: DatabaseCatalogThemeId,
   input: NewSavedService,
 ): Promise<SavedService> {
-  const { isSupabaseConfigured } = await import('./supabaseClient');
   if (!isSupabaseConfigured) {
     return {
       id: 'mock-saved-service-' + Date.now(),
@@ -720,7 +718,6 @@ export async function updateSavedService(
   serviceId: string,
   changes: SavedServiceChanges,
 ): Promise<SavedService> {
-  const { isSupabaseConfigured } = await import('./supabaseClient');
   if (!isSupabaseConfigured) {
     return {
       id: serviceId,
@@ -803,7 +800,6 @@ export async function setSavedServiceStatus(
   serviceId: string,
   status: SavedServiceStatus,
 ): Promise<SavedService> {
-  const { isSupabaseConfigured } = await import('./supabaseClient');
   if (!isSupabaseConfigured) {
     return {
       id: serviceId,
@@ -859,7 +855,6 @@ export async function setSavedServiceActive(
   serviceId: string,
   isActive: boolean,
 ): Promise<SavedService> {
-  const { isSupabaseConfigured } = await import('./supabaseClient');
   if (!isSupabaseConfigured) {
     return {
       id: serviceId,
@@ -911,7 +906,6 @@ export async function deleteSavedServiceWithClient(
 }
 
 export async function deleteSavedService(serviceId: string): Promise<string> {
-  const { isSupabaseConfigured } = await import('./supabaseClient');
   if (!isSupabaseConfigured) {
     return serviceId;
   }

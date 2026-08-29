@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { NEXORA_PROJECT_REF } from '../../shared/supabaseProject';
-export { NEXORA_PROJECT_REF } from '../../shared/supabaseProject';
+import { NEXORA_PROJECT_REF } from './supabaseProject';
+export { NEXORA_PROJECT_REF } from './supabaseProject';
 
 /**
  * NEXORA SHARED SUPABASE CLIENT (single browser client — the only one).

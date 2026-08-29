@@ -14,6 +14,9 @@ import { GoogleGenAI } from '@google/genai';
 import { setupPaymentRoutes } from './server/paymentRoutes';
 import { registerBookingRoutes } from './server/bookingRoutes';
 import { registerWebsiteBookingRoutes } from './server/websiteBookingRoutes';
+import { setupPrivacyRoutes } from './server/privacyRoutes';
+import { setupSeoRoutes } from './server/seoRoutes';
+import { observabilityMiddleware } from './server/observability';
 import { requireAuthenticatedUser, getSupabaseAdmin } from './server/supabaseAdmin';
 
 /* ------------------------------------------------------------------ *
@@ -245,6 +248,12 @@ async function fetchYoutubeDescription(videoId: string): Promise<string> {
  * ------------------------------------------------------------------ */
 
 export function setupApiRoutes(app: express.Express): void {
+  // M63 (infra): request correlation id, structured tenant-safe request logs
+  // and baseline security headers run before everything else.
+  for (const middleware of observabilityMiddleware()) {
+    app.use(middleware);
+  }
+
   // Preserve exact request bytes for provider webhook HMAC verification before
   // parsing JSON. All other routes continue to receive the parsed body.
   app.use(express.json({
@@ -294,6 +303,8 @@ export function setupApiRoutes(app: express.Express): void {
   registerBookingRoutes(app);
   setupPaymentRoutes(app);
   registerWebsiteBookingRoutes(app);
+  setupPrivacyRoutes(app);
+  setupSeoRoutes(app);
 
   // Paid AI calls are owner tools. When a paid key is configured, require a
   // real Supabase session and enforce a small per-user in-memory burst limit.

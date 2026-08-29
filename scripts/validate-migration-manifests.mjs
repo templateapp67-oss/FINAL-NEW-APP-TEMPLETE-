@@ -37,12 +37,16 @@ const overlap = designA.files.filter((file) => existing.files.includes(file));
 assert.deepEqual(overlap, []);
 assert.ok(designA.files.every((file) => /_m(?:0[1-9]|1\d|2[0-7])_/.test(file)));
 assert.ok(existing.files[0].includes('_m28_'));
-assert.ok(existing.files.at(-6).includes('_m55_'));
-assert.ok(existing.files.at(-5).includes('_m56_'));
-assert.ok(existing.files.at(-4).includes('_m57_'));
-assert.ok(existing.files.at(-3).includes('_m58_'));
-// M63/M64 follow M58 on this branch. `main` separately carries M59-M62; when
-// the branches merge, those four must be inserted here in timestamp order.
+// M55-M64 in timestamp order. M59-M62 came from main; M63/M64 from this
+// branch. Asserted by position so a re-ordering or a dropped file fails loudly.
+assert.ok(existing.files.at(-10).includes('_m55_'));
+assert.ok(existing.files.at(-9).includes('_m56_'));
+assert.ok(existing.files.at(-8).includes('_m57_'));
+assert.ok(existing.files.at(-7).includes('_m58_'));
+assert.ok(existing.files.at(-6).includes('_m59_'));
+assert.ok(existing.files.at(-5).includes('_m60_'));
+assert.ok(existing.files.at(-4).includes('_m61_'));
+assert.ok(existing.files.at(-3).includes('_m62_'));
 assert.ok(existing.files.at(-2).includes('_m63_'));
 assert.ok(existing.files.at(-1).includes('_m64_'));
 ok('Design-A M01-M27 and canonical M28-M64 tracks cannot be conflated');

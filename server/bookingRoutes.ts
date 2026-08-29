@@ -232,6 +232,62 @@ export function registerBookingRoutes(app: Express): void {
     }
   });
 
+  /**
+   * M61 — atomic customer/owner reschedule. The slot swap (release old,
+   * acquire new, keep payments) happens inside one SECURITY DEFINER RPC; the
+   * route only carries the session-derived actor and the target window.
+   */
+  app.post('/api/customer/bookings/:id/reschedule', async (request: Request, response: Response) => {
+    try {
+      const user = await requireAuthenticatedUser(request);
+      const bookingId = request.params.id;
+      const rawStart = String(request.body?.appointmentStart || '').trim();
+      const appointmentStart = new Date(rawStart);
+      if (!bookingId || !rawStart || Number.isNaN(appointmentStart.getTime())) {
+        return sendError(response, 400, 'A booking id and a valid new appointment start are required.');
+      }
+
+      const { data, error } = await getSupabaseAdmin().rpc('reschedule_customer_booking_for_actor', {
+        p_actor_user_id: user.id,
+        p_booking_id: bookingId,
+        p_new_appointment_start: appointmentStart.toISOString(),
+      });
+
+      if (error) {
+        if (error.code === '42501') return sendError(response, 403, 'You can only reschedule your own bookings.');
+        if (error.code === 'P0002') return sendError(response, 404, 'Booking not found.');
+        if (error.code === '23P01') return sendError(response, 409, 'The selected time is no longer available.');
+        if (error.code === '22023') return sendError(response, 400, error.message);
+        throw error;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      response.json({
+        success: true,
+        bookingId,
+        oldAppointmentStart: row?.old_appointment_start ?? null,
+        newAppointmentStart: row?.new_appointment_start ?? appointmentStart.toISOString(),
+        newAppointmentEnd: row?.new_appointment_end ?? null,
+        status: row?.status ?? null,
+        paymentStatus: row?.payment_status ?? null,
+      });
+    } catch (error) {
+      const dbError = databaseError(error);
+      const message = dbError.message || (error instanceof Error ? error.message : '');
+      const status = /bearer|session|authenticat/i.test(message) ? 401
+        : dbError.code === '42501' ? 403
+          : dbError.code === 'P0002' ? 404
+            : dbError.code === '23P01' ? 409 : 500;
+      if (status === 500) logDatabaseFailure('reschedule_customer_booking_for_actor', error);
+      sendError(response, status, status === 401
+        ? 'Authentication required.'
+        : status === 403 ? 'You can only reschedule your own bookings.'
+          : status === 404 ? 'Booking not found.'
+            : status === 409 ? 'The selected time is no longer available.'
+              : 'Unable to reschedule the booking.');
+    }
+  });
+
   /** Owner Bookings List. Shows bookings belonging ONLY to the owner's salon. */
   app.get('/api/owner/bookings', async (request: Request, response: Response) => {
     try {

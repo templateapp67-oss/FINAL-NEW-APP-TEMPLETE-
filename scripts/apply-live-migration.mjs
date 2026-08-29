@@ -59,6 +59,22 @@ const TARGETS = {
     file: '20260826000101_m57_detach_legacy_showcase_tenant.sql',
     verifier: 'verify_m57_showcase_tenant_detachment',
   },
+  m59: {
+    file: '20260827000201_m59_owner_provision_invitation_fix.sql',
+    verifier: 'verify_m54_workspace_bootstrap',
+  },
+  m60: {
+    file: '20260828000101_m60_payment_refunds.sql',
+    verifier: 'verify_m60_payment_refunds',
+  },
+  m61: {
+    file: '20260828000201_m61_booking_reschedule.sql',
+    verifier: 'verify_m61_booking_reschedule',
+  },
+  m62: {
+    file: '20260828000301_m62_privacy_lifecycle.sql',
+    verifier: 'verify_m62_privacy_lifecycle',
+  },
   m63: {
     file: '20260829000101_m63_owner_provisioning_invitation_guard_fix.sql',
     verifier: 'verify_m63_owner_provisioning',

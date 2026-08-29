@@ -168,53 +168,41 @@ export async function ensureOwnerSalon(input?: {
     ? input.templateKey
     : DEFAULT_OWNER_TEMPLATE;
 
-  // Try canonical 3-argument signature first
+  // Try the canonical 3-argument signature first. PostgREST's schema cache can
+  // lag a freshly applied migration by a few seconds, so if the function reads
+  // as "missing" we pause once and retry before falling back to older variants.
+  // This keeps a brand-new owner from being blocked on their first sign-in.
   let { data, error } = await client.rpc(PROVISION_OWNER_SALON_FN, {
     p_salon_name: name,
     p_slug: slug,
     p_template_id: templateKey,
   });
 
-  // If the function signature differs in the schema cache (e.g. earlier migration
-  // or alternate parameter naming), attempt known backwards-compatible variants.
   if (error && isMissingFunctionError(error)) {
-    // 1. Try (p_salon_name, p_user_id) as hinted by PostgREST schema cache
-    const res1 = await client.rpc(PROVISION_OWNER_SALON_FN, {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const retry = await client.rpc(PROVISION_OWNER_SALON_FN, {
       p_salon_name: name,
-      p_user_id: identity.user.id,
+      p_slug: slug,
+      p_template_id: templateKey,
     });
-    if (!res1.error) {
-      data = res1.data;
+    data = retry.data;
+    error = retry.error;
+  }
+
+  // If the function signature still differs (e.g. an earlier deployment that
+  // only exposes the 2-argument overload), fall back to the known
+  // backwards-compatible variant. The function derives the owner from
+  // auth.uid() internally, so no user id is passed here. (The legacy
+  // (p_salon_name, p_user_id) variant is intentionally dropped: it mapped onto
+  // the wrong parameter and could provision with a bad template.)
+  if (error && isMissingFunctionError(error)) {
+    const res = await client.rpc(PROVISION_OWNER_SALON_FN, {
+      p_salon_name: name,
+      p_template_key: templateKey,
+    });
+    if (!res.error) {
+      data = res.data;
       error = null;
-    } else if (isMissingFunctionError(res1.error)) {
-      // 2. Try (p_salon_name, p_template_key) - M42 signature
-      const res2 = await client.rpc(PROVISION_OWNER_SALON_FN, {
-        p_salon_name: name,
-        p_template_key: templateKey,
-      });
-      if (!res2.error) {
-        data = res2.data;
-        error = null;
-      } else if (isMissingFunctionError(res2.error)) {
-        // 3. Try (p_salon_name, p_template_id)
-        const res3 = await client.rpc(PROVISION_OWNER_SALON_FN, {
-          p_salon_name: name,
-          p_template_id: templateKey,
-        });
-        if (!res3.error) {
-          data = res3.data;
-          error = null;
-        } else if (isMissingFunctionError(res3.error)) {
-          // 4. Try (p_salon_name)
-          const res4 = await client.rpc(PROVISION_OWNER_SALON_FN, {
-            p_salon_name: name,
-          });
-          if (!res4.error) {
-            data = res4.data;
-            error = null;
-          }
-        }
-      }
     }
   }
 
@@ -426,6 +414,9 @@ export function sanitizeProvisionError(message: string | undefined, code?: strin
   if (/multiple salons|p0003/.test(msg)) {
     return 'Multiple salons are linked to your account. Please contact support.';
   }
+  if (/not authorized|42501/.test(msg)) {
+    return 'Your account is not authorized to set up a salon workspace. Please contact support.';
+  }
   if (/already in use|23505|duplicate/.test(msg)) {
     return 'That website address is already in use. Try another.';
   }
@@ -435,18 +426,23 @@ export function sanitizeProvisionError(message: string | undefined, code?: strin
   if (/3.{0,3}60|lowercase|hyphen|characters/.test(msg)) {
     return 'Website address must be 3–60 lowercase letters, numbers or hyphens.';
   }
-  // The membership-activation guard raises P0001 with an internal message
-  // ("new memberships require server-activated invitations"). An owner opening
-  // their own salon was never sent an invitation, so route this to the support
-  // path instead of the invitation copy, and never echo the raw text.
+  // This owner-salon provisioning path has NO invite-token concept, so the
+  // membership-activation guard must never be reported to the owner as an
+  // invitation problem. The guard raises P0001 with the internal text
+  // "new memberships must be server-activated invitations" — which contains
+  // the word "invitations", so order matters: check the guard FIRST and route
+  // it to the support path, and only then treat an explicit invitation
+  // message as an invitation failure. An owner opening their own salon was
+  // never sent an invitation, so telling them about one would be wrong, and
+  // the raw guard text is an internal detail that must never be echoed.
   if (/server[- ]activated/.test(msg)) {
     return 'Your salon workspace could not be created because of a setup problem on our side. Please contact support — retrying will not help.';
   }
-  if (/invalid or expired invitation|invitation/.test(msg)) {
-    return 'The workspace invitation is invalid or expired.';
-  }
   if (/already a member/.test(msg)) {
     return 'You are already a member of this workspace.';
+  }
+  if (/invalid or expired invitation|invitation/.test(msg)) {
+    return 'The workspace invitation is invalid or expired.';
   }
   // Deterministic backend faults (missing column/constraint, undefined
   // function, permission) can NEVER be fixed by the owner pressing "Try

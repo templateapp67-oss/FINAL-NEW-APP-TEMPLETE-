@@ -1,6 +1,12 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { SalonData } from '../types';
-import SiteBookingFullFlow from './SiteBookingFullFlow';
+
+// The full Service → Date → Time → Details → Summary → Payment → Gateway →
+// Result → Confirmation → Receipt flow is ~190 kB of source across
+// SiteBookingFullFlow / SiteBookingFlow / SiteBookingPaymentFlow. This host
+// already returns null until a Book CTA fires, so the chunk is not even
+// requested until a visitor actually starts a booking.
+const SiteBookingFullFlow = lazy(() => import('./SiteBookingFullFlow'));
 import type { SiteHeaderThemeId } from '../lib/siteNavigation';
 import {
   BOOKING_TRIGGER_ATTR,
@@ -60,7 +66,15 @@ export default function SiteBookingHost({ themeId, data }: { themeId: SiteHeader
       className="absolute inset-0 z-[70] flex flex-col overflow-hidden"
       style={{ transform: 'translateZ(0)' }}
     >
-      <SiteBookingFullFlow themeId={themeId} data={data} />
+      <Suspense
+        fallback={
+          <div className="flex-1 flex items-center justify-center bg-white">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#ffd9e1] border-t-[#ac0053]" />
+          </div>
+        }
+      >
+        <SiteBookingFullFlow themeId={themeId} data={data} />
+      </Suspense>
     </div>
   );
 }

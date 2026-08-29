@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { SalonData, getPublicStaffData, type SocialVideo } from '../types';
 import { getSalonNameStyle } from '../lib/brandIdentity';
 import { heroObjectPosition, shouldShowOwnerPhoto } from '../lib/templateConfig';
@@ -18,11 +18,24 @@ import {
 import BookingModal, { type BookingPrefill } from './BookingModal';
 import OwnerAvatar from './OwnerAvatar';
 import ReelsVideoPlayer from './ReelsVideoPlayer';
-import BarberTemplateRenderer from './BarberTemplateRenderer';
-import HairStudioTemplateRenderer from './HairStudioTemplateRenderer';
-import BeautySpaTemplateRenderer from './BeautySpaTemplateRenderer';
-import FamilyFullServiceTemplateRenderer from './FamilyFullServiceTemplateRenderer';
-import NailLashStudioTemplateRenderer from './NailLashStudioTemplateRenderer';
+
+// Each theme has its own full renderer, and a salon uses exactly one of them.
+// Importing all five statically put ~111 kB of unused theme markup into the
+// entry chunk every visitor downloads, so they are code-split per theme.
+const BarberTemplateRenderer = lazy(() => import('./BarberTemplateRenderer'));
+const HairStudioTemplateRenderer = lazy(() => import('./HairStudioTemplateRenderer'));
+const BeautySpaTemplateRenderer = lazy(() => import('./BeautySpaTemplateRenderer'));
+const FamilyFullServiceTemplateRenderer = lazy(() => import('./FamilyFullServiceTemplateRenderer'));
+const NailLashStudioTemplateRenderer = lazy(() => import('./NailLashStudioTemplateRenderer'));
+
+/** Suspense fallback while a theme renderer chunk loads. */
+function ThemeRendererFallback() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center bg-white">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#ffd9e1] border-t-[#ac0053]" />
+    </div>
+  );
+}
 import { BundlePrice, ServicePrice } from './PromotionalPricing';
 import { resolveWebsiteCopy, buildWhatsAppHref } from '../lib/websiteCopy';
 import { scrollToSiteSection } from '../lib/siteNavigation';
@@ -120,19 +133,19 @@ export default function TemplateRenderer({ data: sourceData, mode, renderMode = 
   // The Barber, Hair Studio and Beauty/Spa themes are fully separate renderers —
   // not colour variations of the other themes. Render each through its own component.
   if (templateId === 'barber_mens_grooming') {
-    return <SiteRenderModeProvider mode={renderMode}><BarberTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
+    return <SiteRenderModeProvider mode={renderMode}><Suspense fallback={<ThemeRendererFallback />}><BarberTemplateRenderer data={data} mode={mode} /></Suspense></SiteRenderModeProvider>;
   }
   if (templateId === 'hair_studio_color_bar') {
-    return <SiteRenderModeProvider mode={renderMode}><HairStudioTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
+    return <SiteRenderModeProvider mode={renderMode}><Suspense fallback={<ThemeRendererFallback />}><HairStudioTemplateRenderer data={data} mode={mode} /></Suspense></SiteRenderModeProvider>;
   }
   if (templateId === 'beauty_skin_spa') {
-    return <SiteRenderModeProvider mode={renderMode}><BeautySpaTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
+    return <SiteRenderModeProvider mode={renderMode}><Suspense fallback={<ThemeRendererFallback />}><BeautySpaTemplateRenderer data={data} mode={mode} /></Suspense></SiteRenderModeProvider>;
   }
   if (templateId === 'family_full_service') {
-    return <SiteRenderModeProvider mode={renderMode}><FamilyFullServiceTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
+    return <SiteRenderModeProvider mode={renderMode}><Suspense fallback={<ThemeRendererFallback />}><FamilyFullServiceTemplateRenderer data={data} mode={mode} /></Suspense></SiteRenderModeProvider>;
   }
   if (templateId === 'nail_lash_studio') {
-    return <SiteRenderModeProvider mode={renderMode}><NailLashStudioTemplateRenderer data={data} mode={mode} /></SiteRenderModeProvider>;
+    return <SiteRenderModeProvider mode={renderMode}><Suspense fallback={<ThemeRendererFallback />}><NailLashStudioTemplateRenderer data={data} mode={mode} /></Suspense></SiteRenderModeProvider>;
   }
 
   // Template-specific styling configurations (remaining themes).

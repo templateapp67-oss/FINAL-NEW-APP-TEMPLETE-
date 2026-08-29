@@ -41,10 +41,30 @@ function validHttpOrigin(value: string | undefined): string | null {
   try {
     const url = new URL(value.trim());
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    if (isPlaceholderOrigin(url.hostname)) return null;
     return url.origin;
   } catch {
     return null;
   }
+}
+
+/**
+ * Reject origins that parse as valid URLs but cannot be real deployments.
+ *
+ * `.env.example` ships `VITE_AUTH_REDIRECT_ORIGIN=https://your-app.example.com`
+ * as a placeholder. Copied into `.env` — the documented first step — it parsed
+ * as a perfectly valid https origin, so every signup-confirmation and
+ * password-recovery link pointed at a domain nobody owns. The account was
+ * created, the email arrived, and the link went nowhere.
+ *
+ * `example.com` / `.net` / `.org` and all their subdomains are reserved by
+ * RFC 2606 and can never be a genuine deployment target.
+ */
+function isPlaceholderOrigin(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  const reserved = ['example.com', 'example.net', 'example.org', 'example.edu'];
+  if (reserved.includes(host) || reserved.some((d) => host.endsWith(`.${d}`))) return true;
+  return /(^|[.-])(your[-_]?app|your[-_]?domain|yourdomain|changeme|placeholder|replace[-_]?me|todo|xxx+)([.-]|$)/.test(host);
 }
 
 function isEphemeralOrigin(origin: string): boolean {
@@ -86,8 +106,14 @@ function authUrl(path: string, params?: Record<string, string>): string {
   return url.toString();
 }
 
+/**
+ * `next` is optional so a caller that only supplies the intent cannot
+ * accidentally send a customer to the owner wizard. The previous
+ * `next = '/builder'` default won over the intent-derived fallback whenever
+ * `next` was omitted.
+ */
 export function signupConfirmationRedirect(
-  next = '/builder',
+  next?: string,
   intent: AuthAccountIntent = 'owner',
 ): string {
   const fallback = intent === 'customer' ? '/' : '/builder';

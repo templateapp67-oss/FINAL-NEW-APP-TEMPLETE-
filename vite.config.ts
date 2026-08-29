@@ -14,6 +14,37 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      // NOTE: build.chunkSizeWarningLimit is deliberately left at Vite's
+      // default 500 kB. The entry chunk is ~284 kB because every theme
+      // renderer, the owner workspace, the wizard and the owner dashboard are
+      // code-split. Do not raise this limit to silence a warning — a chunk
+      // crossing 500 kB again means something stopped being lazy.
+      // Split long-lived vendor code out of the application chunk. Previously
+      // everything landed in a single ~2.5 MB bundle, which both tripped
+      // Vite's chunk-size warning and forced a full re-download of React and
+      // the Supabase client on every app-code change. Tree-shaking is
+      // preserved: these are assigned per-module, not per-package barrel.
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            // React and its scheduler must stay together in one chunk; mixing
+            // them across chunks produces duplicate React instances.
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+              return 'vendor-react';
+            }
+            if (id.includes('@supabase')) return 'vendor-supabase';
+            if (/[\\/]node_modules[\\/](motion|framer-motion|motion-dom|motion-utils)[\\/]/.test(id)) {
+              return 'vendor-motion';
+            }
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (/[\\/]node_modules[\\/](leaflet|@leaflet)[\\/]/.test(id)) return 'vendor-leaflet';
+            return 'vendor';
+          },
+        },
+      },
+    },
     server: {
       host: '0.0.0.0',
       port: 3000,

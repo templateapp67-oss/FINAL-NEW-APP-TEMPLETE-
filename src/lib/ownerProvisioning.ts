@@ -20,6 +20,11 @@
 
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { getAuthoritativeAuthIdentity } from './authIdentity';
+// Static rather than dynamic: `ownerSalon` is already statically imported by
+// ownerBusinessSetup / ownerDashboard / ownerSession / salonWebsiteService, so
+// it always lands in the entry chunk. A dynamic import here bought no
+// splitting and only produced a Rollup mixed-import warning.
+import { resolveOwnerSalonId } from './ownerSalon';
 import { suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
 import {
   diagnosticError,
@@ -205,7 +210,6 @@ export async function ensureOwnerSalon(input?: {
   // an active salon in the database (e.g. signed up previously).
   if (error) {
     try {
-      const { resolveOwnerSalonId } = await import('./ownerSalon');
       const existing = await resolveOwnerSalonId();
       if (existing.status === 'resolved' && existing.salonId) {
         const { data: salonRow } = await client
@@ -401,7 +405,8 @@ export async function setOwnerTemplate(
   };
 }
 
-function sanitizeProvisionError(message: string | undefined, code?: string): string {
+/** Exported for tests: proves raw database text never reaches the owner UI. */
+export function sanitizeProvisionError(message: string | undefined, code?: string): string {
   const msg = `${code || ''} ${message || ''}`.toLowerCase();
   if (/please log in|not authenticated|28000/.test(msg)) {
     return 'Please log in to set up your salon.';
@@ -421,13 +426,24 @@ function sanitizeProvisionError(message: string | undefined, code?: string): str
   if (/3.{0,3}60|lowercase|hyphen|characters/.test(msg)) {
     return 'Website address must be 3–60 lowercase letters, numbers or hyphens.';
   }
-  // NOTE: this owner-salon provisioning path has NO invite-token concept, so a
-  // generic backend error must never be reported as a "workspace invitation
-  // is invalid or expired" failure. Invitation handling lives in
-  // `activate_workspace_membership` (src/lib/workspace.ts) and is surfaced by
-  // workspaceUserMessage(), not here. Drop the bare /invitation/ matcher so a
-  // transient or schema-cache error during sign-up / login no longer shows a
-  // misleading invitation message.
+  // This owner-salon provisioning path has NO invite-token concept, so the
+  // membership-activation guard must never be reported to the owner as an
+  // invitation problem. The guard raises P0001 with the internal text
+  // "new memberships must be server-activated invitations" — which contains
+  // the word "invitations", so order matters: check the guard FIRST and route
+  // it to the support path, and only then treat an explicit invitation
+  // message as an invitation failure. An owner opening their own salon was
+  // never sent an invitation, so telling them about one would be wrong, and
+  // the raw guard text is an internal detail that must never be echoed.
+  if (/server[- ]activated/.test(msg)) {
+    return 'Your salon workspace could not be created because of a setup problem on our side. Please contact support — retrying will not help.';
+  }
+  if (/already a member/.test(msg)) {
+    return 'You are already a member of this workspace.';
+  }
+  if (/invalid or expired invitation|invitation/.test(msg)) {
+    return 'The workspace invitation is invalid or expired.';
+  }
   // Deterministic backend faults (missing column/constraint, undefined
   // function, permission) can NEVER be fixed by the owner pressing "Try
   // again", so we must not tell them to. Surfaced as a support-path message

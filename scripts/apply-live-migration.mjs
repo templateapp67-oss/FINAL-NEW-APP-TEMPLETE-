@@ -75,6 +75,14 @@ const TARGETS = {
     file: '20260828000301_m62_privacy_lifecycle.sql',
     verifier: 'verify_m62_privacy_lifecycle',
   },
+  m63: {
+    file: '20260829000101_m63_owner_provisioning_invitation_guard_fix.sql',
+    verifier: 'verify_m63_owner_provisioning',
+  },
+  m64: {
+    file: '20260829000201_m64_deprecate_m58_workspace_membership.sql',
+    verifier: 'verify_m64_m58_deprecation',
+  },
 };
 
 function parseProjectRef(configText) {

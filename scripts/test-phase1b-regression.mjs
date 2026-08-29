@@ -48,7 +48,15 @@ const [
 assert.match(dashboard, /export async function loadOwnerDashboardContext/);
 assert.match(dashboard, /organization_members/);
 assert.match(dashboardUi, /loadOwnerDashboardContext/);
-assert.match(app, /import OwnerDashboard from '.\/components\/OwnerDashboard'/);
+// The point of this guard is that App.tsx renders THE existing
+// ./components/OwnerDashboard, not some replacement shell. It may reach it
+// either through a static import or a React.lazy code-split boundary, so
+// accept both specifier forms while still pinning the module path.
+assert.match(
+  app,
+  /(?:import OwnerDashboard from|const OwnerDashboard = lazy\(\(\) => import\()'\.\/components\/OwnerDashboard'\)?/,
+  "App.tsx must render the existing ./components/OwnerDashboard",
+);
 assert.match(app, /<OwnerDashboard \/>/);
 ok('owner dashboard stays on the existing OwnerDashboard + loadOwnerDashboardContext path');
 

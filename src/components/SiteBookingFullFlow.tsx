@@ -22,6 +22,8 @@ import { useAuthModal } from './AuthModalProvider';
 import { useAuth } from '../lib/useAuth';
 import { formatCurrency } from '../lib/pricing';
 import { publicSalonAuthContinuation } from '../lib/authRedirect';
+import { fulfillmentCharge, isHomeServiceFulfillment, type BookingFulfillment } from '../lib/homeService';
+import { formatDistanceKm } from '../lib/location';
 import { CheckCircle2, Copy, Download, Calendar, Clock, CreditCard, IndianRupee, Shield, Building2, User, Phone, Mail, Bookmark, Receipt } from 'lucide-react';
 
 /**
@@ -50,6 +52,8 @@ export default function SiteBookingFullFlow({ themeId, data }: { themeId: SiteHe
     startMinutes: number;
     endMinutes: number;
     customer: { name: string; mobile: string; email: string; notes: string };
+    /** HOME SERVICE — validated fulfillment snapshot from the entry flow. */
+    fulfillment?: BookingFulfillment;
   }>(null);
 
   /* ------------------------------------------------------------------ */
@@ -88,6 +92,7 @@ export default function SiteBookingFullFlow({ themeId, data }: { themeId: SiteHe
     startMinutes: number;
     endMinutes: number;
     customer: { name: string; mobile: string; email: string; notes: string };
+    fulfillment?: BookingFulfillment;
   }) => {
     if (confirmLockRef.current) return;
     confirmLockRef.current = true;
@@ -98,6 +103,7 @@ export default function SiteBookingFullFlow({ themeId, data }: { themeId: SiteHe
       startMinutes: payload.startMinutes,
       endMinutes: payload.endMinutes,
       customer: payload.customer,
+      fulfillment: payload.fulfillment,
     });
     setPhase('payment');
   }, []);
@@ -226,6 +232,7 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
     startMinutes: number;
     endMinutes: number;
     customer: { name: string; mobile: string; email: string; notes: string };
+    fulfillment?: BookingFulfillment;
   };
   onBack: () => void;
   onClose: () => void;
@@ -250,14 +257,17 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
     returnTo: publicSalonAuthContinuation(data.websiteSlug),
   });
 
-  // Calculate total and 25% advance for display
+  // Calculate total and 25% advance for display. HOME SERVICE — the flat
+  // surcharge preview joins the display total; the SERVER recomputes the
+  // authoritative amounts (services + verified charge) at booking time.
+  const isHomeService = isHomeServiceFulfillment(summary.fulfillment);
+  const homeCharge = fulfillmentCharge(summary.fulfillment);
   const totalAmount = useMemo(() => {
-    if (summary.serviceLines && summary.serviceLines.length > 0) {
-      return summary.serviceLines.reduce((acc, line) => acc + line.price, 0);
-    }
-    const s = (data.services || []).find((svc) => svc.id === summary.serviceId);
-    return s ? s.price : 0;
-  }, [summary, data.services]);
+    const serviceTotal = summary.serviceLines && summary.serviceLines.length > 0
+      ? summary.serviceLines.reduce((acc, line) => acc + line.price, 0)
+      : ((data.services || []).find((svc) => svc.id === summary.serviceId)?.price ?? 0);
+    return serviceTotal + homeCharge;
+  }, [summary, data.services, homeCharge]);
 
   const advanceAmount = Math.round(totalAmount * 0.25);
   const remainingAmount = totalAmount - advanceAmount;
@@ -293,6 +303,12 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
         serviceIds,
         appointmentStart: start.toISOString(),
         idempotencyKey: idempotencyKey.current,
+        // HOME SERVICE — only the mode + raw address travel; the server
+        // geocodes, measures and prices authoritatively.
+        fulfillmentMode: isHomeService ? 'home_service' : 'at_salon',
+        ...(isHomeService && summary.fulfillment?.address
+          ? { serviceAddress: summary.fulfillment.address }
+          : {}),
       }, {
         name: summary.customer.name,
         email: summary.customer.email || user.email,
@@ -330,9 +346,19 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
           <div className="flex justify-between gap-4"><dt className="text-gray-500">Salon</dt><dd className="font-semibold text-right">{data.salonName}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-gray-500">Date</dt><dd className="font-semibold text-right">{summary.dateKey}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-gray-500">Services</dt><dd className="font-semibold text-right">{summary.serviceLines?.length || 1}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-gray-500">Service mode</dt><dd className="font-semibold text-right" data-testid="checkout-service-mode">{isHomeService ? 'Home Service' : 'At Salon'}</dd></div>
+          {isHomeService && summary.fulfillment?.address && (
+            <div className="flex justify-between gap-4"><dt className="text-gray-500">Address</dt><dd className="font-semibold text-right max-w-[60%]" data-testid="checkout-service-address">{summary.fulfillment.address}</dd></div>
+          )}
+          {isHomeService && summary.fulfillment?.distanceKm != null && (
+            <div className="flex justify-between gap-4"><dt className="text-gray-500">Distance</dt><dd className="font-semibold text-right" data-testid="checkout-service-distance">{formatDistanceKm(summary.fulfillment.distanceKm)}</dd></div>
+          )}
+          {homeCharge > 0 && (
+            <div className="flex justify-between gap-4"><dt className="text-gray-500">Home Service charge</dt><dd className="font-semibold text-right" data-testid="checkout-home-charge">{formatCurrency(homeCharge)}</dd></div>
+          )}
           <div className="border-t border-gray-200 pt-2.5 flex justify-between gap-4"><dt className="text-gray-500">Total Amount</dt><dd className="font-bold text-right" data-testid="checkout-total-amount">{formatCurrency(totalAmount)}</dd></div>
           <div className="flex justify-between gap-4 text-[#ac0053] font-bold"><dt>25% Advance (Payable Now)</dt><dd className="text-right" data-testid="checkout-advance-amount">{formatCurrency(advanceAmount)}</dd></div>
-          <div className="flex justify-between gap-4 text-gray-600"><dt>Remaining (Pay at Salon)</dt><dd className="font-semibold text-right" data-testid="checkout-remaining-amount">{formatCurrency(remainingAmount)}</dd></div>
+          <div className="flex justify-between gap-4 text-gray-600"><dt>Remaining (Pay {isHomeService ? 'on Service' : 'at Salon'})</dt><dd className="font-semibold text-right" data-testid="checkout-remaining-amount">{formatCurrency(remainingAmount)}</dd></div>
         </dl>
 
         {!user && (
@@ -406,6 +432,7 @@ function BookingConfirmationView({
     startMinutes: number;
     endMinutes: number;
     customer: { name: string; mobile: string; email: string; notes: string };
+    fulfillment?: BookingFulfillment;
   };
   verified: {
     bookingId: string;
@@ -502,6 +529,22 @@ function BookingConfirmationView({
               <span className="font-semibold text-right">{summary.customer.mobile}</span>
             </>
           )}
+          <span className="text-gray-500">Service mode</span>
+          <span className="font-semibold text-right" data-testid="confirmation-service-mode">
+            {isHomeServiceFulfillment(summary.fulfillment) ? 'Home Service' : 'At Salon'}
+          </span>
+          {isHomeServiceFulfillment(summary.fulfillment) && summary.fulfillment?.address && (
+            <>
+              <span className="text-gray-500">Service address</span>
+              <span className="font-semibold text-right" data-testid="confirmation-service-address">{summary.fulfillment.address}</span>
+            </>
+          )}
+          {isHomeServiceFulfillment(summary.fulfillment) && summary.fulfillment?.distanceKm != null && (
+            <>
+              <span className="text-gray-500">Distance</span>
+              <span className="font-semibold text-right" data-testid="confirmation-service-distance">{formatDistanceKm(summary.fulfillment.distanceKm)}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -511,6 +554,12 @@ function BookingConfirmationView({
           <CreditCard className="w-3.5 h-3.5" /> Payment Summary
         </h4>
         <div className="space-y-2 text-sm">
+          {fulfillmentCharge(summary.fulfillment) > 0 && (
+            <div className="flex justify-between text-gray-600">
+              <span>Home Service charge (included)</span>
+              <span className="font-semibold" data-testid="confirmation-home-charge">{formatCurrency(fulfillmentCharge(summary.fulfillment))}</span>
+            </div>
+          )}
           <div className="flex justify-between">
             <span className="text-gray-500 flex items-center gap-1"><IndianRupee className="w-3 h-3" /> Total Amount</span>
             <span className="font-bold text-gray-900" data-testid="confirmation-total">{formatCurrency(totalAmount)}</span>
@@ -520,7 +569,7 @@ function BookingConfirmationView({
             <span data-testid="confirmation-advance">{formatCurrency(advanceAmount)}</span>
           </div>
           <div className="flex justify-between text-gray-600">
-            <span>Remaining (Pay at Salon)</span>
+            <span>Remaining (Pay {isHomeServiceFulfillment(summary.fulfillment) ? 'on Service' : 'at Salon'})</span>
             <span className="font-semibold" data-testid="confirmation-remaining">{formatCurrency(remainingAmount)}</span>
           </div>
           <div className="border-t border-gray-100 pt-2 flex justify-between text-xs">
@@ -579,6 +628,7 @@ function SiteBookingPaymentFlowWrapper({
     startMinutes: number;
     endMinutes: number;
     customer: { name: string; mobile: string; email: string; notes: string };
+    fulfillment?: BookingFulfillment;
   };
   initialRecord: PaymentRecord | null;
   onBackToSummary: () => void;
@@ -636,6 +686,7 @@ function SiteBookingPaymentFlowWrapper({
       staffId={null}
       staffName={null}
       customer={summary.customer}
+      fulfillment={summary.fulfillment}
       initialRecord={initialRecord}
       onBackToSummary={onBackToSummary}
       onBookingConfirmed={onBookingConfirmed}

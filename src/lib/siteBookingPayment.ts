@@ -183,6 +183,16 @@ export interface PaymentRecord {
   updatedAt: number;
   /** Whether this record came from a no-payment path (pay_at_salon). */
   payAtSalon: boolean;
+  /**
+   * HOME SERVICE — optional + additive fulfillment snapshot. Absent means an
+   * At Salon booking (every pre-existing record parses unchanged).
+   */
+  fulfillment?: {
+    mode: 'at_salon' | 'home_service';
+    address?: string;
+    distanceKm?: number;
+    homeServiceCharge?: number;
+  } | null;
 }
 
 export interface BookingCustomerSnapshot {
@@ -325,8 +335,11 @@ export function buildIdempotencyKey(input: {
   serviceId: string;
   dateKey: string;
   startMinutes: number;
+  /** HOME SERVICE — mode + address join the key so distinct fulfillments never collide. */
+  fulfillmentMode?: 'at_salon' | 'home_service';
+  serviceAddress?: string | null;
 }): string {
-  return [
+  const parts = [
     input.businessId,
     input.themeId,
     input.bookingId,
@@ -335,7 +348,11 @@ export function buildIdempotencyKey(input: {
     input.serviceId,
     input.dateKey,
     input.startMinutes,
-  ].join('|');
+  ];
+  if (input.fulfillmentMode === 'home_service') {
+    parts.push('home_service', (input.serviceAddress || '').trim().toLowerCase());
+  }
+  return parts.join('|');
 }
 
 /* ------------------------------------------------------------------ */
@@ -359,6 +376,8 @@ export interface CreatePaymentRecordInput {
   paymentMask?: string;
   staffId?: string | null;
   staffName?: string | null;
+  /** HOME SERVICE — optional fulfillment snapshot persisted with the record. */
+  fulfillment?: PaymentRecord['fulfillment'];
 }
 
 /** Creates a record for the no-payment path immediately (pay_at_salon). */
@@ -403,6 +422,9 @@ function createBookingRecordInternal(
     serviceId: input.service.id,
     dateKey: input.dateKey,
     startMinutes: input.startMinutes,
+    ...(input.fulfillment?.mode === 'home_service'
+      ? { fulfillmentMode: 'home_service' as const, serviceAddress: input.fulfillment.address || null }
+      : {}),
   });
   const record: PaymentRecord = {
     id,
@@ -434,6 +456,7 @@ function createBookingRecordInternal(
     createdAt: now,
     updatedAt: now,
     payAtSalon: options.payAtSalon,
+    ...(input.fulfillment ? { fulfillment: { ...input.fulfillment } } : {}),
   };
   const store = effectiveStore();
   // Idempotency: a duplicate call returns the existing record instead of

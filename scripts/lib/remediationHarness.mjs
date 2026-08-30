@@ -16,14 +16,16 @@ import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const migrationDir = join(root, 'supabase', 'migrations');
 
-export async function designBChain() {
-  // Numeric selection (house rule): every _mNN_ file from 28 through 62.
+export async function designBChain(maxMigration = 62) {
+  // Numeric selection (house rule): every _mNN_ file from 28 through
+  // `maxMigration` (default 62 — the original remediation bound; the M65
+  // home-service suite extends it to 65).
   const files = (await readdir(migrationDir))
     .filter((name) => name.endsWith('.sql'))
     .sort();
   return files.filter((name) => {
     const match = /_m(\d{2})_/i.exec(name);
-    return match && Number(match[1]) >= 28 && Number(match[1]) <= 62;
+    return match && Number(match[1]) >= 28 && Number(match[1]) <= maxMigration;
   });
 }
 
@@ -121,11 +123,11 @@ export const REMEDIATION_IDS = {
 };
 
 /** Replay the Design-B chain and provision the two isolated demo tenants. */
-export async function createRemediationDb() {
+export async function createRemediationDb({ maxMigration = 62 } = {}) {
   const db = new PGlite({ extensions: { btree_gist, pgcrypto } });
   await db.exec(BOOTSTRAP_SQL);
 
-  const chain = await designBChain();
+  const chain = await designBChain(maxMigration);
   for (const file of chain) {
     try {
       await db.exec(await readFile(join(migrationDir, file), 'utf8'));

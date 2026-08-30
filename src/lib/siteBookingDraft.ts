@@ -21,11 +21,12 @@
 import type { SiteHeaderThemeId } from './siteNavigation';
 import { bookingBrowserId } from './siteBookingFlow';
 import type { BookingCustomerDetails, BookingStepId } from './siteBookingFlow';
+import type { BookingFulfillment } from './homeService';
 
 export const BOOKING_DRAFT_STORE_KEY = 'nexora_site_booking_drafts';
 export const BOOKING_DRAFT_EVENT = 'nexora:booking-draft';
 /** Bump when the on-disk draft shape changes (2 = 16.2 multi-service lines). */
-export const BOOKING_DRAFT_STORE_VERSION = 2;
+export const BOOKING_DRAFT_STORE_VERSION = 3;
 /** Drafts older than this are dropped on read (stale foundation data). */
 export const BOOKING_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -71,6 +72,8 @@ export interface BookingDraftRecord {
   endMinutes: number | null;
   /** Customer details exactly as typed (validated by the entry flow). */
   customer: BookingCustomerDetails | null;
+  /** HOME SERVICE — fulfillment snapshot so refresh keeps the checked address. */
+  fulfillment?: BookingFulfillment | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -176,6 +179,8 @@ export interface BookingDraftInput {
   startMinutes?: number | null;
   endMinutes?: number | null;
   customer?: BookingCustomerDetails | null;
+  /** HOME SERVICE — optional fulfillment snapshot. */
+  fulfillment?: BookingFulfillment | null;
 }
 
 /**
@@ -213,6 +218,7 @@ export function saveBookingDraft(input: BookingDraftInput): BookingDraftRecord {
     startMinutes: input.startMinutes ?? null,
     endMinutes: input.endMinutes ?? null,
     customer: input.customer ? { ...input.customer } : null,
+    fulfillment: input.fulfillment ? { ...input.fulfillment } : null,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };

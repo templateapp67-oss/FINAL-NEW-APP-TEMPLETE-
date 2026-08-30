@@ -143,6 +143,8 @@ export interface BookingConfirmationView {
   staffName?: string | null;
   createdAt: number;
   updatedAt: number;
+  /** HOME SERVICE — fulfillment snapshot (absent means At Salon). */
+  fulfillment?: PaymentRecord['fulfillment'];
 }
 
 /** Service ids of a record — the 16.5 line items or the single service. */
@@ -198,6 +200,7 @@ export function toBookingConfirmation(record: PaymentRecord): BookingConfirmatio
     staffName: record.staffName,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    ...(record.fulfillment ? { fulfillment: { ...record.fulfillment } } : {}),
   };
 }
 

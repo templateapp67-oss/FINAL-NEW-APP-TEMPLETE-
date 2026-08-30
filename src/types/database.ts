@@ -225,6 +225,13 @@ export interface BookingRow {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  /** M65 — HOME SERVICE fulfillment (additive; at_salon for legacy rows). */
+  fulfillment_mode: 'at_salon' | 'home_service';
+  service_address: string | null;
+  service_latitude: number | null;
+  service_longitude: number | null;
+  service_distance_km: number | null;
+  home_service_charge_paise: number;
 }
 
 export interface BookingServiceRow {

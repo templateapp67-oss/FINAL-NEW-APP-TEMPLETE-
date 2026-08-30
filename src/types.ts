@@ -354,12 +354,30 @@ export interface EnabledContactOptions {
   bookNow: boolean;
 }
 
+/**
+ * HOME SERVICE — owner-published doorstep-service policy. Lives inside
+ * `bookingRules` so it persists through the EXISTING canonical website
+ * config (salon_public_websites.config.bookingRules.homeService) with no
+ * parallel settings store. The server re-reads these values authoritatively
+ * on booking creation; the client copy is presentation/validation only.
+ */
+export interface HomeServiceSettings {
+  /** Master switch — everything else is ignored while this is false. */
+  enabled: boolean;
+  /** Flat extra charge in INR added to the booking total. */
+  extraCharge: number;
+  /** Straight-line service radius in kilometres from the salon. */
+  radiusKm: number;
+}
+
 export interface BookingRules {
   minNotice: string;
   maxAdvance: string;
   bufferTime: string;
   allowStaffSelection: boolean;
   advanceDepositPercentage: number;
+  /** HOME SERVICE — optional + additive; absent means the feature is off. */
+  homeService?: HomeServiceSettings;
 }
 
 export type WebsiteAppearance = 'light' | 'dark';

@@ -84,6 +84,8 @@ import type {
 import type { BookingNoticeInput } from '../lib/siteBookingNotices';
 import { bookingNoticesText, fillNoticeText } from '../lib/siteBookingNoticesI18n';
 import type { SiteHeaderThemeId } from '../lib/siteNavigation';
+import { fulfillmentCharge, isHomeServiceFulfillment, type BookingFulfillment } from '../lib/homeService';
+import { formatDistanceKm } from '../lib/location';
 
 interface Props {
   themeId: SiteHeaderThemeId;
@@ -104,6 +106,12 @@ interface Props {
   staffId?: string | null;
   staffName?: string | null;
   customer: { name: string; mobile: string; email: string; notes: string };
+  /**
+   * HOME SERVICE — optional + additive fulfillment snapshot from the entry
+   * flow. When it carries a home-service charge, that flat amount joins the
+   * booking total BEFORE the 25% advance is derived.
+   */
+  fulfillment?: BookingFulfillment;
   /** Called when the visitor backs out of payment back into the summary. */
   onBackToSummary: () => void;
   /** Called when the visitor reaches the final confirmation step. */
@@ -331,6 +339,7 @@ export default function SiteBookingPaymentFlow(props: Props) {
     staffId,
     staffName,
     customer,
+    fulfillment,
     onBackToSummary,
     onBookingConfirmed,
     onBackToWebsite,
@@ -512,13 +521,16 @@ export default function SiteBookingPaymentFlow(props: Props) {
   // PHASE 16.5 — the REAL booking total: for a multi-service booking it is
   // the sum of the offer-aware line prices computed by the EXISTING 16.2
   // selection engine (never hardcoded); otherwise the single service price.
+  // HOME SERVICE — the flat surcharge joins the booking total before any
+  // payment-option math, so the 25% advance covers the FINAL amount.
+  const homeCharge = fulfillmentCharge(fulfillment);
   const bookingTotal = useMemo(
-    () => (multiLines ? multiLines.reduce((sum, line) => sum + line.price, 0) : finalPrice),
-    [multiLines, finalPrice],
+    () => (multiLines ? multiLines.reduce((sum, line) => sum + line.price, 0) : finalPrice) + homeCharge,
+    [multiLines, finalPrice, homeCharge],
   );
   const bookingBaseTotal = useMemo(
-    () => (multiLines ? bookingTotal : basePrice),
-    [multiLines, bookingTotal, basePrice],
+    () => (multiLines ? bookingTotal : basePrice + homeCharge),
+    [multiLines, bookingTotal, basePrice, homeCharge],
   );
   const amounts = useMemo(
     () => calculatePaymentAmounts(option, { price: bookingBaseTotal, finalPrice: bookingTotal }, data.bookingRules),
@@ -603,6 +615,17 @@ export default function SiteBookingPaymentFlow(props: Props) {
           email: customer.email,
           notes: customer.notes,
         },
+        // HOME SERVICE — fulfillment snapshot persisted with the record.
+        ...(fulfillment && fulfillment.mode === 'home_service'
+          ? {
+              fulfillment: {
+                mode: 'home_service' as const,
+                address: fulfillment.address,
+                distanceKm: fulfillment.distanceKm,
+                homeServiceCharge: fulfillment.homeServiceCharge,
+              },
+            }
+          : {}),
       });
       setRecord(created);
       setReceipt(toReceiptView(created, locale));
@@ -730,6 +753,17 @@ export default function SiteBookingPaymentFlow(props: Props) {
           email: customer.email,
           notes: customer.notes,
         },
+        // HOME SERVICE — fulfillment snapshot persisted with the record.
+        ...(fulfillment && fulfillment.mode === 'home_service'
+          ? {
+              fulfillment: {
+                mode: 'home_service' as const,
+                address: fulfillment.address,
+                distanceKm: fulfillment.distanceKm,
+                homeServiceCharge: fulfillment.homeServiceCharge,
+              },
+            }
+          : {}),
       });
       setRecord(initial);
     }
@@ -1074,6 +1108,7 @@ export default function SiteBookingPaymentFlow(props: Props) {
                 staffName={staffName}
                 amounts={amounts}
                 option={option}
+                fulfillment={fulfillment}
               />
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1956,6 +1991,7 @@ function BookingSummaryCard({
   staffName,
   amounts,
   option,
+  fulfillment,
 }: {
   D: PaymentDesign;
   s: PaymentFlowSurface;
@@ -1972,6 +2008,8 @@ function BookingSummaryCard({
   staffName: string | null | undefined;
   amounts: { baseAmount: number; amountDue: number; remainingAmount: number; advancePercent: number };
   option: PaymentOption;
+  /** HOME SERVICE — fulfillment snapshot for display. */
+  fulfillment?: BookingFulfillment;
 }) {
   const date = new Date(`${dateKey}T12:00:00`);
   const dateLabelText = date.toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', {
@@ -2010,6 +2048,23 @@ function BookingSummaryCard({
         <SummaryRow D={D} s={s} icon={<User className="w-3.5 h-3.5" />} label={T['receipt.staff']} value={staffName || T['confirm.anyStaff']} />
         <SummaryRow D={D} s={s} icon={<Building2 className="w-3.5 h-3.5" />} label={T['receipt.salon']} value={salonName} />
         <SummaryRow D={D} s={s} icon={<ReceiptIcon className="w-3.5 h-3.5" />} label={T['receipt.amount']} value={formatCurrency(amounts.baseAmount)} />
+        {/* HOME SERVICE — mode / address / distance / charge in the summary. */}
+        <SummaryRow
+          D={D}
+          s={s}
+          icon={<Building2 className="w-3.5 h-3.5" />}
+          label="Service mode"
+          value={isHomeServiceFulfillment(fulfillment) ? 'Home Service' : 'At Salon'}
+        />
+        {isHomeServiceFulfillment(fulfillment) && fulfillment?.address && (
+          <SummaryRow D={D} s={s} icon={<Building2 className="w-3.5 h-3.5" />} label="Service address" value={fulfillment.address} />
+        )}
+        {isHomeServiceFulfillment(fulfillment) && fulfillment?.distanceKm != null && (
+          <SummaryRow D={D} s={s} icon={<Building2 className="w-3.5 h-3.5" />} label="Distance" value={formatDistanceKm(fulfillment.distanceKm)} />
+        )}
+        {fulfillmentCharge(fulfillment) > 0 && (
+          <SummaryRow D={D} s={s} icon={<ReceiptIcon className="w-3.5 h-3.5" />} label="Home Service charge" value={formatCurrency(fulfillmentCharge(fulfillment))} />
+        )}
       </div>
       {/* PHASE 16.5 — every selected service with its own price. */}
       {serviceLines && serviceLines.length > 1 && (

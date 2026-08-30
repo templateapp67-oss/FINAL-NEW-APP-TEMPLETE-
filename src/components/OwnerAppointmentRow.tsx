@@ -10,7 +10,8 @@
  * computes, defaults or invents a business fact.
  */
 import type { CSSProperties, ReactNode } from 'react';
-import { Calendar, Clock, CreditCard, Phone, Sparkles, User, Users } from 'lucide-react';
+import { Calendar, Clock, CreditCard, MapPin, Phone, Sparkles, User, Users } from 'lucide-react';
+import { formatDistanceKm } from '../lib/location';
 import type { TodayAppointment, TodayStatusGroup } from '../lib/ownerTodayAppointments';
 import { formatDurationLabel, hasAdvancePaid, hasRemainingBalance } from '../lib/ownerTodayAppointments';
 import { formatMinutesLabel } from '../lib/siteBookingPayment';
@@ -185,6 +186,26 @@ export default function OwnerAppointmentRow({
         >
           {t(`${copyPrefix}.payment.${row.paymentStatus}`)}
         </Field>
+        {/* HOME SERVICE — verified fulfillment facts for the owner. */}
+        <Field
+          palette={palette}
+          testId={`${testIdPrefix}-fulfillment-${row.bookingId}`}
+          icon={<MapPin className="h-3 w-3" />}
+          label="Service mode"
+        >
+          {row.fulfillmentMode === 'home_service' ? 'Home Service' : 'At Salon'}
+        </Field>
+        {row.fulfillmentMode === 'home_service' && row.serviceAddress && (
+          <Field
+            palette={palette}
+            testId={`${testIdPrefix}-service-address-${row.bookingId}`}
+            icon={<MapPin className="h-3 w-3" />}
+            label="Service address"
+          >
+            {row.serviceAddress}
+            {row.serviceDistanceKm != null ? ` · ${formatDistanceKm(row.serviceDistanceKm)}` : ''}
+          </Field>
+        )}
       </div>
 
       {/* money + contact */}
@@ -206,6 +227,12 @@ export default function OwnerAppointmentRow({
           <span data-testid={`${testIdPrefix}-remaining-${row.bookingId}`}>
             {t(`${copyPrefix}.field.remaining`)}:{' '}
             <b style={{ color: palette.text }}>{formatCurrency(row.remaining)}</b>
+          </span>
+        )}
+        {row.fulfillmentMode === 'home_service' && row.homeServiceCharge > 0 && (
+          <span data-testid={`${testIdPrefix}-home-charge-${row.bookingId}`}>
+            Home Service charge:{' '}
+            <b style={{ color: palette.text }}>{formatCurrency(row.homeServiceCharge)}</b>
           </span>
         )}
         {row.customerMobile && (

@@ -3,6 +3,7 @@ import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { getSupabaseAdmin, requireAuthenticatedUser } from './supabaseAdmin';
 import { handleGuestWebsiteBooking, isGuestWebsiteBooking } from './websiteBookingRoutes';
+import { geocodeAddressServer } from './geocoding';
 
 const createBookingSchema = z.object({
   salonId: z.string().uuid(),
@@ -10,9 +11,31 @@ const createBookingSchema = z.object({
   staffId: z.string().uuid().nullable().optional(),
   appointmentStart: z.string().datetime({ offset: true }),
   idempotencyKey: z.string().min(16).max(128).regex(/^[A-Za-z0-9._:-]+$/),
+  /**
+   * HOME SERVICE — optional + additive. The browser only says WHERE it wants
+   * service; the address is re-geocoded HERE and the distance/charge/radius
+   * decision is recomputed by the M65 database function. Client-supplied
+   * coordinates, distances or charges are deliberately not accepted.
+   */
+  fulfillmentMode: z.enum(['at_salon', 'home_service']).optional(),
+  serviceAddress: z.string().trim().min(10).max(400).optional(),
 }).strict().superRefine((value, context) => {
   if (new Set(value.serviceIds).size !== value.serviceIds.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['serviceIds'], message: 'Duplicate services are not allowed.' });
+  }
+  if (value.fulfillmentMode === 'home_service' && !value.serviceAddress) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['serviceAddress'],
+      message: 'A complete service address is required for home service.',
+    });
+  }
+  if ((value.fulfillmentMode ?? 'at_salon') === 'at_salon' && value.serviceAddress) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['serviceAddress'],
+      message: 'A service address applies only to home service bookings.',
+    });
   }
 });
 
@@ -87,14 +110,33 @@ export function registerBookingRoutes(app: Express): void {
       }
 
       const input = parsed.data;
+      const fulfillmentMode = input.fulfillmentMode ?? 'at_salon';
+
+      // HOME SERVICE — the server geocodes the customer address itself via
+      // the existing OpenStreetMap/Nominatim proxy path. The database then
+      // recomputes distance + charge from canonical salon coordinates and
+      // the owner's published settings; nothing priced client-side survives.
+      let serviceCoordinates: { latitude: number; longitude: number } | null = null;
+      if (fulfillmentMode === 'home_service') {
+        serviceCoordinates = await geocodeAddressServer(input.serviceAddress || '');
+        if (!serviceCoordinates) {
+          sendError(response, 400, 'We could not verify that address. Please enter a complete address.');
+          return;
+        }
+      }
+
       const normalized = JSON.stringify({
         salonId: input.salonId,
         serviceIds: [...input.serviceIds].sort(),
         staffId: input.staffId || null,
         appointmentStart: new Date(input.appointmentStart).toISOString(),
+        // Fulfillment participates in the fingerprint so one idempotency key
+        // can never silently switch a booking between modes or addresses.
+        fulfillmentMode,
+        serviceAddress: fulfillmentMode === 'home_service' ? (input.serviceAddress || '').trim() : null,
       });
       const fingerprint = createHash('sha256').update(normalized).digest('hex');
-      const { data, error } = await getSupabaseAdmin().rpc('create_authoritative_customer_booking', {
+      const { data, error } = await getSupabaseAdmin().rpc('create_authoritative_customer_booking_v2', {
         p_customer_id: user.id,
         p_salon_id: input.salonId,
         p_service_ids: input.serviceIds,
@@ -102,6 +144,10 @@ export function registerBookingRoutes(app: Express): void {
         p_appointment_start: input.appointmentStart,
         p_idempotency_key: input.idempotencyKey,
         p_request_fingerprint: fingerprint,
+        p_fulfillment_mode: fulfillmentMode,
+        p_service_address: fulfillmentMode === 'home_service' ? (input.serviceAddress || '').trim() : null,
+        p_service_latitude: serviceCoordinates?.latitude ?? null,
+        p_service_longitude: serviceCoordinates?.longitude ?? null,
       });
       if (error) {
         console.error('Authoritative booking creation failed:', { code: error.code, message: error.message });
@@ -134,6 +180,11 @@ export function registerBookingRoutes(app: Express): void {
         remainingAmount: Math.round(remainingPaise / 100),
         currency: booking.currency || 'INR',
         appointmentEnd: booking.appointment_end,
+        // HOME SERVICE — server-verified fulfillment facts (never the client's).
+        fulfillmentMode: booking.fulfillment_mode || 'at_salon',
+        serviceAddress: booking.service_address || null,
+        serviceDistanceKm: booking.service_distance_km != null ? Number(booking.service_distance_km) : null,
+        homeServiceChargePaise: Number(booking.home_service_charge_paise || 0),
       });
     } catch (error) {
       const status = error instanceof Error && /bearer|session|authenticat/i.test(error.message) ? 401 : 500;
@@ -181,6 +232,10 @@ export function registerBookingRoutes(app: Express): void {
           paymentStatus: row.payment_status,
           currency: row.currency,
           createdAt: row.created_at,
+          fulfillmentMode: row.fulfillment_mode || 'at_salon',
+          serviceAddress: typeof row.service_address === 'string' ? row.service_address : null,
+          serviceDistanceKm: row.service_distance_km != null ? Number(row.service_distance_km) : null,
+          homeServiceChargePaise: Number(row.home_service_charge_paise || 0),
         };
       });
 
@@ -342,6 +397,10 @@ export function registerBookingRoutes(app: Express): void {
           paymentStatus: row.payment_status,
           currency: row.currency,
           createdAt: row.created_at,
+          fulfillmentMode: row.fulfillment_mode || 'at_salon',
+          serviceAddress: typeof row.service_address === 'string' ? row.service_address : null,
+          serviceDistanceKm: row.service_distance_km != null ? Number(row.service_distance_km) : null,
+          homeServiceChargePaise: Number(row.home_service_charge_paise || 0),
         };
       });
 

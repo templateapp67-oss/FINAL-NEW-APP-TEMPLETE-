@@ -58,6 +58,14 @@ import {
 import { readBookingDraft, saveBookingDraft } from '../lib/siteBookingDraft';
 import { injectedSectionStatus } from '../lib/siteStructure';
 import type { SectionStatus } from '../lib/siteStructure';
+import SiteBookingFulfillment, {
+  INITIAL_FULFILLMENT_SELECTION,
+  fulfillmentFromSelection,
+  fulfillmentSelectionValid,
+  type FulfillmentSelection,
+} from './SiteBookingFulfillment';
+import { fulfillmentCharge, type BookingFulfillment } from '../lib/homeService';
+import { formatDistanceKm } from '../lib/location';
 import { THEME_LABELS } from '../lib/themeServices';
 import type { BookingDayInfo, BookingSlot, BookingStepId } from '../lib/siteBookingFlow';
 import type { BookingNoticeInput } from '../lib/siteBookingNotices';
@@ -88,6 +96,8 @@ interface Props {
     startMinutes: number;
     endMinutes: number;
     customer: { name: string; mobile: string; email: string; notes: string };
+    /** HOME SERVICE — validated fulfillment snapshot (at_salon default). */
+    fulfillment: BookingFulfillment;
   }) => void;
   /**
    * PHASE 16.5 — when the visitor backs OUT of the payment flow, the host
@@ -319,6 +329,32 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
   const [customer, setCustomer] = useState(
     () => initialDraft?.customer ?? { name: '', mobile: '', email: '', notes: '' },
   );
+  /* HOME SERVICE — fulfillment choice (At Salon default; restored from the
+   * 16.1 draft so a refresh keeps the checked address + distance). */
+  const [fulfillmentSelection, setFulfillmentSelection] = useState<FulfillmentSelection>(
+    () => (initialDraft?.fulfillment && initialDraft.fulfillment.mode === 'home_service'
+      ? {
+          mode: 'home_service',
+          address: initialDraft.fulfillment.address || '',
+          status: initialDraft.fulfillment.distanceKm != null
+            && initialDraft.fulfillment.latitude != null
+            && initialDraft.fulfillment.longitude != null
+            ? 'inside'
+            : 'idle',
+          evaluation: initialDraft.fulfillment.distanceKm != null
+            ? {
+                distanceKm: initialDraft.fulfillment.distanceKm,
+                withinRadius: true,
+                charge: initialDraft.fulfillment.homeServiceCharge ?? 0,
+                radiusKm: data.bookingRules?.homeService?.radiusKm ?? 0,
+              }
+            : null,
+          geo: initialDraft.fulfillment.latitude != null && initialDraft.fulfillment.longitude != null
+            ? { latitude: initialDraft.fulfillment.latitude, longitude: initialDraft.fulfillment.longitude }
+            : null,
+        }
+      : { ...INITIAL_FULFILLMENT_SELECTION }),
+  );
   const [formTouched, setFormTouched] = useState(false);
   // PHASE 16.9 — per-field touch so validation messages appear as soon as
   // the visitor leaves an invalid field (the Continue button stays gated
@@ -477,9 +513,12 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
           ? selectedSlotMinutes + selection.totalDurationMinutes
           : null,
       customer,
+      // HOME SERVICE — persisted with the draft so refresh/resume keeps the
+      // verified address, distance and charge preview.
+      fulfillment: fulfillmentFromSelection(fulfillmentSelection),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, selection, selectedDateKey, selectedSlotMinutes, customer, salonContext.businessId, themeId]);
+  }, [step, selection, selectedDateKey, selectedSlotMinutes, customer, fulfillmentSelection, salonContext.businessId, themeId]);
 
   /* ---------- slot picking + double-booking guard ---------- */
   const pickSlot = useCallback(
@@ -578,7 +617,10 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
 
   /* ---------- navigation + gating ---------- */
   const customerErrors = validateBookingCustomer(customer);
-  const detailsValid = !customerErrors.name && !customerErrors.mobile && !customerErrors.email;
+  // HOME SERVICE — the Details step cannot continue until a home-service
+  // address has been checked and sits INSIDE the owner's radius.
+  const fulfillmentValid = fulfillmentSelectionValid(data, fulfillmentSelection);
+  const detailsValid = !customerErrors.name && !customerErrors.mobile && !customerErrors.email && fulfillmentValid;
 
   const stepIndex = BOOKING_STEP_IDS.indexOf(step);
 
@@ -683,6 +725,11 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
   // variant-aware); single-selection values equal the 10.6 ones exactly.
   const totalPrice = selection.totalPrice;
   const totalDuration = selection.totalDurationMinutes;
+  // HOME SERVICE — display totals include the flat surcharge preview; the
+  // server recomputes the authoritative amounts at booking time.
+  const activeFulfillment = fulfillmentFromSelection(fulfillmentSelection);
+  const homeCharge = fulfillmentCharge(activeFulfillment);
+  const grandTotal = totalPrice + homeCharge;
   const isMultiService = selection.count > 1;
   const minuteLabel = locale === 'hi' ? 'मिनट' : 'min';
   const selectionCountLabel = selection.count === 1
@@ -1502,6 +1549,17 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                     </div>
                   </label>
                 </div>
+
+                {/* HOME SERVICE — At Salon / Home Service choice with automatic
+                    distance check. Hidden while the owner keeps it disabled. */}
+                <SiteBookingFulfillment
+                  themeId={themeId}
+                  data={data}
+                  s={s}
+                  design={D}
+                  selection={fulfillmentSelection}
+                  onChange={setFulfillmentSelection}
+                />
               </motion.div>
             )}
 
@@ -1634,6 +1692,26 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                       T['summary.notes'],
                       customer.notes || T['summary.notProvided'],
                     )}
+                    {/* HOME SERVICE — service mode + verified address/distance. */}
+                    {summaryLine(
+                      <MapPin className="w-3.5 h-3.5" />,
+                      'Service mode',
+                      activeFulfillment.mode === 'home_service' ? 'Home Service' : 'At Salon',
+                    )}
+                    {activeFulfillment.mode === 'home_service' && (
+                      <>
+                        {summaryLine(
+                          <MapPin className="w-3.5 h-3.5" />,
+                          'Service address',
+                          activeFulfillment.address || T['summary.notProvided'],
+                        )}
+                        {activeFulfillment.distanceKm != null && summaryLine(
+                          <MapPin className="w-3.5 h-3.5" />,
+                          'Distance',
+                          formatDistanceKm(activeFulfillment.distanceKm),
+                        )}
+                      </>
+                    )}
                   </div>
 
                   <div className={`${D.card} p-4 md:p-5 flex flex-col gap-2`} style={{ backgroundColor: s.well, borderColor: s.line }}>
@@ -1646,21 +1724,31 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                         <span className="shrink-0">{formatCurrency(line.finalPrice)}</span>
                       </div>
                     ))}
+                    {homeCharge > 0 && (
+                      <div
+                        data-testid="booking-summary-home-charge"
+                        className="flex items-center justify-between text-xs font-bold"
+                        style={{ color: s.text }}
+                      >
+                        <span className="truncate pr-3">Home Service charge</span>
+                        <span className="shrink-0">{formatCurrency(homeCharge)}</span>
+                      </div>
+                    )}
                     <div
                       data-testid="booking-summary-total"
                       className="flex items-center justify-between text-sm font-extrabold pt-1 border-t"
                       style={{ color: s.textStrong, borderColor: s.chipLine }}
                     >
                       <span>{selectionCountLabel} · {totalDuration} {minuteLabel}</span>
-                      <span data-testid="summary-total-amount">{selection.count > 0 ? formatCurrency(totalPrice) : '—'}</span>
+                      <span data-testid="summary-total-amount">{selection.count > 0 ? formatCurrency(grandTotal) : '—'}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs font-bold" style={{ color: s.accent }}>
                       <span>25% Advance (Payable Now)</span>
-                      <span data-testid="summary-advance-amount">{selection.count > 0 ? formatCurrency(Math.round(totalPrice * 0.25)) : '—'}</span>
+                      <span data-testid="summary-advance-amount">{selection.count > 0 ? formatCurrency(Math.round(grandTotal * 0.25)) : '—'}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs font-bold" style={{ color: s.muted }}>
-                      <span>Remaining (Pay at Salon)</span>
-                      <span data-testid="summary-remaining-amount">{selection.count > 0 ? formatCurrency(totalPrice - Math.round(totalPrice * 0.25)) : '—'}</span>
+                      <span>Remaining (Pay {activeFulfillment.mode === 'home_service' ? 'on Service' : 'at Salon'})</span>
+                      <span data-testid="summary-remaining-amount">{selection.count > 0 ? formatCurrency(grandTotal - Math.round(grandTotal * 0.25)) : '—'}</span>
                     </div>
                     <p
                       className="text-[10px] font-semibold mt-2 p-2.5 border"
@@ -1794,6 +1882,9 @@ export default function SiteBookingFlow({ themeId, data, onBackToWebsite, onShow
                     startMinutes: selectedSlotMinutes,
                     endMinutes: selectedSlotMinutes + totalDuration,
                     customer,
+                    // HOME SERVICE — validated fulfillment travels with the
+                    // payload; the server re-verifies everything.
+                    fulfillment: activeFulfillment,
                   });
                   return;
                 }

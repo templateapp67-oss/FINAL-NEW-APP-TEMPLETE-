@@ -16,7 +16,8 @@
  * RLS enforces customer_id = auth.uid().
  */
 import { useMemo, useState, useEffect } from 'react';
-import { Calendar, CalendarX, Clock, CreditCard, ReceiptText, RefreshCw, ShieldAlert, Sparkles, User, LogIn, UserPlus } from 'lucide-react';
+import { Calendar, CalendarX, Clock, CreditCard, MapPin, ReceiptText, RefreshCw, ShieldAlert, Sparkles, User, LogIn, UserPlus } from 'lucide-react';
+import { formatDistanceKm } from '../lib/location';
 import type { SalonData } from '../types';
 import { formatCurrency } from '../lib/pricing';
 import { useSiteLocale, useThemeAppearance } from './SiteHeader';
@@ -153,6 +154,11 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
           bookingStatus: b.status as BookingStatus,
           paymentStatus: b.paymentStatus as PaymentStatus,
           isRemote: true,
+          // HOME SERVICE — server-verified fulfillment facts.
+          fulfillmentMode: b.fulfillmentMode || 'at_salon',
+          serviceAddress: b.serviceAddress || null,
+          serviceDistanceKm: b.serviceDistanceKm ?? null,
+          homeServiceCharge: Math.round((b.homeServiceChargePaise || 0) / 100),
         };
       });
     }
@@ -174,6 +180,11 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
         paymentStatus: record.paymentStatus,
         isRemote: false,
         rawRecord: record,
+        // HOME SERVICE — local sandbox fulfillment snapshot (optional).
+        fulfillmentMode: record.fulfillment?.mode || 'at_salon',
+        serviceAddress: record.fulfillment?.address || null,
+        serviceDistanceKm: record.fulfillment?.distanceKm ?? null,
+        homeServiceCharge: record.fulfillment?.homeServiceCharge || 0,
       };
     });
   }, [remoteBookings, localBookings, data, themeId]);
@@ -350,6 +361,22 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
                 {dateLabel(record.dateKey)}
                 <Clock className="w-3 h-3 shrink-0 ml-1" style={{ color: s.accent }} />
                 {formatMinutesLabel(record.startMinutes, locale)} – {formatMinutesLabel(record.endMinutes, locale)}
+              </span>
+              {/* HOME SERVICE — mode + address + distance + charge. */}
+              <span className="flex items-center gap-1.5 flex-wrap" data-testid={`my-booking-fulfillment-${record.bookingId}`}>
+                <MapPin className="w-3 h-3 shrink-0" style={{ color: s.accent }} />
+                <b style={{ color: s.textStrong }}>
+                  {record.fulfillmentMode === 'home_service' ? 'Home Service' : 'At Salon'}
+                </b>
+                {record.fulfillmentMode === 'home_service' && record.serviceAddress && (
+                  <span className="truncate max-w-[240px]">· {record.serviceAddress}</span>
+                )}
+                {record.fulfillmentMode === 'home_service' && record.serviceDistanceKm != null && (
+                  <span>· {formatDistanceKm(record.serviceDistanceKm)}</span>
+                )}
+                {record.fulfillmentMode === 'home_service' && record.homeServiceCharge > 0 && (
+                  <span>· +{formatCurrency(record.homeServiceCharge)}</span>
+                )}
               </span>
               <span className="flex items-center gap-1.5 flex-wrap" data-testid={`my-booking-amounts-${record.bookingId}`}>
                 <CreditCard className="w-3 h-3 shrink-0" style={{ color: s.accent }} />

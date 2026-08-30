@@ -54,7 +54,9 @@ function tsType(row) {
   return type;
 }
 
-const { db } = await createRemediationDb();
+// M65 extends the replayed chain so the generated types include the
+// home-service booking columns and RPCs.
+const { db } = await createRemediationDb({ maxMigration: 65 });
 
 const tables = (await db.query(`
   select c.relname as table_name

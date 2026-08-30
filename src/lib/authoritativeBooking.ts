@@ -7,6 +7,13 @@ export interface AuthoritativeBookingInput {
   staffId?: string | null;
   appointmentStart: string;
   idempotencyKey: string;
+  /**
+   * HOME SERVICE — optional + additive. Only the mode and the raw address
+   * travel to the server; coordinates, distance and charge are recomputed
+   * authoritatively there (browser values are never trusted).
+   */
+  fulfillmentMode?: 'at_salon' | 'home_service';
+  serviceAddress?: string;
 }
 
 export interface AuthoritativeBooking {
@@ -20,6 +27,11 @@ export interface AuthoritativeBooking {
   remainingAmountPaise?: number;
   currency: 'INR';
   appointmentEnd: string;
+  /** HOME SERVICE — server-verified fulfillment facts echoed back. */
+  fulfillmentMode?: 'at_salon' | 'home_service';
+  serviceAddress?: string | null;
+  serviceDistanceKm?: number | null;
+  homeServiceChargePaise?: number;
 }
 
 export interface CustomerBookingItem {
@@ -44,6 +56,11 @@ export interface CustomerBookingItem {
   paymentStatus: string;
   currency: string;
   createdAt: string;
+  /** HOME SERVICE — fulfillment snapshot (server-verified). */
+  fulfillmentMode?: 'at_salon' | 'home_service';
+  serviceAddress?: string | null;
+  serviceDistanceKm?: number | null;
+  homeServiceChargePaise?: number;
 }
 
 export interface OwnerBookingServiceLine {
@@ -83,6 +100,11 @@ export interface OwnerBookingItem {
   paymentStatus: string;
   currency: string;
   createdAt: string;
+  /** HOME SERVICE — fulfillment snapshot (server-verified). */
+  fulfillmentMode?: 'at_salon' | 'home_service';
+  serviceAddress?: string | null;
+  serviceDistanceKm?: number | null;
+  homeServiceChargePaise?: number;
 }
 
 /** Persist a server-priced booking with authoritative 25% advance calculation before payment UI. */
@@ -107,6 +129,10 @@ export async function createAuthoritativeBooking(input: AuthoritativeBookingInpu
     remainingAmountPaise: body.remainingAmountPaise,
     currency: body.currency === 'INR' ? 'INR' : 'INR',
     appointmentEnd: body.appointmentEnd,
+    fulfillmentMode: body.fulfillmentMode === 'home_service' ? 'home_service' : 'at_salon',
+    serviceAddress: body.serviceAddress ?? null,
+    serviceDistanceKm: body.serviceDistanceKm ?? null,
+    homeServiceChargePaise: body.homeServiceChargePaise ?? 0,
   };
 }
 

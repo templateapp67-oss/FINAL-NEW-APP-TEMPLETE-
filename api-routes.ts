@@ -18,68 +18,13 @@ import { setupPrivacyRoutes } from './server/privacyRoutes';
 import { setupSeoRoutes } from './server/seoRoutes';
 import { observabilityMiddleware } from './server/observability';
 import { requireAuthenticatedUser, getSupabaseAdmin } from './server/supabaseAdmin';
+import { callNominatim } from './server/geocoding';
 
 /* ------------------------------------------------------------------ *
  * Helper utilities (rate limiting, caching, delays)
  * ------------------------------------------------------------------ */
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/* ------------------------------------------------------------------ *
- * Nominatim geocoding proxy
- * ------------------------------------------------------------------ */
-
-const NOMINATIM_BASE =
-  process.env.NOMINATIM_BASE_URL || 'https://nominatim.openstreetmap.org';
-
-const NOMINATIM_APP =
-  process.env.NOMINATIM_APP_IDENTIFIER ||
-  'NexoraSalonWebsiteBuilder/1.0 (+mailto:hello@nexorabeauty.com)';
-const NOMINATIM_REFERER =
-  process.env.NOMINATIM_REFERER || 'https://nexorabeauty.com';
-
-const NOMINATIM_MIN_INTERVAL_MS = 1100;
-const NOMINATIM_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-const geocodeCache = new Map<string, { at: number; body: unknown }>();
-let nominatimLastRequestAt = 0;
-let nominatimQueue: Promise<unknown> = Promise.resolve();
-
-// Server-side global rate guard: one in-flight request at a time, >= 1.1s apart.
-function nominatimRateLimited<T>(task: () => Promise<T>): Promise<T> {
-  const run = nominatimQueue.then(async () => {
-    const waitFor = nominatimLastRequestAt + NOMINATIM_MIN_INTERVAL_MS - Date.now();
-    if (waitFor > 0) await delay(waitFor);
-    nominatimLastRequestAt = Date.now();
-    return task();
-  });
-  nominatimQueue = run.then(() => undefined, () => undefined);
-  return run;
-}
-
-async function callNominatim(pathAndQuery: string): Promise<unknown> {
-  const cached = geocodeCache.get(pathAndQuery);
-  if (cached && Date.now() - cached.at < NOMINATIM_CACHE_TTL_MS) {
-    return cached.body;
-  }
-
-  const body = await nominatimRateLimited(async () => {
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'User-Agent': NOMINATIM_APP as string,
-    };
-    if (NOMINATIM_REFERER) headers.Referer = NOMINATIM_REFERER;
-
-    const response = await fetch(`${NOMINATIM_BASE}${pathAndQuery}`, { headers });
-    if (!response.ok) {
-      throw new Error(`Nominatim responded ${response.status}`);
-    }
-    return response.json();
-  });
-
-  geocodeCache.set(pathAndQuery, { at: Date.now(), body });
-  return body;
-}
 
 /* ------------------------------------------------------------------ *
  * Video metadata helpers (YouTube oEmbed + Open Graph)

@@ -47,6 +47,7 @@ import { bookingSurfaces } from '../lib/siteBookingTheme';
 import { paymentSurfaces } from '../lib/siteBookingPaymentTheme';
 import type { PaymentFlowSurface } from '../lib/siteBookingPaymentTheme';
 import { formatMinutesLabel } from '../lib/siteBookingPayment';
+import { formatDistanceKm } from '../lib/location';
 import {
   bookingConfirmationReceiptText,
   isConfirmedState,
@@ -302,6 +303,41 @@ export default function SiteBookingConfirmation({
           label={T['field.duration']}
           value={`${view.durationMinutes} ${T['common.minutes']}`}
         />
+        {/* HOME SERVICE — mode / address / distance / charge, from the record. */}
+        <DetailRow
+          s={s}
+          testid="booking-confirmation-fulfillment"
+          icon={<Building2 className="w-3.5 h-3.5" />}
+          label="Service mode"
+          value={view.fulfillment?.mode === 'home_service' ? 'Home Service' : 'At Salon'}
+        />
+        {view.fulfillment?.mode === 'home_service' && view.fulfillment.address && (
+          <DetailRow
+            s={s}
+            testid="booking-confirmation-service-address"
+            icon={<Building2 className="w-3.5 h-3.5" />}
+            label="Service address"
+            value={view.fulfillment.address}
+          />
+        )}
+        {view.fulfillment?.mode === 'home_service' && view.fulfillment.distanceKm != null && (
+          <DetailRow
+            s={s}
+            testid="booking-confirmation-distance"
+            icon={<Building2 className="w-3.5 h-3.5" />}
+            label="Distance"
+            value={formatDistanceKm(view.fulfillment.distanceKm)}
+          />
+        )}
+        {view.fulfillment?.mode === 'home_service' && (view.fulfillment.homeServiceCharge || 0) > 0 && (
+          <DetailRow
+            s={s}
+            testid="booking-confirmation-home-service-charge"
+            icon={<ReceiptText className="w-3.5 h-3.5" />}
+            label="Home Service charge"
+            value={formatCurrency(view.fulfillment.homeServiceCharge || 0)}
+          />
+        )}
         <DetailRow
           s={s}
           testid="booking-confirmation-total"

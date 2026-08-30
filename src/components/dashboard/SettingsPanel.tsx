@@ -6,6 +6,7 @@
 import { motion } from 'motion/react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { SalonData } from '../../types';
+import HomeServiceSettingsCard from '../HomeServiceSettingsCard';
 
 export interface SettingsPanelProps {
   data: SalonData;
@@ -100,6 +101,13 @@ export default function SettingsPanel({ data, setData, onNotify }: SettingsPanel
                     </button>
                   </div>
                 </div>
+
+                {/* HOME SERVICE — enable/charge/radius (same shared card as onboarding) */}
+                <HomeServiceSettingsCard
+                  data={data}
+                  setData={setData}
+                  onSaved={(message) => onNotify(message)}
+                />
               </motion.div>
 
     </>

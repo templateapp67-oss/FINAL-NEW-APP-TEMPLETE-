@@ -131,6 +131,11 @@ export interface TodayAppointment {
   currency: string;
   staffName: string | null;
   cancelled: boolean;
+  /** HOME SERVICE — fulfillment snapshot (at_salon when absent). */
+  fulfillmentMode: 'at_salon' | 'home_service';
+  serviceAddress: string | null;
+  serviceDistanceKm: number | null;
+  homeServiceCharge: number;
 }
 
 /**
@@ -167,6 +172,11 @@ export function toTodayAppointment(record: PaymentRecord): TodayAppointment {
     currency: record.currency,
     staffName: record.staffName ? record.staffName.trim() || null : null,
     cancelled: isCancelledAppointment(record.bookingStatus),
+    // HOME SERVICE — read straight from the persisted record snapshot.
+    fulfillmentMode: record.fulfillment?.mode === 'home_service' ? 'home_service' : 'at_salon',
+    serviceAddress: record.fulfillment?.address || null,
+    serviceDistanceKm: record.fulfillment?.distanceKm ?? null,
+    homeServiceCharge: record.fulfillment?.homeServiceCharge || 0,
   };
 }
 

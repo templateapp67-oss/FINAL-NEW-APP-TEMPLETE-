@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SalonData, EnabledContactOptions, BookingRules, SalonOpeningHours, DaySchedule } from '../types';
 import PreviewPane from '../components/PreviewPane';
+import HomeServiceSettingsCard from '../components/HomeServiceSettingsCard';
 import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
 import { 
   Phone, 
@@ -425,6 +426,9 @@ export default function StepContactBooking({ data, setData, onNext, onPrev, onSa
             </button>
           </div>
         </div>
+
+        {/* HOME SERVICE — enable/charge/radius (shared card with dashboard settings) */}
+        <HomeServiceSettingsCard data={data} setData={setData} onSaved={onSave} />
 
         {/* Advance Info Card */}
         <div className="bg-[#ffd9e1]/20 border border-[#ac0053]/20 rounded-2xl p-6 flex flex-col gap-3 mb-24">

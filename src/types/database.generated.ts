@@ -139,6 +139,12 @@ export type Database = {
       cancelled_at: string | null;
       completed_at: string | null;
       updated_at: string;
+      fulfillment_mode: string;
+      service_address: string | null;
+      service_latitude: number | null;
+      service_longitude: number | null;
+      service_distance_km: number | null;
+      home_service_charge_paise: number;
         };
         Insert: {
       id?: string;
@@ -157,6 +163,12 @@ export type Database = {
       cancelled_at?: string | null;
       completed_at?: string | null;
       updated_at?: string;
+      fulfillment_mode?: string;
+      service_address?: string | null;
+      service_latitude?: number | null;
+      service_longitude?: number | null;
+      service_distance_km?: number | null;
+      home_service_charge_paise?: number;
         };
         Update: {
       id?: string;
@@ -175,6 +187,12 @@ export type Database = {
       cancelled_at?: string | null;
       completed_at?: string | null;
       updated_at?: string;
+      fulfillment_mode?: string;
+      service_address?: string | null;
+      service_latitude?: number | null;
+      service_longitude?: number | null;
+      service_distance_km?: number | null;
+      home_service_charge_paise?: number;
         };
         Relationships: [];
       };

@@ -113,6 +113,23 @@ export function ownerBookingItemToDashboardRecord(item: OwnerBookingItem): Payme
     createdAt,
     updatedAt: createdAt,
     payAtSalon: paymentOption === 'pay_at_salon',
+    // HOME SERVICE — server-verified fulfillment facts for owner surfaces.
+    ...(item.fulfillmentMode === 'home_service'
+      ? {
+          fulfillment: {
+            mode: 'home_service' as const,
+            ...(typeof item.serviceAddress === 'string' && item.serviceAddress.trim()
+              ? { address: item.serviceAddress.trim() }
+              : {}),
+            ...(typeof item.serviceDistanceKm === 'number' && Number.isFinite(item.serviceDistanceKm)
+              ? { distanceKm: item.serviceDistanceKm }
+              : {}),
+            ...(typeof item.homeServiceChargePaise === 'number' && item.homeServiceChargePaise > 0
+              ? { homeServiceCharge: Math.round(item.homeServiceChargePaise / 100) }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 

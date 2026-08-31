@@ -17,6 +17,9 @@ const PUBLIC_WEBSITE_FIELDS = [
   'template_key',
   'is_published',
   'salon_name:config->>salonName',
+  'owner_name:config->>ownerName',
+  'owner_role:config->>ownerRole',
+  'owner_photo_url:config->>ownerPhotoUrl',
   'tagline:config->>tagline',
   'about:config->>about',
   'phone:config->>phone',
@@ -84,6 +87,9 @@ export async function resolvePublicSalonWebsite(
   const location = addressParts(row.address_json);
   const publicConfig: Record<string, unknown> = {
     salonName: businessName,
+    ownerName: row.owner_name,
+    ownerRole: row.owner_role,
+    ownerPhotoUrl: row.owner_photo_url,
     tagline: row.tagline,
     about: row.about,
     phone: row.phone,

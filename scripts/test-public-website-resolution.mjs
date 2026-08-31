@@ -36,6 +36,9 @@ assert.match(publicResolver, /\.eq\('slug', normalizedSlug\)/);
 assert.match(publicResolver, /\.eq\('is_published', true\)/);
 assert.doesNotMatch(publicResolver, /royal-hair-studio/);
 assert.doesNotMatch(publicResolver, /\.select\(['"]\*['"]\)/);
+assert.match(publicResolver, /owner_name:config->>ownerName/);
+assert.match(publicResolver, /owner_role:config->>ownerRole/);
+assert.match(publicResolver, /owner_photo_url:config->>ownerPhotoUrl/);
 assert.match(vercel, /"src": "\/\.\*", "dest": "\/index\.html"/);
 ok('every published owner slug has a safe compatibility lookup and Vercel dynamic path');
 

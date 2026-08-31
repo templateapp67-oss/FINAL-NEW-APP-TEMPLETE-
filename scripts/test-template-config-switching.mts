@@ -83,7 +83,7 @@ test('unsafe saved keys and target-incompatible settings are stripped fail-close
   assert.equal(nail.websiteAppearance, 'dark');
   assert.equal('galleryLayout' in nailConfig, false);
   assert.equal('heroPosition' in nailConfig, false);
-  assert.equal('showOwnerPhoto' in nailConfig, false);
+  assert.equal(nailConfig.showOwnerPhoto, false);
   assert.equal(nailAfterUnsupportedEdit.heroPosition, undefined);
 });
 
@@ -127,11 +127,11 @@ test('normalizing the JSONB map permits only five known templates and known supp
   const normalized = normalizeTemplateConfigs({
     unknown_template: { appearance: 'dark' },
     barber_mens_grooming: { appearance: 'dark', heroPosition: 'Top', gallery: { columns: 4 } },
-    nail_lash_studio: { appearance: 'light', heroPosition: 'Bottom' },
+    nail_lash_studio: { appearance: 'light', heroPosition: 'Bottom', showOwnerPhoto: false },
   });
   assert.deepEqual(Object.keys(normalized).sort(), ['barber_mens_grooming', 'nail_lash_studio']);
   assert.deepEqual(normalized.barber_mens_grooming, { appearance: 'dark', heroPosition: 'Top' });
-  assert.deepEqual(normalized.nail_lash_studio, { appearance: 'light' });
+  assert.deepEqual(normalized.nail_lash_studio, { appearance: 'light', showOwnerPhoto: false });
 });
 
 test('a new owner cannot inherit or persist demonstration contact and deposit policy', () => {

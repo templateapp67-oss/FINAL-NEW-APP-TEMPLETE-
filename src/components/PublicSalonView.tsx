@@ -10,6 +10,7 @@ import {
   matchesBrandFallbackSlug,
 } from '../lib/salonRouting';
 import { applyPublicTemplateConfiguration } from '../lib/publicSalonPresentation';
+import { resolvePublicSalonWebsite } from '../lib/publicSalonResolver';
 
 interface Props { slug: string }
 
@@ -64,15 +65,15 @@ function localDraft(slug: string): SalonData {
 
 async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> {
   const client = requireSupabase();
-  const { data: projectionRows, error: websiteError } = await client
-    .rpc('get_public_salon_website', { p_slug: slug });
-  if (websiteError) throw websiteError;
-  const website = Array.isArray(projectionRows) ? projectionRows[0] : projectionRows;
+  const website = await resolvePublicSalonWebsite(client, slug);
   if (!website?.salon_id || !website.slug || !website.business_name) return null;
 
-  const { data: rows, error: serviceError } = await client
+  const { data: serviceRows, error: serviceError } = await client
     .rpc('get_public_salon_services', { p_slug: slug });
-  if (serviceError) throw serviceError;
+  const rows = (serviceError?.code === 'PGRST202'
+    ? (website.fallback_services || [])
+    : serviceRows) as Array<Record<string, any>> | null;
+  if (serviceError && serviceError.code !== 'PGRST202') throw serviceError;
 
   // Services and prices come from a field-limited, published-slug RPC. The
   // browser never receives table access or supplies a salon/business id.
@@ -81,11 +82,13 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     name: service.name,
     category: 'Services',
     description: service.description || '',
-    price: Number(service.price_paise) / 100,
-    duration: service.duration_minutes,
-    featured: service.is_featured,
-    themeId: service.theme_key,
-    categoryId: service.category_id,
+    price: service.price_paise != null
+      ? Number(service.price_paise) / 100
+      : Number(service.price || 0),
+    duration: Number(service.duration_minutes ?? service.duration ?? 30),
+    featured: service.is_featured === true || service.featured === true,
+    themeId: service.theme_key || service.themeId || website.template_key,
+    categoryId: service.category_id || service.categoryId,
     status: 'active',
   }));
 
@@ -139,18 +142,19 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
 }
 
 export default function PublicSalonView({ slug }: Props) {
+  const normalizedSlug = slug.trim().toLowerCase();
   const [state, setState] = useState<PublicState>(() => isSupabaseConfigured
-    ? { status: 'loading', data: emptyPublicData(slug) }
+    ? { status: 'loading', data: emptyPublicData(normalizedSlug) }
     : (matchesBrandFallbackSlug(slug)
       ? { status: 'ready', data: buildBrandFallbackSalonData(slug) }
-      : { status: 'ready', data: localDraft(slug) }));
+      : { status: 'ready', data: localDraft(normalizedSlug) }));
   const [mode, setMode] = useState<'desktop' | 'tablet' | 'mobile'>(() => window.innerWidth < 768 ? 'mobile' : 'desktop');
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
     setState({ status: 'loading', data: emptyPublicData(slug) });
-    void loadCanonicalPublicData(slug)
+    void loadCanonicalPublicData(normalizedSlug)
       .then((data) => {
         if (!active) return;
         // The database projection is the ONLY source of a public business.
@@ -167,7 +171,7 @@ export default function PublicSalonView({ slug }: Props) {
         setState({ status: 'error', data: emptyPublicData(slug) });
       });
     return () => { active = false; };
-  }, [slug]);
+  }, [normalizedSlug]);
 
   useEffect(() => {
     const handleResize = () => setMode(window.innerWidth < 768 ? 'mobile' : 'desktop');

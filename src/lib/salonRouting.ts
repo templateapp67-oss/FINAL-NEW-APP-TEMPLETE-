@@ -23,6 +23,7 @@ import { slugifySalonName } from './publicWebsiteUrl';
 export const BRAND_FALLBACK_SLUG =
   slugifySalonName(DEFAULT_BRAND_CONFIG.defaultSalon.slug) || 'nexora-demo-salon';
 
+
 /**
  * Normalise a raw `window.location.pathname` into a single canonical slug.
  *
@@ -57,6 +58,7 @@ export function matchesBrandFallbackSlug(slug: string): boolean {
   const nameSlug = slugifySalonName(DEFAULT_BRAND_CONFIG.defaultSalon.name);
   return nameSlug.length > 0 && normalized === nameSlug;
 }
+
 
 /**
  * Build a complete, renderable {@link SalonData} from the brand configuration
@@ -99,6 +101,7 @@ export function buildBrandFallbackSalonData(slug: string): SalonData {
     },
   };
 }
+
 
 /**
  * Resolve the configured "base host" (registrable domain) from the brand

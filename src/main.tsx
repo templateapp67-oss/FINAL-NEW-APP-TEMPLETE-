@@ -20,6 +20,7 @@ import {
   matchesBrandFallbackSlug,
   extractSubdomainSlug,
 } from './lib/salonRouting.ts';
+import { resolvePublicSalonWebsite } from './lib/publicSalonResolver.ts';
 
 import './index.css';
 
@@ -159,10 +160,8 @@ function RootRouter() {
         try {
           // Resolve through the field-limited published projection. Anonymous
           // users never receive the owner-private draft/config row.
-          const { data: website, error: websiteError } = await supabase
-            .rpc('get_public_salon_website', { p_slug: normalizedPath });
-
-          if (!websiteError && Array.isArray(website) && website.length > 0) {
+          const website = await resolvePublicSalonWebsite(supabase, normalizedPath);
+          if (website) {
             setRoute('public_salon');
             setLoading(false);
             return;
@@ -251,4 +250,3 @@ createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </StrictMode>,
 );
-

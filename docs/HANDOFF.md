@@ -1,10 +1,117 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-31** (System gap audit: M66 owner-photo public parity across all five templates, public-site crash hardening, test-suite remediation — see top section).
+> Last updated: **2026-09-01** (Full-stack save failure visibility + honest save status — see top section).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## System gap audit & fixes — 2026-08-31 (current PR)
+## Full-stack save failure visibility & honest save status — 2026-09-01 (current PR)
+
+**Bug:** the app reported **"Saved ✓" / "Changes Saved" even when the backend
+write failed** (network down, RLS denied, RPC error). `handleSave` showed
+success on a fixed 800 ms timer regardless of the Supabase result, the
+debounced business autosave swallowed `{ error }` results and exceptions into
+`setSaveStatus('saved')`, and `saveOwnerWebsiteDraft` returned a
+success-shaped "graceful fallback" (guessed slug, `isPublished:false`) when
+both the client write and the server-side fallback had failed — so the whole
+pipeline reported success for data that was never persisted and would be gone
+on refresh.
+
+**Fixes:**
+- **`saveStatus` gained a real `'error'` state** (`src/App.tsx` + `TopBar.tsx`):
+  failed writes now render **"Save failed — check connection"** with a warning
+  icon instead of "Saved ✓".
+- **`handleSave` follows the real backend result**: it awaits
+  `persistOwnerBusinessSetup`, surfaces network/RLS/RPC failures as a red
+  error toast ("Could not save your changes. Check your connection and try
+  again."), and only shows "Changes Saved" after a confirmed write. The
+  success path also folds the persisted `{ salonId, slug }` back into global
+  state immediately (AC: state updates from the persisted response).
+- **The debounced business autosave fails loud, once per failure streak**:
+  `{ error }` returns and thrown exceptions set `saveStatus('error')` and show
+  one error toast (`saveFailureToastShown` ref resets on the next success);
+  the next edit retries automatically.
+- **`saveOwnerWebsiteDraft` no longer lies**: when both the client write and
+  the server fallback fail it logs and returns `null` instead of a fake
+  success; `persistOwnerBusinessSetup` propagates that as
+  `{ error: 'Unable to save your website details. Please try again.' }`.
+- **Unload flush** (`pagehide`/`beforeunload`) logs flush failures instead of
+  silently dropping them.
+- Toasts carry a success/error kind (green check vs red warning icon).
+
+**Coverage:** new `scripts/test-save-feedback.mjs` (9 source-contract checks:
+error saveStatus state, no fixed-timer success, one-toast-per-streak, TopBar
+error variant, null-draft contract, `{ error }` propagation). Run with
+`npx tsx scripts/test-save-feedback.mjs`.
+> Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
+> any database work.
+
+## False "Unsaved service form restored" banner fix — 2026-08-31 (current PR)
+
+**Bug:** opening or filling the Add Service form sometimes showed
+**"Unsaved service form restored. Review and save when you are online."** even
+while online, and the form stayed stuck / kept showing the banner.
+
+**Root causes:** `readServiceFormDraft` (sessionStorage `nexora_service_form_draft`)
+was restored **unconditionally** on mount; a draft auto-saved while typing was
+never cleared after a successful submit; and connectivity relied on a one-shot
+`navigator.onLine` snapshot.
+
+**Fixes (`src/lib/offlineSync.ts` + `src/screens/StepServices.tsx`):**
+- Draft restoration is now **conditional**: only when `isBrowserOffline()`
+  OR `isStaleConnectivityState()` (online but no `online` event observed yet
+  this session). When the connection is healthy, the stale draft is cleared
+  instead of being restored.
+- **Successful submit** clears the draft (`clearServiceFormDraftIfMatches` +
+  `clearServiceFormDraft`) and dismisses the banner; **explicit cancel/reset**
+  (`closeAddServiceForm`) also clears the draft.
+- Connectivity uses dynamic `window` `online`/`offline` listeners (existing
+  effect preserved + documented), so the state updates when the connection
+  returns and the banner clears.
+- New helpers: `isStaleConnectivityState()`, `resetOnlineEventObservationForTests()`,
+  `clearServiceFormDraftIfMatches()`; coverage in `test:service-saving`
+  (source-contract) and `test:phase-9.3` (offline helpers).
+
+## Saved-service re-add bug fix — 2026-08-31 (previous PR)
+
+**Bug:** adding / re-adding / updating a saved service threw **"This service is
+already saved for your salon."** even when the existing row was soft-deleted
+(`deleted_at IS NOT NULL`, i.e. status `archived`) or the duplicate existed only
+in stale frontend state.
+
+**Root causes:** `create_saved_service` (M40) checked the predefined-service
+duplicate guard against EVERY row including archived ones, while the partial
+unique indexes (`services_salon_predefined_unique`,
+`services_salon_theme_custom_name_unique`) deliberately exclude soft-deleted
+rows so a retired service can be saved again — the RPC dead-ended before the
+insert. `save_predefined_services` revived nothing (archived + fresh duplicate
+rows appeared). The StepServices duplicate check also treated archived rows as
+duplicates, and the local fallback mirrored both RPC bugs.
+
+**Fix (`supabase/migrations/20260831000201_m67_saved_service_upsert_revive.sql`,
+registered in the reconciliation manifest + live runner + `db:apply:live:m67`,
+`test:m67`):**
+- `create_saved_service` is now upsert semantics: a LIVE row for the same
+  `(salon_id, predefined_service_id)` or normalized custom name is still a
+  genuine duplicate (readable "already saved" errors preserved), but an
+  ARCHIVED row is revived in place (`deleted_at = null`, `is_active = true`,
+  submitted values applied, same row id) instead of erroring — no duplicate
+  visible rows.
+- Custom re-add can only revive Custom / "Other" rows
+  (`predefined_service_id IS NULL`); a custom name can never rewrite a
+  predefined-linked row (provenance stays immutable).
+- `save_predefined_services` ("Add Selected") revives archived rows for the
+  requested ids that have no live counterpart BEFORE the insert, so they count
+  as `existing_count` and never duplicate.
+- `verify_m67_saved_service_upsert()` self-verifier; behavioral coverage in
+  `test:m67` (real PGlite M28→M67) and `test:m40` (archive → re-add
+  predefined/custom, Add Selected revive, cross-tenant isolation).
+- **Frontend** (`StepServices.tsx`): the local duplicate check now excludes
+  archived services, and revived rows replace the stale archived copy in the
+  list (single-add and Add Selected) instead of erroring or duplicating.
+- **Local fallback** (`savedServiceService.ts`): `createSavedServiceLocal` /
+  `savePredefinedServicesLocal` mirror the revive semantics.
+
+## System gap audit & fixes — 2026-08-31 (previous PR)
 
 Full-codebase audit (database/RPC, template system, public resolution, auth/session,
 forms/tests) with automatic fixes. All 148 `test:*` suites + lint + build green.

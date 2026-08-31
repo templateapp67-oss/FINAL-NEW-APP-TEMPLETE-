@@ -141,7 +141,10 @@ await test('Select All and Add Selected use only current visible database sugges
   assert.ok(source.includes('selectedSuggested.includes(service.name)'));
   assert.ok(source.includes('selectedRows.map((service) => service.id)'));
   assert.ok(source.includes('service.predefinedServiceId'));
-  assert.ok(source.includes('localPredefinedIds.has(service.predefinedServiceId)'));
+  // Re-added (revived) rows replace the stale archived copy in place; brand
+  // new rows are appended. The same predefined service is never added twice.
+  assert.ok(source.includes('revivedByPredefinedId'));
+  assert.ok(source.includes('knownPredefinedIds.has(service.predefinedServiceId)'));
   assert.equal((source.match(/savePredefinedServices\(/g) ?? []).length, 1);
 });
 
@@ -505,8 +508,18 @@ await test('Phase 8.1 — StepServices wires the full management workflow', asyn
   assert.ok(source.includes('setNewServicePredefinedId(null)'));
   assert.ok(source.includes('predefinedServiceId: null'));
 
-  // Duplicate prevention exists before the request is issued.
+  // Duplicate prevention exists before the request is issued. Archived
+  // (soft-deleted) services are retired and must be re-addable — the check
+  // only treats LIVE rows as duplicates (mirrors the partial unique indexes
+  // that exclude soft-deleted rows).
   assert.ok(source.includes('already saved for your salon'));
+  assert.ok(source.includes('service.predefinedServiceId === predefinedServiceId'));
+  assert.ok(source.includes('service.status !== \'archived\''));
+
+  // Re-adding an archived service revives the same row id — the returned row
+  // replaces the stale archived copy in the list instead of erroring.
+  assert.ok(source.includes('previous.services.map((item) =>'));
+  assert.ok(source.includes('item.id === saved.id ? savedServiceToSalonService(saved) : item'));
 
   // No UI path can send relationship columns through an edit.
   const editBlock = source.slice(
@@ -638,6 +651,42 @@ await test('Phase 8.2 — StepServices renders every required state', async () =
   );
   assert.ok(loadBlock.includes('savedLoadRequestRef.current !== requestId'),
     'must ignore late responses from a previous theme');
+});
+
+await test('Phase 8.2 — offline detection + stale draft restoration are guarded', async () => {
+  const source = await readFile('src/screens/StepServices.tsx', 'utf8');
+
+  // Dynamic online/offline listeners keep the connectivity state in sync —
+  // navigator.onLine alone is a one-shot snapshot otherwise.
+  assert.ok(source.includes("window.addEventListener('online', sync)"));
+  assert.ok(source.includes("window.addEventListener('offline', sync)"));
+  assert.ok(source.includes("window.removeEventListener('online', sync)"));
+  assert.ok(source.includes('const sync = () => {'));
+  assert.ok(source.includes('setIsOffline(offline)'));
+
+  // Draft restoration is conditional: only while offline OR in a stale
+  // connectivity window; the stale draft is cleared when the connection is
+  // healthy so an already-saved form is never "restored".
+  assert.ok(source.includes('isBrowserOffline() || isStaleConnectivityState()'));
+  assert.ok(source.includes('Unsaved service form restored. Review and save when you are online.'));
+  const restoreBlock = source.slice(
+    source.indexOf('const draft = readServiceFormDraft(theme)'),
+    source.indexOf('// Close the service combobox when clicking outside it.'),
+  );
+  assert.ok(restoreBlock.includes('if (draft) clearServiceFormDraft();'),
+    'online + stale draft → the auto-saved copy is discarded, not restored');
+
+  // Successful submit clears the draft (matching + unconditional), and an
+  // explicit cancel/reset clears it too — no stale cache can be re-restored.
+  assert.ok(source.includes('clearServiceFormDraftIfMatches({'));
+  assert.ok(source.includes('clearServiceFormDraft();'));
+  assert.ok(source.includes('const closeAddServiceForm = () => {'));
+  const cancelBlock = source.slice(
+    source.indexOf('const closeAddServiceForm = () => {'),
+    source.indexOf('const handleCreateService'),
+  );
+  assert.ok(cancelBlock.includes('clearServiceFormDraft();'),
+    'explicit cancel/reset must drop the auto-saved draft');
 });
 
 console.log(`Service saving tests: ${passed}/14 passed`);

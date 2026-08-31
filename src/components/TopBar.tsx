@@ -1,4 +1,4 @@
-import { Sparkles, CheckCircle2, Users, LayoutDashboard, Loader2, ChevronDown, MapPin, Calendar, CreditCard, Share2, Settings, Scissors, Camera, Clock, LogIn, LogOut, Store } from 'lucide-react';
+import { Sparkles, CheckCircle2, Users, LayoutDashboard, Loader2, ChevronDown, MapPin, Calendar, CreditCard, Share2, Settings, Scissors, Camera, Clock, LogIn, LogOut, Store, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthModal } from './AuthModalProvider';
 import { useAuth, signOut } from '../lib/useAuth';
@@ -36,7 +36,7 @@ interface Props {
   step: number;
   activeModule: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard';
   setActiveModule: (m: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard') => void;
-  saveStatus?: 'saved' | 'saving';
+  saveStatus?: 'saved' | 'saving' | 'error';
   currentScreen?: number;
   onNavigate?: (screenId: number) => void;
 }
@@ -222,6 +222,11 @@ export default function TopBar({ step, activeModule, setActiveModule, saveStatus
             <>
               <Loader2 className="w-4 h-4 text-[#ac0053] animate-spin" />
               <span className="text-xs font-semibold">Saving...</span>
+            </>
+          ) : saveStatus === 'error' ? (
+            <>
+              <TriangleAlert className="w-4 h-4 text-red-600" />
+              <span className="text-xs font-semibold text-red-700">Save failed — check connection</span>
             </>
           ) : (
             <>

@@ -163,6 +163,14 @@ export async function persistOwnerBusinessSetup(data: SalonData): Promise<{
   }
 
   const draft = await saveOwnerWebsiteDraft(data);
+  // saveOwnerWebsiteDraft returns null when the write genuinely did not reach
+  // the database (client write + server fallback both failed). Report that as
+  // a failed save instead of returning a success shape with a guessed slug —
+  // otherwise the UI shows "Saved ✓" for data that will be gone on refresh.
+  if (!draft) {
+    console.error('persistOwnerBusinessSetup: website draft save failed.');
+    return { error: 'Unable to save your website details. Please try again.' };
+  }
   await persistSalonHours(resolution.salonId, data.openingHours);
 
   const lat = data.address?.latitude;
@@ -180,7 +188,7 @@ export async function persistOwnerBusinessSetup(data: SalonData): Promise<{
     }
   }
 
-  return { salonId: resolution.salonId, slug: draft?.slug };
+  return { salonId: resolution.salonId, slug: draft.slug };
 }
 
 /** Overlay DB salon name/address/city onto the in-memory draft. */

@@ -57,7 +57,9 @@ import {
 } from '../lib/serviceContentService';
 import {
   clearServiceFormDraft,
+  clearServiceFormDraftIfMatches,
   isBrowserOffline,
+  isStaleConnectivityState,
   networkErrorMessage,
   persistServiceFormDraft,
   readServiceFormDraft,
@@ -359,9 +361,14 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
     const sync = () => {
       const offline = isBrowserOffline();
       setIsOffline(offline);
+      // Drop the restored-form banner as soon as connectivity is confirmed;
+      // the draft itself is preserved in session storage for the next visit.
       if (!offline) setSyncNotice('');
     };
+    // Initial state reflects the real navigator.onLine value immediately.
     sync();
+    // Dynamic listeners keep the state in sync across connection flaps —
+    // navigator.onLine alone can be stale for the whole session otherwise.
     window.addEventListener('online', sync);
     window.addEventListener('offline', sync);
     return () => {
@@ -491,10 +498,18 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
   // Initialise category/form copy only after the current database theme arrives.
   // activeCatalog is identity-checked above, so a late previous-theme response
   // can never initialise this form.
+  //
+  // Draft restoration is conditional: a draft is only restored (and the
+  // "Unsaved service form restored" banner only shown) when the connection is
+  // currently offline OR the browser's online state is stale (no 'online'
+  // event has been observed this session). When the connection is healthy the
+  // stale draft is discarded — the root cause of the false "restored" banner
+  // firing while the user was online was an auto-saved draft that was never
+  // cleared after a successful submit.
   useEffect(() => {
     if (!usesDatabaseCatalog || !activeCatalog) return;
     const draft = readServiceFormDraft(theme);
-    if (draft) {
+    if (draft && (isBrowserOffline() || isStaleConnectivityState())) {
       setNewServiceCategory(draft.category || activeCatalog.categories[0]?.name || '');
       setNewServiceName(draft.name);
       setNewServicePrice(draft.price);
@@ -505,6 +520,10 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       setSyncNotice('Unsaved service form restored. Review and save when you are online.');
       return;
     }
+    // Online (or stale-state cleared): the draft is stale — the saved payload
+    // is the source of truth, so drop the auto-saved copy instead of restoring
+    // it and blocking the form.
+    if (draft) clearServiceFormDraft();
     const firstCategory = activeCatalog.categories[0]?.name || '';
     setNewServiceCategory(firstCategory);
     setNewServiceDesc(suggestServiceDescription(firstCategory || 'General', ''));
@@ -623,47 +642,36 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       );
       if (saveRequestRef.current !== requestId) return;
 
-      // Keep local preview state aligned with returned canonical saved rows, but
-      // never add the same predefined service twice on repeated clicks.
-      const localPredefinedIds = new Set(
-        data.services
-          .map((service) => service.predefinedServiceId)
-          .filter((id): id is string => Boolean(id)),
-      );
-      const newlyVisibleServices: Service[] = result.services
-        .filter((service) => !localPredefinedIds.has(service.predefinedServiceId))
-        .map((service) => ({
-          id: service.id,
-          businessId: service.businessId,
-          themeId: service.themeId,
-          themeKey: service.themeKey,
-          categoryId: service.categoryId,
-          predefinedServiceId: service.predefinedServiceId,
-          name: service.name,
-          category: service.category,
-          description: service.description,
-          price: service.price,
-          duration: service.duration,
-          featured: service.featured,
-          status: service.status,
-        }));
-
-      if (newlyVisibleServices.length > 0) {
-        setData((previous) => normalizeThemeId(previous.templateId) === theme
-          ? {
-              ...previous,
-              services: [
-                ...previous.services,
-                ...newlyVisibleServices.filter((incoming) =>
-                  !previous.services.some((existing) =>
-                    existing.predefinedServiceId === incoming.predefinedServiceId
-                  )
-                ),
-              ],
-            }
-          : previous
+      // Keep local preview state aligned with returned canonical saved rows:
+      // revived archived rows (same predefined id, possibly same row id) are
+      // replaced in place so the retired copy becomes active again, and brand
+      // new rows are appended. Nothing is ever added twice.
+      setData((previous) => {
+        if (normalizeThemeId(previous.templateId) !== theme) return previous;
+        const revivedByPredefinedId = new Map(
+          result.services
+            .filter((service) => Boolean(service.predefinedServiceId))
+            .map((service) => [service.predefinedServiceId as string, service]),
         );
-      }
+        const services = previous.services.map((service) => {
+          const revived = service.predefinedServiceId
+            ? revivedByPredefinedId.get(service.predefinedServiceId)
+            : undefined;
+          return revived ? savedServiceToSalonService(revived) : service;
+        });
+        const knownPredefinedIds = new Set(
+          previous.services
+            .map((service) => service.predefinedServiceId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const appended = result.services
+          .filter((service) => service.predefinedServiceId && !knownPredefinedIds.has(service.predefinedServiceId))
+          .map((service) => savedServiceToSalonService(service));
+        return {
+          ...previous,
+          services: appended.length > 0 ? [...services, ...appended] : services,
+        };
+      });
       setSelectedSuggested([]);
       setSaveSelectedNotice(
         result.insertedCount > 0
@@ -854,6 +862,9 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
     setPendingDescSuggestion('');
     setAddServiceError('');
     setIsAddingService(false);
+    // Explicit cancel / reset discards the auto-saved draft too — a form the
+    // user walked away from must not be "restored" on the next visit.
+    clearServiceFormDraft();
   };
 
   const handleCreateService = async (e: FormEvent) => {
@@ -919,9 +930,14 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       : undefined;
     const predefinedServiceId = customService ? null : (predefinedMatch?.id ?? null);
 
-    // Prevent duplicates before hitting the database.
+    // Prevent duplicates before hitting the database. Archived (soft-deleted)
+    // services are retired — re-adding one revives it instead of erroring, so
+    // only live rows count as duplicates (mirrors the partial unique indexes
+    // that exclude soft-deleted rows and the M67 upsert RPC).
     const duplicate = data.services.some((service) =>
-      (predefinedServiceId !== null && service.predefinedServiceId === predefinedServiceId)
+      (predefinedServiceId !== null
+        && service.predefinedServiceId === predefinedServiceId
+        && service.status !== 'archived')
       || (service.status !== 'archived'
         && service.name.trim().toLowerCase() === name.toLowerCase())
     );
@@ -948,14 +964,29 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       setData((previous) => normalizeThemeId(previous.templateId) === theme
         ? {
             ...previous,
+            // Re-adding an archived service revives the SAME row id, so when
+            // the returned row is already in the list (stale archived copy)
+            // replace it in place instead of leaving it behind or duplicating.
             services: previous.services.some((item) => item.id === saved.id)
-              ? previous.services
+              ? previous.services.map((item) =>
+                  item.id === saved.id ? savedServiceToSalonService(saved) : item)
               : [...previous.services, savedServiceToSalonService(saved)],
           }
         : previous
       );
+      // Successful submit → the auto-saved draft is now persisted server-side.
+      // Clear it (and any matching stale copy) so the next mount can never
+      // "restore" an already-saved form.
+      clearServiceFormDraftIfMatches({
+        name: saved.name,
+        price: saved.price,
+        duration: saved.duration,
+        description: saved.description,
+        category: saved.category,
+      });
       clearServiceFormDraft();
       closeAddServiceForm();
+      setSyncNotice('');
       if (onSave) onSave();
     } catch (error) {
       if (saveRequestRef.current !== requestId) return;

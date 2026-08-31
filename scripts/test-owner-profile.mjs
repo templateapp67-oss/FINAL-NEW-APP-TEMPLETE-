@@ -129,8 +129,12 @@ test('owner photo and role survive the same JSON save/reload merge as App.tsx', 
 });
 
 test('onboarding localStorage payload still owns owner fields — no schema change', () => {
+  // The storage key moved from a literal in App.tsx to the canonical constant
+  // in ownerWorkspacePersistence.ts; App.tsx now imports it (STORAGE_KEY).
+  const persistence = read('src/lib/ownerWorkspacePersistence.ts');
+  assert.match(persistence, /OWNER_ONBOARDING_CACHE_KEY = 'nexora_onboarding_state'/);
   const app = read('src/App.tsx');
-  assert.match(app, /nexora_onboarding_state/);
+  assert.match(app, /OWNER_ONBOARDING_CACHE_KEY/);
   // Writes go through the safeStorage wrapper (safeSetItem) or raw localStorage.
   assert.match(app, /safeSetItem|localStorage\.setItem/);
   const migrations = read('supabase/migrations/20260811000301_m03_membership_access.sql');

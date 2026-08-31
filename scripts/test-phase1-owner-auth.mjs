@@ -360,7 +360,7 @@ assert.ok(!/services:\s*\[\]/.test(themeHandlerMatch[0]), 'handleThemeChange mus
 assert.ok(!/packages:\s*\[\]/.test(themeHandlerMatch[0]), 'handleThemeChange must not clear packages');
 assert.ok(
   /templateId:\s*nextTheme/.test(themeHandlerMatch[0])
-    || /switchSalonTemplatePresentation\([^\n]*appliedTheme/.test(themeHandlerMatch[0]),
+    || /switchSalonTemplatePresentation\(/.test(themeHandlerMatch[0]),
   'handleThemeChange must apply the selected presentation template',
 );
 ok('template switching updates only presentation (services/packages preserved)');

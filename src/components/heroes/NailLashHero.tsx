@@ -125,7 +125,7 @@ export default function NailLashHero({ data, mode }: Props) {
           className={`mt-8 font-extrabold leading-[0.86] tracking-[-0.07em] ${h1Size}`}
           style={{ color: t.ink }}
         >
-          {headline.main}
+          {headline.main}{' '}
           {!ownerPreview && (
             <><br /><span style={{ color: t.pink }}>{headline.accent}</span></>
           )}

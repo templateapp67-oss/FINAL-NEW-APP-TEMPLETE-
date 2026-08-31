@@ -15,9 +15,10 @@ const walk = async (dir) => {
   return files;
 };
 
-const [m44, m46, publicView, browserClient, legacyClient, envExample] = await Promise.all([
+const [m44, m46, m66, publicView, browserClient, legacyClient, envExample] = await Promise.all([
   read('supabase/migrations/20260824000101_m44_business_publishing.sql'),
   read('supabase/migrations/20260824000301_m46_public_access_security.sql'),
+  read('supabase/migrations/20260831000101_m66_owner_photo_public_parity.sql'),
   read('src/components/PublicSalonView.tsx'),
   read('src/lib/supabase.ts'),            // canonical shared client
   read('src/lib/supabaseClient.ts'),      // legacy compatibility re-export
@@ -34,6 +35,23 @@ for (const privateKey of ['ownerName', 'ownerRole', 'ownerPhotoUrl', "w.config->
 }
 assert.match(publicProjection, /jsonb_strip_nulls\(jsonb_build_object/);
 ok('public website RPC excludes private owner and staff configuration');
+
+// M66 redefines the projection to publish the owner identity (name, role,
+// photo) as opt-out presentation content — the boundary must stay strict:
+// gated behind the owner's own showOwnerPhoto toggle for the active template,
+// with email and team still never projected.
+const m66PublicProjection = m66.match(/create or replace function public\.get_public_salon_website\(p_slug text\)[\s\S]*?\n\$\$;/)?.[0] || '';
+assert.ok(m66PublicProjection, 'M66 must redefine get_public_salon_website');
+for (const identityKey of ['ownerName', 'ownerRole', 'ownerPhotoUrl']) {
+  assert.match(
+    m66PublicProjection,
+    new RegExp(`'${identityKey}', case when public\\.nexora_owner_identity_publicly_enabled\\(w\\.template_key, w\\.config\\)`),
+    `${identityKey} must be gated by the owner toggle`,
+  );
+}
+assert.doesNotMatch(m66PublicProjection, /'email',\s*w\.config/);
+assert.doesNotMatch(m66PublicProjection, /w\.config->'team'/);
+ok('M66 public projection: owner identity opt-in only; email and team stay private');
 
 assert.match(m46, /create or replace function public\.get_public_salon_services\(p_slug text\)/);
 assert.match(m46, /svc\.price_paise/);

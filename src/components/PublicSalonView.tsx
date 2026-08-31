@@ -124,10 +124,12 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     salonId: website.salon_id,
     websiteSlug: website.slug,
     salonName: website.business_name,
-    // Owner identity/contact is deliberately not part of the public RPC.
-    ownerName: '',
-    ownerRole: '',
-    ownerPhotoUrl: '',
+    // Owner identity is public presentation content, projected by the RPC
+    // (and the resolver fallback) only behind the owner's showOwnerPhoto
+    // toggle for the active template. Email stays private.
+    ownerName: typeof config.ownerName === 'string' ? config.ownerName : '',
+    ownerRole: typeof config.ownerRole === 'string' ? config.ownerRole : '',
+    ownerPhotoUrl: typeof config.ownerPhotoUrl === 'string' ? config.ownerPhotoUrl : '',
     email: '',
     phone: typeof config.phone === 'string' ? config.phone : '',
     whatsappPhone: typeof config.whatsappPhone === 'string' ? config.whatsappPhone : '',

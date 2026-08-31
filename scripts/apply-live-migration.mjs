@@ -83,6 +83,10 @@ const TARGETS = {
     file: '20260829000201_m64_deprecate_m58_workspace_membership.sql',
     verifier: 'verify_m64_m58_deprecation',
   },
+  m66: {
+    file: '20260831000101_m66_owner_photo_public_parity.sql',
+    verifier: 'verify_m66_owner_photo_parity',
+  },
 };
 
 function parseProjectRef(configText) {

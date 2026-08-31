@@ -86,7 +86,7 @@ assert.match(publish, /STEP \{STEP_PUBLISH \+ 1\} OF \{TOTAL_OWNER_STEPS\} • P
 assert.match(success, /Step \{STEP_PUBLISH_SUCCESS \+ 1\} of \{TOTAL_OWNER_STEPS\}/);
 ok('every wizard screen advertises its canonical flow position');
 
-assert.match(app, /isSupabaseConfigured && \(authLoading \|\| !user\)/);
+assert.match(app, /!isSupabaseConfigured \|\| authLoading \|\| \(user && hasSession\)/);
 assert.match(app, /stale localStorage from bypassing the Login stage/);
 ok('cached steps and navigator cannot bypass configured authentication');
 

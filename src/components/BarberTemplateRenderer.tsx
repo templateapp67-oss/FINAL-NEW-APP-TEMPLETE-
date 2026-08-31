@@ -74,7 +74,10 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
   const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
-  setOwnerAppearanceDefault(data.websiteAppearance);
+  // Seed the owner's explicit per-template appearance choice, never the legacy
+  // global websiteAppearance field: when the owner never chose one, the
+  // theme's design default (e.g. barber dark) must win.
+  setOwnerAppearanceDefault(data.templateConfig?.appearance);
   const appearance = useThemeAppearance('barber_mens_grooming');
   const t = surfacesOf(BARBER_SURFACES, appearance);
   const { gold, goldBright, goldSoft, charcoal, charcoalSoft, muted, line, text, textStrong, card, well, chipLine, accentText } = t;
@@ -168,9 +171,11 @@ export default function BarberTemplateRenderer({ data, mode }: Props) {
         <div {...sectionProps('owner', ownerState)} className="site-section px-6 py-12 border-y" style={{ backgroundColor: charcoalSoft, borderColor: line }}>
           {ownerState === 'ready' ? (
             <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
-              <div className="w-28 h-28 rounded-full overflow-hidden shrink-0 border-2 shadow-lg" style={{ borderColor: gold }}>
-                <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
-              </div>
+              {shouldShowOwnerPhoto(data) && (
+                <div className="w-28 h-28 rounded-full overflow-hidden shrink-0 border-2 shadow-lg" style={{ borderColor: gold }}>
+                  <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
+                </div>
+              )}
               <div className="min-w-0">
                 <span className="text-[10px] font-bold uppercase tracking-[0.35em]" style={{ color: accentText }}>{data.ownerRole || S.ownerFallbackRole}</span>
                 <h3 className="text-2xl font-black uppercase tracking-[0.05em] mt-1 break-words" style={{ color: textStrong }}>{data.ownerName}</h3>

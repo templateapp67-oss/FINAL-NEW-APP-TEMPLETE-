@@ -1,8 +1,62 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-28** (Missing-Items remediation M60–M63: payment refunds, atomic reschedule, privacy lifecycle, CI + observability + SEO + rollback runbook).
+> Last updated: **2026-08-31** (System gap audit: M66 owner-photo public parity across all five templates, public-site crash hardening, test-suite remediation — see top section).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
+
+## System gap audit & fixes — 2026-08-31 (current PR)
+
+Full-codebase audit (database/RPC, template system, public resolution, auth/session,
+forms/tests) with automatic fixes. All 148 `test:*` suites + lint + build green.
+
+- **M66 — owner photo public parity** (`supabase/migrations/20260831000101_m66_owner_photo_public_parity.sql`,
+  registered in the reconciliation manifest + live runner + `db:apply:live:m66`):
+  - `get_public_salon_website` now projects `ownerName` / `ownerRole` /
+    `ownerPhotoUrl` **only behind the owner's `showOwnerPhoto` toggle** for the
+    ACTIVE template (new gate helper `nexora_owner_identity_publicly_enabled`,
+    mirrors `shouldShowOwnerPhoto()`; hidden only on explicit `false`). `email`
+    and `team` stay excluded. Before this, the published site could never show
+    the owner identity for ANY template (the RPC whitelist omitted it and
+    `PublicSalonView` blanked the fields).
+  - `set_owner_salon_visual_config` (M48 server mirror) accepted
+    `showOwnerPhoto` only for 3 of 5 templates — barber and nail owners could
+    not save the toggle (SQL 22023). Now accepted on all five;
+    `heroPosition` stays barber-only (only that renderer crops a hero image).
+  - `verify_m66_owner_photo_parity()` self-verifier; behavioral coverage in
+    `test:public-resolution-chain` (real PGlite: toggle on/off, phone behind
+    `contactOptions.callNow`, email never projected).
+- **Client parity**: `TEMPLATE_CONFIG_CAPABILITIES` barber gains
+  `showOwnerPhoto` (its renderer already displayed the photo);
+  `BarberTemplateRenderer` now gates the avatar with `shouldShowOwnerPhoto()`
+  (the import existed but was unused); `PreviewPane` gates the wizard owner
+  block the same way, so preview and live site agree.
+- **`publicSalonResolver` fallback parity**: the no-RPC compatibility path now
+  mirrors the exact RPC whitelist (announcements, holidays, socials, packages,
+  offers, templateConfig(s), SEO meta fields), gates owner identity through the
+  same rule (`ownerIdentityPubliclyEnabled`), hides phone/WhatsApp behind their
+  `contactOptions` switches, and never selects `email`.
+- **`PublicSalonView`**: owner identity now comes from the public projection
+  (was hard-blanked); email stays private.
+- **Public-site crash hardening**: `SiteHeader`, `SiteBookingFullFlow` and
+  `SiteMyBookings` use the new `useAuthModalOptional()` — outside the app shell
+  their auth CTAs no-op instead of throwing `useAuthModal must be used inside
+  AuthModalProvider` (this single drift had broken 30 jsdom phase suites).
+  App-shell screens keep the strict `useAuthModal()`.
+- **Appearance precedence fix**: the five themed renderers seeded the global
+  appearance default from the legacy `websiteAppearance` field, overriding each
+  theme's design default (barber is dark by design). They now seed from the
+  owner's explicit per-template `templateConfig.appearance`; `SiteHeader`
+  resolves from the theme default. Fixes phase 10.1/10.2/11.1 failures.
+- **Hero headline space fix**: Barber/HairStudio/Family/Nail heroes concatenated
+  the two headline segments without a separating space (`Grooming.Modern`);
+  added `{' '}` like BeautySpa already had (textContent/screen-reader correct).
+- **Test-suite remediation** (stale assertions vs. main's refactors, verified
+  failing on the base commit first): centralized-resolver RPC assertions
+  (4 suites), code-split `TemplateRenderer` awaited via `findByTestId`,
+  `nexora_onboarding_state` moved to `ownerWorkspacePersistence`, current
+  `handleThemeChange`/`setOwnerTemplate` shapes, `.env.example` canonical
+  public project URL allowance (keys still placeholders), M60 refunds accepted
+  by the Phase-1A audit, M66 gate name added to the store-key allowlist.
 
 ## Missing-Items & Gaps remediation — M60/M61/M62/M63 (current PR)
 

@@ -407,11 +407,14 @@ section('Cross-theme visual distinctness');
 
 section('Routing & conditional visibility');
 {
-  await test('TemplateRenderer routes all five theme ids to their themed headers', () => {
+  await test('TemplateRenderer routes all five theme ids to their themed headers', async () => {
     for (const config of CASES) {
       cleanup();
       const utils = render(React.createElement(TemplateRenderer, { data: richData(config.id), mode: 'desktop' }));
-      const header = utils.getByTestId('site-header');
+      // Themed renderers are code-split (lazy chunks): the header appears
+      // after the dynamic import resolves, so wait for it instead of
+      // asserting against the Suspense fallback synchronously.
+      const header = await utils.findByTestId('site-header');
       assert.equal(header.dataset.theme, config.id);
       cleanup();
     }

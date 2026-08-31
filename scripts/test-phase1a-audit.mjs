@@ -841,10 +841,25 @@ console.log('══════════════════════�
     pass('REFUND AUDIT: Refund enums may be in other migrations');
   }
 
-  // No explicit refund policy in any migration
+  // Refund policy: the product decision landed with the canonical M60
+  // payment-refunds pipeline (merged to main). The audit expectation is that
+  // refunds exist ONLY through that migration — an ad-hoc policy in any other
+  // migration is still unexpected.
   const hasRefundPolicy = exec('grep -rl "refund.*policy\\|refund.*rule\\|refundable\\|non-refundable" supabase/migrations/ --include="*.sql" 2>/dev/null || true').trim();
+  const canonicalRefundMigration = 'supabase/migrations/20260828000101_m60_payment_refunds.sql';
+  const m60 = read(canonicalRefundMigration);
   if (!hasRefundPolicy) {
     pass('REFUND AUDIT: No automatic refund policy set (requires product decision)');
+  } else if (m60.includes('payment_refunds')) {
+    const unexpected = hasRefundPolicy
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && line !== canonicalRefundMigration);
+    if (unexpected.length === 0) {
+      pass('REFUND AUDIT: Refund policy provided by the canonical M60 payment-refunds pipeline');
+    } else {
+      fail('REFUND AUDIT', `Refund policy outside the canonical M60 migration: ${unexpected.join(', ')}`);
+    }
   } else {
     fail('REFUND AUDIT', 'Refund policy exists but was not expected');
   }

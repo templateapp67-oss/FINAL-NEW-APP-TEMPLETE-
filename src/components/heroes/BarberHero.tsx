@@ -144,7 +144,7 @@ export default function BarberHero({ data, mode }: Props) {
               className={`mt-4 font-black uppercase leading-[0.92] tracking-[0.02em] ${h1Size}`}
               style={{ color: t.textStrong }}
             >
-              {headline.main}
+              {headline.main}{' '}
               {!ownerPreview && (
                 <><br /><span style={{ color: t.gold }}>{headline.accent}</span></>
               )}

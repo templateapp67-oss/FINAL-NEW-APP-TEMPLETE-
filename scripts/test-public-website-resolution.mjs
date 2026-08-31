@@ -39,6 +39,13 @@ assert.doesNotMatch(publicResolver, /\.select\(['"]\*['"]\)/);
 assert.match(publicResolver, /owner_name:config->>ownerName/);
 assert.match(publicResolver, /owner_role:config->>ownerRole/);
 assert.match(publicResolver, /owner_photo_url:config->>ownerPhotoUrl/);
+// The compatibility fallback mirrors the RPC boundary exactly: owner
+// identity only behind the toggle, contact details only behind their
+// contactOptions switches, and email never selected at all.
+assert.match(publicResolver, /ownerIdentityPubliclyEnabled\(\s*templateKey,\s*row\.template_config,\s*row\.template_configs,/);
+assert.match(publicResolver, /contactOptions\?\.callNow === true \? \{ phone: row\.phone \}/);
+assert.match(publicResolver, /contactOptions\?\.whatsapp === true \? \{ whatsappPhone: row\.whatsapp_phone \}/);
+assert.doesNotMatch(publicResolver, /email:config->>email/);
 assert.match(vercel, /"src": "\/\.\*", "dest": "\/index\.html"/);
 ok('every published owner slug has a safe compatibility lookup and Vercel dynamic path');
 

@@ -18,7 +18,7 @@ import { bookingFlowText } from '../lib/siteBookingI18n';
 import { bookingSurfaces } from '../lib/siteBookingTheme';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { createBookingAndPay } from '../lib/authoritativeBooking';
-import { useAuthModal } from './AuthModalProvider';
+import { useAuthModalOptional } from './AuthModalProvider';
 import { useAuth } from '../lib/useAuth';
 import { formatCurrency } from '../lib/pricing';
 import { publicSalonAuthContinuation } from '../lib/authRedirect';
@@ -251,7 +251,7 @@ function AuthoritativeBookingPayment({ data, summary, onBack, onClose, onShowToa
   const [copiedRef, setCopiedRef] = useState(false);
   const idempotencyKey = useRef<string | null>(null);
   const { user } = useAuth();
-  const { openAuth } = useAuthModal();
+  const { openAuth } = useAuthModalOptional();
   const openCustomerAuth = (mode: 'login' | 'signup') => openAuth(mode, {
     accountIntent: 'customer',
     returnTo: publicSalonAuthContinuation(data.websiteSlug),

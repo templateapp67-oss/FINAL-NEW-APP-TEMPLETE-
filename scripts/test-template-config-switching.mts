@@ -43,9 +43,11 @@ const barberConfigured = applyTemplateConfigToSalon(source, {
 
 test('capability matrix rejects settings unsupported by the active template', () => {
   assert.equal(templateSupportsConfig('barber_mens_grooming', 'heroPosition'), true);
-  assert.equal(templateSupportsConfig('barber_mens_grooming', 'showOwnerPhoto'), false);
+  // Owner-photo parity: every one of the five templates renders the owner
+  // photo, so every template carries the toggle.
+  assert.equal(templateSupportsConfig('barber_mens_grooming', 'showOwnerPhoto'), true);
   assert.equal(barberConfigured.templateConfigs?.barber_mens_grooming?.heroPosition, 'Top');
-  assert.equal('showOwnerPhoto' in (barberConfigured.templateConfigs?.barber_mens_grooming || {}), false);
+  assert.equal(barberConfigured.templateConfigs?.barber_mens_grooming?.showOwnerPhoto, false);
 });
 
 const beauty = switchSalonTemplatePresentation(barberConfigured, 'beauty_skin_spa');
@@ -57,7 +59,9 @@ test('a first visit copies only settings supported by both source and target', (
   assert.equal(beauty.brandColor, '#123456');
   assert.equal(beauty.heroPosition, undefined);
   assert.equal('heroPosition' in (beauty.templateConfigs?.beauty_skin_spa || {}), false);
-  assert.equal(beauty.templateConfig?.showOwnerPhoto, true);
+  // showOwnerPhoto is now supported by both templates, so the owner's
+  // explicit opt-out travels with the presentation copy.
+  assert.equal(beauty.templateConfig?.showOwnerPhoto, false);
 });
 
 const withUnsafeStoredConfig: SalonData = {

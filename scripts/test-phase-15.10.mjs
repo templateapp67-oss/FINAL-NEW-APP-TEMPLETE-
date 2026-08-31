@@ -1753,7 +1753,15 @@ await test('server keeps credentials in env only (.env.example lists placeholder
   assert.ok(!/eyJ[A-Za-z0-9_-]{10,}/.test(envExample), '.env.example has no JWT');
   assert.ok(!/\b(sk|pk|rzp|ghp)_[A-Za-z0-9]{10,}/.test(envExample), '.env.example has no private key');
   assert.ok(!/AIza[A-Za-z0-9_-]{10,}/.test(envExample), '.env.example has no Google API key');
-  assert.ok(envExample.includes('your-project.supabase.co'), 'placeholder URL only');
+  // The Supabase project URL is PUBLIC routing information (it is committed in
+  // supabase/config.toml + shared/supabaseProject.ts and ships in the browser
+  // bundle anyway), so the canonical project URL is allowed in the example —
+  // but any OTHER concrete host must stay the placeholder. Keys stay placeholders.
+  const canonicalProjectUrl = 'https://qwaehqsmodekbgvnaavz.supabase.co';
+  const placeholderUrlSeen = envExample.includes('your-project.supabase.co');
+  const canonicalUrlSeen = envExample.includes(canonicalProjectUrl);
+  const otherConcreteUrl = /https:\/\/(?!qwaehqsmodekbgvnaavz\.supabase\.co)[a-z0-9-]+\.supabase\.co/.test(envExample);
+  assert.ok(placeholderUrlSeen || (canonicalUrlSeen && !otherConcreteUrl), 'placeholder or canonical public project URL only');
   assert.ok(envExample.includes('your-anon-public-key'), 'placeholder anon key only');
   const server = await readFile('server.ts', 'utf8');
   assert.match(server, /process\.env\./, 'server reads env');

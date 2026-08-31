@@ -81,7 +81,7 @@ assert.match(main, /normalizedPath === 'nearby'/);
 assert.match(main, /<NearbySalonSearch/);
 ok('nearby salon system still uses approved business_locations + public_salon_catalog');
 
-assert.match(publicView, /rpc\('get_public_salon_website'/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
 assert.match(publicView, /<TemplateRenderer data=\{state\.data\} mode=\{mode\} \/>/);
 assert.match(main, /PublicSalonView/);
 assert.match(publicUrl, /export function publicWebsiteUrl/);

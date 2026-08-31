@@ -380,15 +380,17 @@ assert.equal((await publicWebsite('nexora-salon')).length, 1);
 ok('active template enforced: deactivated/unknown themes resolve to zero rows, never a default');
 
 // ---- Client rules: slug-only, no hardcoded id, no fallback business -------
-const [main, publicView, m52] = await Promise.all([
+const [main, publicView, resolver, m52] = await Promise.all([
   readRoot('src/main.tsx'),
   readRoot('src/components/PublicSalonView.tsx'),
+  readRoot('src/lib/publicSalonResolver.ts'),
   read('20260825000301_m52_public_resolution_hardening.sql'),
 ]);
 assert.match(main, /const normalizedPath = subdomainSlug \|\| normalizeRouteSlug\(pathname\)/);
-assert.match(main, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedPath \}\)/);
+assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
 assert.match(main, /setRoute\('not_found'\)/);
-assert.match(publicView, /\.rpc\('get_public_salon_website', \{ p_slug: slug \}\)/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
+assert.match(resolver, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedSlug \}\)/);
 assert.match(publicView, /\.rpc\('get_public_salon_services', \{ p_slug: slug \}\)/);
 assert.match(publicView, /applyPublicTemplateConfiguration\([\s\S]*, config, website\.template_key\)/);
 assert.doesNotMatch(main, /['"][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"]/i);

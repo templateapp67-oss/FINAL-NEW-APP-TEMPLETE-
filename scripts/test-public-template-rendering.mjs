@@ -18,7 +18,7 @@ const [publicView, renderer, m44, m49] = await Promise.all([
 let passed = 0;
 const ok = (label) => { passed += 1; console.log(`PASS ${label}`); };
 
-assert.match(publicView, /rpc\('get_public_salon_website', \{ p_slug: slug \}\)/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
 assert.match(publicView, /applyPublicTemplateConfiguration\(/);
 assert.match(publicView, /website\.template_key/);
 assert.match(publicView, /<TemplateRenderer data=\{state\.data\} mode=\{mode\} \/>/);

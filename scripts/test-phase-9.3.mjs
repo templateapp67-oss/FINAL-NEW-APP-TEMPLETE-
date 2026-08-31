@@ -2,7 +2,12 @@
 import assert from 'node:assert/strict';
 import { createHarness, createRunner, IDS, THEMES } from './lib/acceptance-harness.mjs';
 import { filterAndSortServices, serviceMatchesSearch } from '../src/lib/serviceSearch.ts';
-import { isBrowserOffline, networkErrorMessage } from '../src/lib/offlineSync.ts';
+import {
+  isBrowserOffline,
+  isStaleConnectivityState,
+  networkErrorMessage,
+  resetOnlineEventObservationForTests,
+} from '../src/lib/offlineSync.ts';
 
 const harness = await createHarness({ seedLegacyCustom: true });
 const runner = createRunner('Phase 9.3 acceptance');
@@ -63,6 +68,11 @@ await runner.test('offline detector and retry copy never invent a second save', 
   assert.equal(isBrowserOffline(), false);
   assert.match(networkErrorMessage(new Error('Failed to fetch'), true), /offline/i);
   assert.match(networkErrorMessage(new Error('network timeout'), false), /Network error/i);
+  // The stale-connectivity guard mirrors navigator.onLine: false offline,
+  // false online, and only reports a stale window BEFORE the first observed
+  // online event (test seam reset makes that deterministic).
+  resetOnlineEventObservationForTests();
+  assert.equal(isStaleConnectivityState(), false);
 });
 
 for (const theme of THEMES) {

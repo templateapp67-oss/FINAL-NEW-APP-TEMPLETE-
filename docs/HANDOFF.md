@@ -1,10 +1,36 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-31** (BUG FIX: "This service is already saved for your salon" on re-add — M67 upsert/revive, frontend + local fallback; M66 owner-photo public parity — see top section).
+> Last updated: **2026-08-31** (BUG FIX: false "Unsaved service form restored" banner — conditional draft restoration + cleanup; plus the saved-service re-add fix — see top sections).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Saved-service re-add bug fix — 2026-08-31 (current PR)
+## False "Unsaved service form restored" banner fix — 2026-08-31 (current PR)
+
+**Bug:** opening or filling the Add Service form sometimes showed
+**"Unsaved service form restored. Review and save when you are online."** even
+while online, and the form stayed stuck / kept showing the banner.
+
+**Root causes:** `readServiceFormDraft` (sessionStorage `nexora_service_form_draft`)
+was restored **unconditionally** on mount; a draft auto-saved while typing was
+never cleared after a successful submit; and connectivity relied on a one-shot
+`navigator.onLine` snapshot.
+
+**Fixes (`src/lib/offlineSync.ts` + `src/screens/StepServices.tsx`):**
+- Draft restoration is now **conditional**: only when `isBrowserOffline()`
+  OR `isStaleConnectivityState()` (online but no `online` event observed yet
+  this session). When the connection is healthy, the stale draft is cleared
+  instead of being restored.
+- **Successful submit** clears the draft (`clearServiceFormDraftIfMatches` +
+  `clearServiceFormDraft`) and dismisses the banner; **explicit cancel/reset**
+  (`closeAddServiceForm`) also clears the draft.
+- Connectivity uses dynamic `window` `online`/`offline` listeners (existing
+  effect preserved + documented), so the state updates when the connection
+  returns and the banner clears.
+- New helpers: `isStaleConnectivityState()`, `resetOnlineEventObservationForTests()`,
+  `clearServiceFormDraftIfMatches()`; coverage in `test:service-saving`
+  (source-contract) and `test:phase-9.3` (offline helpers).
+
+## Saved-service re-add bug fix — 2026-08-31 (previous PR)
 
 **Bug:** adding / re-adding / updating a saved service threw **"This service is
 already saved for your salon."** even when the existing row was soft-deleted

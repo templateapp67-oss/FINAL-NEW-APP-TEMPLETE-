@@ -653,4 +653,40 @@ await test('Phase 8.2 — StepServices renders every required state', async () =
     'must ignore late responses from a previous theme');
 });
 
+await test('Phase 8.2 — offline detection + stale draft restoration are guarded', async () => {
+  const source = await readFile('src/screens/StepServices.tsx', 'utf8');
+
+  // Dynamic online/offline listeners keep the connectivity state in sync —
+  // navigator.onLine alone is a one-shot snapshot otherwise.
+  assert.ok(source.includes("window.addEventListener('online', sync)"));
+  assert.ok(source.includes("window.addEventListener('offline', sync)"));
+  assert.ok(source.includes("window.removeEventListener('online', sync)"));
+  assert.ok(source.includes('const sync = () => {'));
+  assert.ok(source.includes('setIsOffline(offline)'));
+
+  // Draft restoration is conditional: only while offline OR in a stale
+  // connectivity window; the stale draft is cleared when the connection is
+  // healthy so an already-saved form is never "restored".
+  assert.ok(source.includes('isBrowserOffline() || isStaleConnectivityState()'));
+  assert.ok(source.includes('Unsaved service form restored. Review and save when you are online.'));
+  const restoreBlock = source.slice(
+    source.indexOf('const draft = readServiceFormDraft(theme)'),
+    source.indexOf('// Close the service combobox when clicking outside it.'),
+  );
+  assert.ok(restoreBlock.includes('if (draft) clearServiceFormDraft();'),
+    'online + stale draft → the auto-saved copy is discarded, not restored');
+
+  // Successful submit clears the draft (matching + unconditional), and an
+  // explicit cancel/reset clears it too — no stale cache can be re-restored.
+  assert.ok(source.includes('clearServiceFormDraftIfMatches({'));
+  assert.ok(source.includes('clearServiceFormDraft();'));
+  assert.ok(source.includes('const closeAddServiceForm = () => {'));
+  const cancelBlock = source.slice(
+    source.indexOf('const closeAddServiceForm = () => {'),
+    source.indexOf('const handleCreateService'),
+  );
+  assert.ok(cancelBlock.includes('clearServiceFormDraft();'),
+    'explicit cancel/reset must drop the auto-saved draft');
+});
+
 console.log(`Service saving tests: ${passed}/14 passed`);

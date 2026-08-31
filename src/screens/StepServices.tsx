@@ -57,7 +57,9 @@ import {
 } from '../lib/serviceContentService';
 import {
   clearServiceFormDraft,
+  clearServiceFormDraftIfMatches,
   isBrowserOffline,
+  isStaleConnectivityState,
   networkErrorMessage,
   persistServiceFormDraft,
   readServiceFormDraft,
@@ -359,9 +361,14 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
     const sync = () => {
       const offline = isBrowserOffline();
       setIsOffline(offline);
+      // Drop the restored-form banner as soon as connectivity is confirmed;
+      // the draft itself is preserved in session storage for the next visit.
       if (!offline) setSyncNotice('');
     };
+    // Initial state reflects the real navigator.onLine value immediately.
     sync();
+    // Dynamic listeners keep the state in sync across connection flaps —
+    // navigator.onLine alone can be stale for the whole session otherwise.
     window.addEventListener('online', sync);
     window.addEventListener('offline', sync);
     return () => {
@@ -491,10 +498,18 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
   // Initialise category/form copy only after the current database theme arrives.
   // activeCatalog is identity-checked above, so a late previous-theme response
   // can never initialise this form.
+  //
+  // Draft restoration is conditional: a draft is only restored (and the
+  // "Unsaved service form restored" banner only shown) when the connection is
+  // currently offline OR the browser's online state is stale (no 'online'
+  // event has been observed this session). When the connection is healthy the
+  // stale draft is discarded — the root cause of the false "restored" banner
+  // firing while the user was online was an auto-saved draft that was never
+  // cleared after a successful submit.
   useEffect(() => {
     if (!usesDatabaseCatalog || !activeCatalog) return;
     const draft = readServiceFormDraft(theme);
-    if (draft) {
+    if (draft && (isBrowserOffline() || isStaleConnectivityState())) {
       setNewServiceCategory(draft.category || activeCatalog.categories[0]?.name || '');
       setNewServiceName(draft.name);
       setNewServicePrice(draft.price);
@@ -505,6 +520,10 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       setSyncNotice('Unsaved service form restored. Review and save when you are online.');
       return;
     }
+    // Online (or stale-state cleared): the draft is stale — the saved payload
+    // is the source of truth, so drop the auto-saved copy instead of restoring
+    // it and blocking the form.
+    if (draft) clearServiceFormDraft();
     const firstCategory = activeCatalog.categories[0]?.name || '';
     setNewServiceCategory(firstCategory);
     setNewServiceDesc(suggestServiceDescription(firstCategory || 'General', ''));
@@ -843,6 +862,9 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
     setPendingDescSuggestion('');
     setAddServiceError('');
     setIsAddingService(false);
+    // Explicit cancel / reset discards the auto-saved draft too — a form the
+    // user walked away from must not be "restored" on the next visit.
+    clearServiceFormDraft();
   };
 
   const handleCreateService = async (e: FormEvent) => {
@@ -952,8 +974,19 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
           }
         : previous
       );
+      // Successful submit → the auto-saved draft is now persisted server-side.
+      // Clear it (and any matching stale copy) so the next mount can never
+      // "restore" an already-saved form.
+      clearServiceFormDraftIfMatches({
+        name: saved.name,
+        price: saved.price,
+        duration: saved.duration,
+        description: saved.description,
+        category: saved.category,
+      });
       clearServiceFormDraft();
       closeAddServiceForm();
+      setSyncNotice('');
       if (onSave) onSave();
     } catch (error) {
       if (saveRequestRef.current !== requestId) return;

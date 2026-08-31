@@ -87,6 +87,10 @@ const TARGETS = {
     file: '20260831000101_m66_owner_photo_public_parity.sql',
     verifier: 'verify_m66_owner_photo_parity',
   },
+  m67: {
+    file: '20260831000201_m67_saved_service_upsert_revive.sql',
+    verifier: 'verify_m67_saved_service_upsert',
+  },
 };
 
 function parseProjectRef(configText) {

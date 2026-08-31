@@ -236,7 +236,13 @@ export function savePredefinedServicesLocal(
       .find((row) => row.predefinedServiceId === predefined.id);
     if (existing) {
       existingCount += 1;
-      services.push(existing);
+      // Archived rows are retired copies: re-adding a suggested service revives
+      // the existing row (status back to active) instead of leaving a stale
+      // archived copy next to a new duplicate — mirrors the M67 RPC.
+      services.push(existing.status === 'archived'
+        ? updateLocalSavedServiceRow(themeId, existing.id, (row) => ({ ...row, status: 'active' }))
+          ?? existing
+        : existing);
       continue;
     }
     insertedCount += 1;
@@ -298,8 +304,24 @@ export function createSavedServiceLocal(
     if (!predefined) {
       throw new SavedServiceError('The selected service does not belong to this theme and category.');
     }
-    if (rows.some((row) => row.predefinedServiceId === predefined.id)) {
+    // A LIVE row for the same predefined link is a genuine duplicate; archived
+    // (soft-deleted) rows are retired services the owner is re-adding, so they
+    // are revived below instead of erroring (mirrors the M67 RPC + the partial
+    // unique index, which excludes soft-deleted rows).
+    if (rows.some((row) => row.predefinedServiceId === predefined.id && row.status !== 'archived')) {
       throw new SavedServiceError('This service is already saved for your salon.');
+    }
+    const archived = rows.find((row) => row.predefinedServiceId === predefined.id && row.status === 'archived');
+    if (archived) {
+      return updateLocalSavedServiceRow(themeId, archived.id, (row) => ({
+        ...row,
+        name,
+        category: category.name,
+        description: input.description ?? '',
+        price: input.price,
+        duration: Math.round(input.duration),
+        status: 'active',
+      })) ?? { ...archived };
     }
   }
   if (rows.some(
@@ -307,6 +329,25 @@ export function createSavedServiceLocal(
       && row.name.trim().toLowerCase() === name.toLowerCase(),
   )) {
     throw new SavedServiceError('A service with this name is already saved for this theme.');
+  }
+  // Re-add after archive for a Custom / "Other" service: revive the most recent
+  // archived CUSTOM row with the same normalized name. Custom provenance is
+  // never rewritten onto a predefined-linked row.
+  const archivedCustom = rows.find(
+    (row) => row.status === 'archived'
+      && row.predefinedServiceId === null
+      && row.name.trim().toLowerCase() === name.toLowerCase(),
+  );
+  if (archivedCustom) {
+    return updateLocalSavedServiceRow(themeId, archivedCustom.id, (row) => ({
+      ...row,
+      name,
+      category: category.name,
+      description: input.description ?? '',
+      price: input.price,
+      duration: Math.round(input.duration),
+      status: 'active',
+    })) ?? { ...archivedCustom };
   }
 
   return insertLocalSavedService(themeId, {

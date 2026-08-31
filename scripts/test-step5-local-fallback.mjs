@@ -232,6 +232,68 @@ await test('archived rows do not block re-creating the same custom name', async 
   setSavedServiceStatusLocal(themeId, row.id, 'active');
 });
 
+await test('re-adding an archived service revives the same row (no duplicate, no error)', async () => {
+  const rows = () => loadSavedServicesLocal(themeId);
+
+  // Predefined-linked: archive, then re-add via createSavedServiceLocal.
+  const predefinedRow = rows().find((row) => row.predefinedServiceId === suggestedB.id);
+  assert.ok(predefinedRow, 'suggestedB row expected');
+  setSavedServiceStatusLocal(themeId, predefinedRow.id, 'archived');
+  const revivedPredefined = createSavedServiceLocal(themeId, {
+    categoryId: suggestedB.categoryId,
+    name: suggestedB.name,
+    description: 'revived copy',
+    price: 333,
+    duration: 44,
+    predefinedServiceId: suggestedB.id,
+    status: 'active',
+  });
+  assert.equal(revivedPredefined.id, predefinedRow.id,
+    're-add must revive the archived row, not insert a duplicate');
+  assert.equal(revivedPredefined.status, 'active');
+  assert.equal(revivedPredefined.price, 333);
+  assert.equal(revivedPredefined.duration, 44);
+  assert.equal(
+    rows().filter((row) => row.predefinedServiceId === suggestedB.id).length,
+    1,
+  );
+
+  // Custom / Other: archive, then re-add the same name — revived, same id.
+  const customRow = rows().find(
+    (row) => row.name === 'Anti-Aging Gold Facial' && row.predefinedServiceId === null,
+  );
+  assert.ok(customRow, 'custom row expected');
+  setSavedServiceStatusLocal(themeId, customRow.id, 'archived');
+  const revivedCustom = createSavedServiceLocal(themeId, {
+    categoryId: fallbackCatalog.categories[0].id,
+    name: 'anti-aging gold facial',
+    description: '',
+    price: 2600,
+    duration: 75,
+  });
+  assert.equal(revivedCustom.id, customRow.id, 'custom re-add must revive the archived row');
+  assert.equal(revivedCustom.status, 'active');
+  assert.equal(revivedCustom.price, 2600);
+  assert.equal(revivedCustom.predefinedServiceId, null);
+  assert.equal(
+    rows().filter((row) => row.name.toLowerCase() === 'anti-aging gold facial').length,
+    1,
+  );
+
+  // Add Selected (savePredefinedServicesLocal) also revives an archived row
+  // instead of leaving a stale retired copy next to a duplicate.
+  setSavedServiceStatusLocal(themeId, revivedPredefined.id, 'archived');
+  const batch = savePredefinedServicesLocal(themeId, [suggestedB.id]);
+  assert.equal(batch.insertedCount, 0);
+  assert.equal(batch.existingCount, 1);
+  assert.equal(batch.services[0].id, revivedPredefined.id);
+  assert.equal(batch.services[0].status, 'active');
+  assert.equal(
+    rows().filter((row) => row.predefinedServiceId === suggestedB.id).length,
+    1,
+  );
+});
+
 await test('archive + delete are idempotent and remove rows from the list', async () => {
   const before = loadSavedServicesLocal(themeId).length;
   const target = loadSavedServicesLocal(themeId).find((row) => row.predefinedServiceId === suggestedA.id);

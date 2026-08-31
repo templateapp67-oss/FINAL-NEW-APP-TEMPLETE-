@@ -623,47 +623,36 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       );
       if (saveRequestRef.current !== requestId) return;
 
-      // Keep local preview state aligned with returned canonical saved rows, but
-      // never add the same predefined service twice on repeated clicks.
-      const localPredefinedIds = new Set(
-        data.services
-          .map((service) => service.predefinedServiceId)
-          .filter((id): id is string => Boolean(id)),
-      );
-      const newlyVisibleServices: Service[] = result.services
-        .filter((service) => !localPredefinedIds.has(service.predefinedServiceId))
-        .map((service) => ({
-          id: service.id,
-          businessId: service.businessId,
-          themeId: service.themeId,
-          themeKey: service.themeKey,
-          categoryId: service.categoryId,
-          predefinedServiceId: service.predefinedServiceId,
-          name: service.name,
-          category: service.category,
-          description: service.description,
-          price: service.price,
-          duration: service.duration,
-          featured: service.featured,
-          status: service.status,
-        }));
-
-      if (newlyVisibleServices.length > 0) {
-        setData((previous) => normalizeThemeId(previous.templateId) === theme
-          ? {
-              ...previous,
-              services: [
-                ...previous.services,
-                ...newlyVisibleServices.filter((incoming) =>
-                  !previous.services.some((existing) =>
-                    existing.predefinedServiceId === incoming.predefinedServiceId
-                  )
-                ),
-              ],
-            }
-          : previous
+      // Keep local preview state aligned with returned canonical saved rows:
+      // revived archived rows (same predefined id, possibly same row id) are
+      // replaced in place so the retired copy becomes active again, and brand
+      // new rows are appended. Nothing is ever added twice.
+      setData((previous) => {
+        if (normalizeThemeId(previous.templateId) !== theme) return previous;
+        const revivedByPredefinedId = new Map(
+          result.services
+            .filter((service) => Boolean(service.predefinedServiceId))
+            .map((service) => [service.predefinedServiceId as string, service]),
         );
-      }
+        const services = previous.services.map((service) => {
+          const revived = service.predefinedServiceId
+            ? revivedByPredefinedId.get(service.predefinedServiceId)
+            : undefined;
+          return revived ? savedServiceToSalonService(revived) : service;
+        });
+        const knownPredefinedIds = new Set(
+          previous.services
+            .map((service) => service.predefinedServiceId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const appended = result.services
+          .filter((service) => service.predefinedServiceId && !knownPredefinedIds.has(service.predefinedServiceId))
+          .map((service) => savedServiceToSalonService(service));
+        return {
+          ...previous,
+          services: appended.length > 0 ? [...services, ...appended] : services,
+        };
+      });
       setSelectedSuggested([]);
       setSaveSelectedNotice(
         result.insertedCount > 0
@@ -919,9 +908,14 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       : undefined;
     const predefinedServiceId = customService ? null : (predefinedMatch?.id ?? null);
 
-    // Prevent duplicates before hitting the database.
+    // Prevent duplicates before hitting the database. Archived (soft-deleted)
+    // services are retired — re-adding one revives it instead of erroring, so
+    // only live rows count as duplicates (mirrors the partial unique indexes
+    // that exclude soft-deleted rows and the M67 upsert RPC).
     const duplicate = data.services.some((service) =>
-      (predefinedServiceId !== null && service.predefinedServiceId === predefinedServiceId)
+      (predefinedServiceId !== null
+        && service.predefinedServiceId === predefinedServiceId
+        && service.status !== 'archived')
       || (service.status !== 'archived'
         && service.name.trim().toLowerCase() === name.toLowerCase())
     );
@@ -948,8 +942,12 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
       setData((previous) => normalizeThemeId(previous.templateId) === theme
         ? {
             ...previous,
+            // Re-adding an archived service revives the SAME row id, so when
+            // the returned row is already in the list (stale archived copy)
+            // replace it in place instead of leaving it behind or duplicating.
             services: previous.services.some((item) => item.id === saved.id)
-              ? previous.services
+              ? previous.services.map((item) =>
+                  item.id === saved.id ? savedServiceToSalonService(saved) : item)
               : [...previous.services, savedServiceToSalonService(saved)],
           }
         : previous

@@ -27,6 +27,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const migrationDir = join(root, 'supabase', 'migrations');
 
 const M40 = '20260822000301_m40_service_catalog_commerce_rpc.sql';
+const M67 = '20260831000201_m67_saved_service_upsert_revive.sql';
 const CHAIN = [
   '20260821000101_m28_phase1a_unified_salon_foundation.sql',
   '20260821000201_m29_phase1a_razorpay_foundation.sql',
@@ -41,6 +42,7 @@ const CHAIN = [
   '20260822000101_m38_reconciliation_fix.sql',
   '20260822000201_m39_owner_publish_website.sql',
   M40,
+  M67,
 ];
 
 const sqlOf = async (file) => readFile(join(migrationDir, file), 'utf8');
@@ -428,6 +430,91 @@ const audit = (await asRole('authenticated', ids.ownerA, async () => (
 ))).rows[0].payload;
 assert.ok(audit.entries.length >= 1);
 ok('get_theme_service_audit: activity trail recorded');
+
+// --- 2b. M67: re-adding an ARCHIVED service revives it instead of erroring. ---
+const archivedRow = (await asRole('authenticated', ids.ownerA, async () => (
+  await db.query(
+    `select public.set_saved_service_status($1, 'archived') as payload`,
+    [created.id],
+  )
+))).rows[0].payload;
+assert.equal(archivedRow.status, 'archived');
+
+// Re-add the same predefined service while it is archived: the RPC must NOT
+// throw "already saved" — it revives the same row with the submitted values.
+const revived = (await asRole('authenticated', ids.ownerA, async () => (
+  await db.query(
+    `select public.create_saved_service(
+       'beauty_skin_spa', $1, 'Anti-Aging Gold Facial',
+       'Re-added after archive.', 245000, 65, $2, 'active'
+     ) as payload`,
+    [facialCategory.id, goldFacial.id],
+  )
+))).rows[0].payload;
+assert.equal(revived.id, created.id, 're-add must revive the archived row, not insert a copy');
+assert.equal(revived.status, 'active');
+assert.equal(revived.price_paise, 245000);
+assert.equal(revived.duration_minutes, 65);
+assert.equal(revived.predefined_service_id, goldFacial.id);
+const liveCount = (await asRole('authenticated', ids.ownerA, async () => (
+  await db.query(
+    `select count(*)::int as n from public.services
+     where salon_id = $1 and predefined_service_id = $2`,
+    [ids.salonA, goldFacial.id],
+  )
+))).rows[0].n;
+assert.equal(liveCount, 1, 'revive must not leave duplicate rows for the same predefined link');
+ok('M67: re-adding an archived predefined service revives the same row (no error, no duplicate)');
+
+// Custom / "Other" service: archive, then re-add the same name.
+const customAdd = (await asRole('authenticated', ids.ownerA, async () => (
+  await db.query(
+    `select public.create_saved_service(
+       'beauty_skin_spa', $1, 'Owner Custom Glow', '', 99000, 45, null, 'active'
+     ) as payload`,
+    [facialCategory.id],
+  )
+))).rows[0].payload;
+assert.equal(customAdd.predefined_service_id, null);
+await asRole('authenticated', ids.ownerA, async () => {
+  await db.query(`select public.set_saved_service_status($1, 'archived')`, [customAdd.id]);
+});
+const revivedCustom = (await asRole('authenticated', ids.ownerA, async () => (
+  await db.query(
+    `select public.create_saved_service(
+       'beauty_skin_spa', $1, 'owner custom glow', 'Re-added custom.', 100000, 50, null, 'active'
+     ) as payload`,
+    [facialCategory.id],
+  )
+))).rows[0].payload;
+assert.equal(revivedCustom.id, customAdd.id, 'custom re-add must revive the archived row');
+assert.equal(revivedCustom.status, 'active');
+assert.equal(revivedCustom.predefined_service_id, null);
+assert.equal(revivedCustom.price_paise, 100000);
+ok('M67: re-adding an archived custom service revives the same row');
+
+// save_predefined_services ("Add Selected") also revives archived rows.
+await asRole('authenticated', ids.ownerA, async () => {
+  await db.query(`select public.set_saved_service_status($1, 'archived')`, [revived.id]);
+});
+const reAdded = (await asRole('authenticated', ids.ownerA, async () => (
+  await db.query(
+    `select public.save_predefined_services('beauty_skin_spa', array[$1::uuid]) as payload`,
+    [goldFacial.id],
+  )
+))).rows[0].payload;
+assert.equal(reAdded.inserted_count, 0, 'revived rows must count as existing, not inserted');
+assert.equal(reAdded.existing_count, 1);
+assert.equal(reAdded.services.length, 1);
+assert.equal(reAdded.services[0].id, revived.id, 'Add Selected must revive the archived row id');
+assert.equal(reAdded.services[0].status, 'active');
+ok('M67: Add Selected revives archived suggested services without duplicates');
+
+// Leave the salon state as the later sections expect it: the extra custom
+// service created for this block is removed (it is not part of the bundle).
+await asRole('authenticated', ids.ownerA, async () => {
+  await db.query(`select public.delete_saved_service($1)`, [revivedCustom.id]);
+});
 
 // --- 9. Cross-tenant isolation. ---
 const otherTenantSaved = (await asRole('authenticated', ids.ownerB, async () => (

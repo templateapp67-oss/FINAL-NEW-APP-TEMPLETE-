@@ -48,16 +48,30 @@ function safeUrl(value: string): URL | null {
 export function parseYoutubeVideoId(url: string): string | null {
   const parsed = safeUrl(url);
   if (!parsed) return null;
-  const host = parsed.hostname.replace(/^www\./, '');
-  if (host === 'youtu.be') {
+  const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+  // Handle youtu.be short links (with or without www, with possible query params)
+  if (host === 'youtu.be' || host === 'www.youtu.be') {
     const id = parsed.pathname.split('/').filter(Boolean)[0] || '';
     return YT_ID.test(id) ? id : null;
   }
-  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+  // Handle all YouTube domains including nocookie
+  if (
+    host === 'youtube.com' ||
+    host === 'm.youtube.com' ||
+    host === 'music.youtube.com' ||
+    host === 'youtube-nocookie.com' ||
+    host === 'www.youtube-nocookie.com'
+  ) {
     const v = parsed.searchParams.get('v') || '';
     if (YT_ID.test(v)) return v;
-    const match = parsed.pathname.match(/\/(?:shorts|embed|live)\/([a-zA-Z0-9_-]+)/);
+    // Handle /shorts/, /embed/, /live/, /v/ formats cleanly
+    const match = parsed.pathname.match(/\/(?:shorts|embed|live|v)\/([a-zA-Z0-9_-]{11})/);
     if (match && YT_ID.test(match[1])) return match[1];
+    // Fallback: try to extract 11-char ID from pathname segments (handles extra params)
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    for (const seg of segments) {
+      if (YT_ID.test(seg)) return seg;
+    }
   }
   return null;
 }

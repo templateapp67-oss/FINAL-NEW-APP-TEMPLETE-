@@ -245,6 +245,17 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
       return;
     }
 
+    // Immediately set thumbnail based on VIDEO_ID even before oEmbed fetch
+    // Ensures high-res thumbnail https://img.youtube.com/vi/{VIDEO_ID}/hqdefault.jpg is set automatically
+    if (parsed.platform === 'youtube' && parsed.externalVideoId) {
+      const immediateThumb = `https://img.youtube.com/vi/${parsed.externalVideoId}/hqdefault.jpg`;
+      if (!thumbnailManual) {
+        setNewVideoThumbnail(immediateThumb);
+        setThumbBroken(false);
+      }
+      setNewExternalVideoId(parsed.externalVideoId);
+    }
+
     setFetchStatus('loading');
     setFetchError(null);
     setFetchNotice(null);
@@ -947,7 +958,7 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                   <button
                     type="submit"
                     data-testid="video-add-submit"
-                    disabled={fetchStatus === 'loading' || !newVideoUrl.trim()}
+                    disabled={fetchStatus === 'loading' || !newVideoUrl.trim() || !newVideoTitle.trim()}
                     className="px-5 py-2 text-xs bg-[#ac0053] text-white font-bold rounded-xl hover:bg-[#ba005b] shadow-xs disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                   >
                     {fetchStatus === 'loading' ? (

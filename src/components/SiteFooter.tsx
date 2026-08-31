@@ -228,7 +228,7 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             {data.logoUrl ? (
-              <img src={data.logoUrl} alt="" className="h-8 w-auto max-w-[96px] object-contain" />
+              <img src={data.logoUrl} alt="" className="h-8 w-auto max-w-[96px] object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} referrerPolicy="no-referrer" />
             ) : (
               markWrap(themeId, skin.mark, skin.accent)
             )}

@@ -63,20 +63,29 @@ function parseYoutubeIdServer(raw: string): string | null {
   }
   if (!/^https?:$/i.test(parsed.protocol)) return null;
   const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
-  if (host === 'youtu.be') {
+  // Handle youtu.be short links (with or without www)
+  if (host === 'youtu.be' || host === 'www.youtu.be') {
     const id = parsed.pathname.split('/').filter(Boolean)[0] || '';
     return YT_VIDEO_ID_RE.test(id) ? id : null;
   }
+  // Handle all YouTube domains including nocookie and standard
   if (
     host === 'youtube.com' ||
     host === 'm.youtube.com' ||
     host === 'music.youtube.com' ||
-    host === 'youtube-nocookie.com'
+    host === 'youtube-nocookie.com' ||
+    host === 'www.youtube-nocookie.com'
   ) {
     const v = parsed.searchParams.get('v') || '';
     if (YT_VIDEO_ID_RE.test(v)) return v;
-    const match = parsed.pathname.match(/\/(?:shorts|embed|live)\/([a-zA-Z0-9_-]+)/);
+    // Handle /shorts/, /embed/, /live/, /v/ formats cleanly
+    const match = parsed.pathname.match(/\/(?:shorts|embed|live|v)\/([a-zA-Z0-9_-]{11})/);
     if (match && YT_VIDEO_ID_RE.test(match[1])) return match[1];
+    // Fallback: check pathname segments for 11-char ID (handles extra params)
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    for (const seg of segments) {
+      if (YT_VIDEO_ID_RE.test(seg)) return seg;
+    }
   }
   return null;
 }
@@ -138,31 +147,42 @@ async function fetchYoutubeOembed(videoId: string): Promise<{
   const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const oembedUrl =
     `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
-  const response = await fetch(oembedUrl, {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'NexoraSalonWebsiteBuilder/1.0 (+https://nexorabeauty.com)',
-    },
-  });
-  if (response.status === 404 || response.status === 401) return null;
-  if (!response.ok) {
-    throw new Error(`YouTube oEmbed responded ${response.status}`);
+  try {
+    const response = await fetch(oembedUrl, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'NexoraSalonWebsiteBuilder/1.0 (+https://nexorabeauty.com)',
+      },
+    });
+    // Gracefully handle 401/403/404 — return null so caller can fallback to thumbnail
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      // For other errors (500, 429, etc), also return null to allow graceful degradation
+      // instead of throwing UI error
+      console.warn(`YouTube oEmbed non-ok ${response.status} for ${videoId}, falling back to thumbnail`);
+      return null;
+    }
+    const data = (await response.json()) as {
+      title?: string;
+      author_name?: string;
+      thumbnail_url?: string;
+      html?: string;
+    };
+    return {
+      title: typeof data.title === 'string' ? data.title.trim() : '',
+      channelName: typeof data.author_name === 'string' ? data.author_name.trim() : '',
+      thumbnailUrl:
+        typeof data.thumbnail_url === 'string' && /^https?:\/\//i.test(data.thumbnail_url)
+          ? data.thumbnail_url.trim()
+          : `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      html: typeof data.html === 'string' ? data.html : '',
+    };
+  } catch (err) {
+    console.warn(`YouTube oEmbed fetch exception for ${videoId}:`, err);
+    return null;
   }
-  const data = (await response.json()) as {
-    title?: string;
-    author_name?: string;
-    thumbnail_url?: string;
-    html?: string;
-  };
-  return {
-    title: typeof data.title === 'string' ? data.title.trim() : '',
-    channelName: typeof data.author_name === 'string' ? data.author_name.trim() : '',
-    thumbnailUrl:
-      typeof data.thumbnail_url === 'string' && /^https?:\/\//i.test(data.thumbnail_url)
-        ? data.thumbnail_url.trim()
-        : `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-    html: typeof data.html === 'string' ? data.html : '',
-  };
 }
 
 async function fetchYoutubeDescription(videoId: string): Promise<string> {
@@ -371,11 +391,24 @@ export function setupApiRoutes(app: express.Express): void {
 
       try {
         const oembed = await videoMetaRateLimited(() => fetchYoutubeOembed(videoId));
+
+        // Graceful fallback: if oEmbed fails (401/403/404 or any error returns null),
+        // still return thumbnail based on VIDEO_ID so UI can show preview and allow manual title
         if (!oembed) {
-          return res.status(404).json({
-            code: 'not_found',
-            error: 'No video was found at that URL. It may be private or deleted.',
-          });
+          const degradedFallback = {
+            platform: 'youtube' as const,
+            externalVideoId: videoId,
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            title: '',
+            description: '',
+            channelName: '',
+            thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+            embedUrl: `https://www.youtube.com/embed/${videoId}`,
+            source: 'derived' as const,
+          };
+          // Cache the degraded result briefly to avoid repeated oEmbed calls
+          videoMetaCache.set(cacheKey, { at: Date.now(), body: degradedFallback });
+          return res.json(degradedFallback);
         }
 
         const description = await fetchYoutubeDescription(videoId);

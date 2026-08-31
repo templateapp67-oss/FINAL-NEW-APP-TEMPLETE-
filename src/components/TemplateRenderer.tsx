@@ -223,7 +223,13 @@ export default function TemplateRenderer({ data: sourceData, mode, renderMode = 
             className="flex items-center gap-2 text-left cursor-pointer"
           >
             {data.logoUrl ? (
-              <img src={data.logoUrl} alt="Logo" className="h-7 w-auto object-contain max-w-[120px]" />
+              <img
+                src={data.logoUrl}
+                alt="Logo"
+                className="h-7 w-auto object-contain max-w-[120px]"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                referrerPolicy="no-referrer"
+              />
             ) : (
               <Sparkles className="w-5 h-5" style={{ color: brandColor }} />
             )}

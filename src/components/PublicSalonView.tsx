@@ -119,6 +119,10 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     }));
 
   const location = typeof website.address === 'string' ? website.address : '';
+  // Fallback to config logo/hero when media table has no active record
+  // (e.g. offline/base64 logos or hero images stored directly in config)
+  const configLogoUrl = typeof config.logoUrl === 'string' ? config.logoUrl.trim() : '';
+  const configHeroUrl = typeof config.heroImageUrl === 'string' ? config.heroImageUrl.trim() : '';
   return applyPublicTemplateConfiguration({
     ...emptyPublicData(slug),
     salonId: website.salon_id,
@@ -133,8 +137,8 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     email: '',
     phone: typeof config.phone === 'string' ? config.phone : '',
     whatsappPhone: typeof config.whatsappPhone === 'string' ? config.whatsappPhone : '',
-    logoUrl: logo?.signedUrl || '',
-    heroImageUrl: hero?.signedUrl || '',
+    logoUrl: logo?.signedUrl || configLogoUrl || '',
+    heroImageUrl: hero?.signedUrl || configHeroUrl || '',
     gallery,
     services,
     address: location || website.city

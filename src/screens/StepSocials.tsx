@@ -8,6 +8,7 @@ import PreviewPane from '../components/PreviewPane';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef, FormEvent, type FC } from 'react';
 import {
+  derivedYoutubeMetadata,
   fetchVideoMetadata,
   mergePlatformMetadataIntoForm,
   parseVideoUrl,
@@ -50,6 +51,36 @@ interface Props {
 type FetchStatus = 'idle' | 'loading' | 'success' | 'error' | 'partial';
 
 /**
+ * Direct regex extraction of a YouTube VIDEO_ID from the raw pasted string.
+ * Works for watch, Shorts, embed, live and youtu.be URLs even when the URL
+ * cannot be fully parsed — the thumbnail
+ * `https://img.youtube.com/vi/{VIDEO_ID}/hqdefault.jpg` can then always be
+ * derived regardless of whether platform metadata fetched successfully.
+ */
+const YT_RAW_ID_REGEX =
+  /(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#\s]*[?&])?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
+
+function extractYoutubeIdFromRaw(url: string): string | null {
+  const match = (url || '').match(YT_RAW_ID_REGEX);
+  return match ? match[1] : null;
+}
+
+/** hqdefault thumbnail straight from the VIDEO_ID — no metadata needed. */
+function youtubeThumbFromId(videoId: string): string {
+  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+/**
+ * Notices that exist ONLY because the title is missing ("Thumbnail loaded.
+ * Title and channel were not available…", "Title is required…"). They are
+ * cleared automatically the moment the Title field has any text.
+ */
+function isTitleRequiredNotice(notice: string | null): boolean {
+  if (!notice) return false;
+  return /add a title|title is required|type them manually|were not available/i.test(notice);
+}
+
+/**
  * PHASE 15.4 — paste-only add flow.
  * Owner pastes a YouTube URL; Phase 15.2 `fetchVideoMetadata` auto-fills
  * thumbnail, title, description, channel and canonical URL. No second fetch
@@ -88,6 +119,38 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
   const previousMetaRef = useRef<VideoPlatformMetadata | null>(null);
   /** Suppresses re-fetch when we rewrite the URL to the canonical form. */
   const skipNextFetchRef = useRef(false);
+
+  /**
+   * Always-fresh snapshot of the form + manual flags. The debounced metadata
+   * merge reads from this ref instead of the effect closure, so a title the
+   * owner types WHILE the fetch is in flight is never wiped by stale state.
+   */
+  const latestFormRef = useRef({
+    newVideoTitle,
+    newVideoDescription,
+    newVideoChannel,
+    newVideoThumbnail,
+    newVideoUrl,
+    newVideoPlatform,
+    newExternalVideoId,
+    titleManual,
+    descriptionManual,
+    channelManual,
+    thumbnailManual,
+  });
+  latestFormRef.current = {
+    newVideoTitle,
+    newVideoDescription,
+    newVideoChannel,
+    newVideoThumbnail,
+    newVideoUrl,
+    newVideoPlatform,
+    newExternalVideoId,
+    titleManual,
+    descriptionManual,
+    channelManual,
+    thumbnailManual,
+  };
 
   /**
    * PHASE 15.6 — owner/admin actor for video management. Reuses the EXISTING
@@ -229,7 +292,34 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
     setDetectedKind(kindFromPaste);
 
     const parsed = parseVideoUrl(url);
+    // Regex fallback — the VIDEO_ID (and therefore the thumbnail) is derived
+    // straight from the URL string, independent of parse/oEmbed success.
+    const regexVideoId = extractYoutubeIdFromRaw(url);
+
     if (parsed.ok === false) {
+      if (regexVideoId) {
+        // URL parsing failed but the string clearly contains a YouTube video
+        // id (e.g. a Shorts link with odd formatting). Fall back to derived
+        // metadata so the thumbnail auto-fills and the owner can type the
+        // title/channel manually instead of being blocked.
+        const derived = derivedYoutubeMetadata(regexVideoId, url);
+        setNewVideoPlatform('youtube');
+        setNewExternalVideoId(regexVideoId);
+        if (!latestFormRef.current.thumbnailManual) {
+          setNewVideoThumbnail(youtubeThumbFromId(regexVideoId));
+          setThumbBroken(false);
+        }
+        setFetchedMeta(derived);
+        previousMetaRef.current = derived;
+        setFetchStatus('partial');
+        setFetchError(null);
+        setFetchNotice(
+          latestFormRef.current.newVideoTitle.trim()
+            ? null
+            : 'Thumbnail loaded. Title and channel were not available — type them manually to save.',
+        );
+        return;
+      }
       const looksComplete = /^https?:\/\//i.test(url) || (url.includes('.') && url.length > 12);
       if (looksComplete && parsed.code !== 'empty') {
         setFetchStatus('error');
@@ -248,7 +338,7 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
     // Immediately set thumbnail based on VIDEO_ID even before oEmbed fetch
     // Ensures high-res thumbnail https://img.youtube.com/vi/{VIDEO_ID}/hqdefault.jpg is set automatically
     if (parsed.platform === 'youtube' && parsed.externalVideoId) {
-      const immediateThumb = `https://img.youtube.com/vi/${parsed.externalVideoId}/hqdefault.jpg`;
+      const immediateThumb = youtubeThumbFromId(parsed.externalVideoId);
       if (!thumbnailManual) {
         setNewVideoThumbnail(immediateThumb);
         setThumbBroken(false);
@@ -272,6 +362,35 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
       if (controller.signal.aborted) return;
 
       if (result.ok === false) {
+        // Read the CURRENT form values + manual flags (not the effect
+        // closure) so a title typed while the fetch was in flight survives.
+        const live = latestFormRef.current;
+        const fallbackId =
+          (parsed.ok === true && parsed.platform === 'youtube' ? parsed.externalVideoId : null) ||
+          regexVideoId ||
+          null;
+        if (fallbackId) {
+          // Metadata failed (rate limit, oEmbed outage, private video…) but
+          // the YouTube id is valid: keep the derived thumbnail, keep the
+          // fields editable and let the owner type title/channel manually.
+          const derived = derivedYoutubeMetadata(fallbackId, url);
+          previousMetaRef.current = derived;
+          setFetchedMeta(derived);
+          setNewVideoPlatform('youtube');
+          setNewExternalVideoId(fallbackId);
+          if (!live.thumbnailManual && !live.newVideoThumbnail.trim()) {
+            setNewVideoThumbnail(youtubeThumbFromId(fallbackId));
+            setThumbBroken(false);
+          }
+          setFetchStatus('partial');
+          setFetchError(null);
+          setFetchNotice(
+            live.newVideoTitle.trim()
+              ? null
+              : 'Video details could not be loaded — add a title manually to save this video.',
+          );
+          return;
+        }
         setFetchStatus('error');
         setFetchError(result.message);
         setFetchNotice(null);
@@ -280,23 +399,26 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
         return;
       }
 
+      // Read the CURRENT form values + manual flags (not the effect closure)
+      // so a title typed while the fetch was in flight is never overwritten.
+      const live = latestFormRef.current;
       const meta = result.metadata;
       const merged = mergePlatformMetadataIntoForm(
         {
-          title: newVideoTitle,
-          description: newVideoDescription,
-          channelName: newVideoChannel,
-          thumbnailUrl: newVideoThumbnail,
-          url: newVideoUrl,
-          platform: newVideoPlatform,
-          externalVideoId: newExternalVideoId,
+          title: live.newVideoTitle,
+          description: live.newVideoDescription,
+          channelName: live.newVideoChannel,
+          thumbnailUrl: live.newVideoThumbnail,
+          url: live.newVideoUrl,
+          platform: live.newVideoPlatform,
+          externalVideoId: live.newExternalVideoId,
         },
         meta,
         {
-          titleManual,
-          descriptionManual,
-          channelManual,
-          thumbnailManual,
+          titleManual: live.titleManual,
+          descriptionManual: live.descriptionManual,
+          channelManual: live.channelManual,
+          thumbnailManual: live.thumbnailManual,
         },
         previousMetaRef.current,
       );
@@ -308,13 +430,19 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
       setNewVideoTitle(merged.title);
       setNewVideoDescription(merged.description);
       setNewVideoChannel(merged.channelName);
-      setNewVideoThumbnail(merged.thumbnailUrl);
+      // Never end up with an empty thumbnail for a recognised YouTube id.
+      setNewVideoThumbnail(
+        merged.thumbnailUrl ||
+          (merged.externalVideoId && merged.platform === 'youtube'
+            ? youtubeThumbFromId(merged.externalVideoId)
+            : merged.thumbnailUrl),
+      );
       setThumbBroken(false);
 
       // PHASE 15.7 — do not rewrite the pasted destination. Shorts/Long is a
       // separate field and the exact platform URL is preserved on save.
 
-      const notice = partialMetadataNotice(meta);
+      const notice = merged.title.trim() ? null : partialMetadataNotice(meta);
       setFetchNotice(notice);
       setFetchError(null);
       setFetchStatus(platformMetadataIsComplete(meta) ? 'success' : 'partial');
@@ -344,14 +472,24 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
       return;
     }
 
-    if (fetchStatus === 'error') {
+    const regexVideoId = extractYoutubeIdFromRaw(url);
+
+    if (fetchStatus === 'error' && !regexVideoId) {
       showFeedback(fetchError || 'Fix the video link before saving.');
       return;
     }
 
     if (fetchStatus === 'loading') {
-      showFeedback('Still loading video details…');
-      return;
+      // A valid URL + manually typed title is enough to save — don't make the
+      // owner wait for metadata that may never arrive. Cancel the in-flight
+      // fetch and continue with the current form values.
+      if (newVideoTitle.trim() && (regexVideoId || parseVideoUrl(url).ok === true)) {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        if (fetchAbortRef.current) fetchAbortRef.current.abort();
+      } else {
+        showFeedback('Still loading video details…');
+        return;
+      }
     }
 
     // Prefer Phase 15.2 snapshot; otherwise re-validate the URL.
@@ -359,10 +497,16 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
     if (!meta) {
       const parsed = parseVideoUrl(url);
       if (parsed.ok === false) {
-        setFetchError(parsed.message);
-        setFetchStatus('error');
-        showFeedback(parsed.message);
-        return;
+        // Regex fallback: a recognisable VIDEO_ID still lets the owner save
+        // with a manual title + derived hqdefault.jpg thumbnail.
+        if (regexVideoId) {
+          meta = derivedYoutubeMetadata(regexVideoId, url);
+        } else {
+          setFetchError(parsed.message);
+          setFetchStatus('error');
+          showFeedback(parsed.message);
+          return;
+        }
       }
     }
 
@@ -380,7 +524,11 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
         title: newVideoTitle,
         description: newVideoDescription,
         channelName: newVideoChannel,
-        thumbnailUrl: thumbBroken ? '' : newVideoThumbnail,
+        // Thumbnail is always derivable from the VIDEO_ID regex, even when
+        // metadata fetching failed entirely (unless the image itself broke).
+        thumbnailUrl: thumbBroken
+          ? ''
+          : newVideoThumbnail || (regexVideoId ? youtubeThumbFromId(regexVideoId) : ''),
         url,
         platform: newVideoPlatform,
         externalVideoId: newExternalVideoId,
@@ -429,6 +577,26 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
     showFeedback('Social video removed');
     if (onSave) onSave();
   };
+
+  /**
+   * "Add Video" enablement: a valid YouTube URL (parseable OR containing a
+   * regex-extractable VIDEO_ID) plus at least 1 non-empty title character —
+   * whether the title was auto-filled or typed manually.
+   */
+  const trimmedNewVideoUrl = newVideoUrl.trim();
+  const newVideoUrlIsValid =
+    !!trimmedNewVideoUrl &&
+    (!!extractYoutubeIdFromRaw(trimmedNewVideoUrl) || parseVideoUrl(trimmedNewVideoUrl).ok === true);
+  const canSubmitNewVideo = newVideoUrlIsValid && newVideoTitle.trim().length > 0;
+
+  /**
+   * As soon as the Title has any text — whether auto-filled by metadata or
+   * typed manually — "title is required"-style warnings are stale: hide them.
+   */
+  useEffect(() => {
+    if (!newVideoTitle.trim()) return;
+    setFetchNotice((prev) => (isTitleRequiredNotice(prev) ? null : prev));
+  }, [newVideoTitle]);
 
   return (
     <div className="flex-1 flex flex-col md:flex-row w-full h-full bg-[#f9f9f9]">
@@ -854,11 +1022,19 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                   <input
                     id="video-title-input"
                     data-testid="video-title-input"
+                    name="title"
                     type="text"
                     value={newVideoTitle}
+                    disabled={false}
+                    readOnly={false}
                     onChange={e => {
                       setTitleManual(true);
                       setNewVideoTitle(e.target.value);
+                      // Typing a title resolves the "title is required"
+                      // warning — hide it immediately.
+                      if (e.target.value.trim()) {
+                        setFetchNotice(prev => (isTitleRequiredNotice(prev) ? null : prev));
+                      }
                     }}
                     placeholder={fetchStatus === 'loading' ? 'Loading title…' : 'Fills automatically from YouTube'}
                     className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-[#ac0053] focus:bg-white"
@@ -875,8 +1051,11 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                   <input
                     id="video-channel-input"
                     data-testid="video-channel-field"
+                    name="channel"
                     type="text"
                     value={newVideoChannel}
+                    disabled={false}
+                    readOnly={false}
                     onChange={e => {
                       setChannelManual(true);
                       setNewVideoChannel(e.target.value);
@@ -958,10 +1137,10 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                   <button
                     type="submit"
                     data-testid="video-add-submit"
-                    disabled={fetchStatus === 'loading' || !newVideoUrl.trim() || !newVideoTitle.trim()}
+                    disabled={!canSubmitNewVideo}
                     className="px-5 py-2 text-xs bg-[#ac0053] text-white font-bold rounded-xl hover:bg-[#ba005b] shadow-xs disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                   >
-                    {fetchStatus === 'loading' ? (
+                    {fetchStatus === 'loading' && !canSubmitNewVideo ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching…
                       </>

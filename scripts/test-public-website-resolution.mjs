@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
-const [main, app, publicView, m44, templateMigration, ownerProvisioning, hostRouting, templateRenderer, bookingFlow, fullBooking, ...themes] = await Promise.all([
+const [main, app, publicView, publicResolver, vercel, m44, templateMigration, ownerProvisioning, hostRouting, templateRenderer, bookingFlow, fullBooking, ...themes] = await Promise.all([
   read('src/main.tsx'),
   read('src/App.tsx'),
   read('src/components/PublicSalonView.tsx'),
+  read('src/lib/publicSalonResolver.ts'),
+  read('vercel.json'),
   read('supabase/migrations/20260824000101_m44_business_publishing.sql'),
   read('supabase/migrations/20260823000401_phase1_whitelabel_provisioning.sql'),
   read('src/lib/ownerProvisioning.ts'),
@@ -24,19 +26,28 @@ let passed = 0;
 const ok = (label) => { passed += 1; console.log(`PASS ${label}`); };
 
 assert.match(main, /const normalizedPath = subdomainSlug \|\| normalizeRouteSlug\(pathname\)/);
-assert.match(main, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedPath \}\)/);
+assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
 assert.match(hostRouting, /return `\/\$\{slug\}\$\{path === '\/' \? '' : path\}`/);
 ok('path and existing white-label subdomain routes resolve one normalized slug');
 
-assert.match(publicView, /\.rpc\('get_public_salon_website', \{ p_slug: slug \}\)/);
+assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
+assert.match(publicResolver, /\.eq\('slug', normalizedSlug\)/);
+assert.match(publicResolver, /\.eq\('is_published', true\)/);
+assert.doesNotMatch(publicResolver, /royal-hair-studio/);
+assert.doesNotMatch(publicResolver, /\.select\(['"]\*['"]\)/);
+assert.match(vercel, /"src": "\/\.\*", "dest": "\/index\.html"/);
+ok('every published owner slug has a safe compatibility lookup and Vercel dynamic path');
+
+assert.match(publicResolver, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedSlug \}\)/);
 assert.match(publicView, /if \(!website\?\.salon_id \|\| !website\.slug \|\| !website\.business_name\) return null/);
 assert.doesNotMatch(publicView, /salonId\s*:\s*['"][0-9a-f]{8}-/i);
 ok('public business identity comes only from the URL-backed database projection');
 
 assert.match(publicView, /\.rpc\('get_public_salon_services', \{ p_slug: slug \}\)/);
 assert.doesNotMatch(publicView, /\.from\('services'\)/);
-assert.match(publicView, /price: Number\(service\.price_paise\) \/ 100/);
-assert.match(publicView, /themeId: service\.theme_key/);
+assert.match(publicView, /Number\(service\.price_paise\) \/ 100/);
+assert.match(publicView, /themeId: service\.theme_key \|\| service\.themeId \|\| website\.template_key/);
 ok('active services and server-stored pricing use the field-limited slug projection');
 
 assert.match(publicView, /applyPublicTemplateConfiguration\(/);

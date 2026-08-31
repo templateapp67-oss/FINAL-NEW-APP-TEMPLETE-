@@ -89,6 +89,8 @@ export default function HairStudioHero({ data, mode }: Props) {
               <img
                 data-testid="hero-logo"
                 src={data.logoUrl}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                referrerPolicy="no-referrer"
                 alt={`${heroSalonName(data)} logo`}
                 className="w-9 h-9 rounded-full object-cover"
               />

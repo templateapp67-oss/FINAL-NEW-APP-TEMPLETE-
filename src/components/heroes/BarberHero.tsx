@@ -110,6 +110,8 @@ export default function BarberHero({ data, mode }: Props) {
                 <img
                   data-testid="hero-logo"
                   src={data.logoUrl}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                  referrerPolicy="no-referrer"
                   alt={`${heroSalonName(data)} logo`}
                   className="w-11 h-11 object-cover border"
                   style={{ borderColor: t.gold }}

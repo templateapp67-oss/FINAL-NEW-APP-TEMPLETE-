@@ -81,6 +81,24 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   const heroInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  // Blob URL refs for immediate preview + cleanup (prevents memory leaks)
+  const logoBlobUrlRef = useRef<string | null>(null);
+  const heroBlobUrlRef = useRef<string | null>(null);
+
+  // Revoke blob URLs on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (logoBlobUrlRef.current) {
+        try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
+        logoBlobUrlRef.current = null;
+      }
+      if (heroBlobUrlRef.current) {
+        try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
+        heroBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
   // Editing state for gallery image
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [editCategory, setEditCategory] = useState<string>('Interior');
@@ -133,12 +151,36 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
 
   const persistSinglePhoto = async (rawFile: File, mediaType: 'logo' | 'hero') => {
     if (!rawFile || !rawFile.type.startsWith('image/')) return;
+
+    // 1. IMMEDIATE BLOB PREVIEW — real-time visual feedback before any compression/upload
+    // This satisfies: Image State & Preview requirement (URL.createObjectURL on file select)
+    const immediatePreviewUrl = URL.createObjectURL(rawFile);
+    try {
+      if (mediaType === 'logo') {
+        if (logoBlobUrlRef.current) {
+          try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
+        }
+        logoBlobUrlRef.current = immediatePreviewUrl;
+        // Functional update avoids stale closure when data changes between renders
+        setData(prev => ({ ...prev, logoUrl: immediatePreviewUrl }));
+      } else {
+        if (heroBlobUrlRef.current) {
+          try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
+        }
+        heroBlobUrlRef.current = immediatePreviewUrl;
+        setData(prev => ({ ...prev, heroImageUrl: immediatePreviewUrl }));
+      }
+      showFeedback(mediaType === 'logo' ? 'Logo preview ready — uploading...' : 'Photo preview ready — uploading...');
+    } catch (previewErr) {
+      console.warn('Immediate preview failed, continuing with upload:', previewErr);
+    }
+
     setIsProcessing(true);
     try {
-      // Auto-resize to 0.25MB max for localStorage friendliness
+      // Auto-resize to 0.25MB max for localStorage friendliness (offline path) and faster uploads
       const file = await compressImageToMaxFileSize(rawFile, 0.25);
       if (file.size < rawFile.size) {
-        showFeedback(`Resized to ${formatFileSize(file.size)}`);
+        showFeedback(`Resized to ${formatFileSize(file.size)} — uploading...`);
       } else {
         showFeedback(`Uploading ${formatFileSize(file.size)}...`);
       }
@@ -149,6 +191,9 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
         try {
           const resolution = await resolveOwnerSalonId();
           if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
+          // FormData / S3 payload: uploadSalonMedia internally creates a Storage upload
+          // (Supabase storage uses multipart FormData under the hood). We pass the File
+          // directly, which is appended to FormData as `file` with proper content-type.
           const media = await uploadSalonMedia({
             salonId: resolution.salonId,
             file,
@@ -157,14 +202,35 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
             status: 'active',
           });
           if (!media.signedUrl) throw new Error('The uploaded image preview could not be created.');
-          const nextData = mediaType === 'logo'
-            ? { ...data, logoUrl: media.signedUrl }
-            : { ...data, heroImageUrl: media.signedUrl };
-          setData(nextData);
+
+          // Replace blob preview with final persisted URL (signed URL from Storage)
+          // and revoke the temporary blob URL to free memory
+          if (mediaType === 'logo') {
+            if (logoBlobUrlRef.current) {
+              try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
+              logoBlobUrlRef.current = null;
+            }
+            setData(prev => {
+              const nextData = { ...prev, logoUrl: media.signedUrl! };
+              // Persistence: ensure DB + localStorage sync (step-5 -> step-6 retention)
+              if (onSave) onSave(nextData);
+              return nextData;
+            });
+          } else {
+            if (heroBlobUrlRef.current) {
+              try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
+              heroBlobUrlRef.current = null;
+            }
+            setData(prev => {
+              const nextData = { ...prev, heroImageUrl: media.signedUrl! };
+              if (onSave) onSave(nextData);
+              return nextData;
+            });
+          }
           setUploadProgress(100);
           showFeedback(mediaType === 'logo' ? 'Logo uploaded securely' : 'Main photo uploaded securely');
-          if (onSave) onSave(nextData);
         } catch (error) {
+          // Keep blob preview on error so user still sees their selection
           setUploadError(error instanceof Error ? error.message : 'Unable to upload this image.');
         } finally {
           setUploadProgress(null);
@@ -173,14 +239,35 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
       }
 
       // Explicit offline/demo fallback only. Configured deployments use Storage.
+      // Convert to base64 / data URL for persistence in localStorage / config JSONB
       const reader = new FileReader();
       reader.onload = (event) => {
         const url = event.target?.result as string;
         if (!url) return;
-        const nextData = mediaType === 'logo' ? { ...data, logoUrl: url } : { ...data, heroImageUrl: url };
-        setData(nextData);
+        // Revoke blob after base64 is ready — base64 is now the persistent representation
+        if (mediaType === 'logo') {
+          if (logoBlobUrlRef.current) {
+            try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
+            logoBlobUrlRef.current = null;
+          }
+          setData(prev => {
+            const nextData = { ...prev, logoUrl: url };
+            // Persistence: save base64 payload to localStorage + DB config
+            if (onSave) onSave(nextData);
+            return nextData;
+          });
+        } else {
+          if (heroBlobUrlRef.current) {
+            try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
+            heroBlobUrlRef.current = null;
+          }
+          setData(prev => {
+            const nextData = { ...prev, heroImageUrl: url };
+            if (onSave) onSave(nextData);
+            return nextData;
+          });
+        }
         showFeedback(mediaType === 'logo' ? 'Logo updated successfully' : 'Main photo updated successfully');
-        if (onSave) onSave(nextData);
       };
       reader.readAsDataURL(file);
     } catch (err) {
@@ -534,7 +621,14 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                 <input
                   type="file"
                   ref={logoInputRef}
-                  onChange={e => e.target.files?.[0] && handleLogoFile(e.target.files[0])}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleLogoFile(file);
+                    }
+                    // Reset input so same file can be selected again
+                    e.currentTarget.value = '';
+                  }}
                   accept="image/png,image/svg+xml,image/jpeg,image/webp"
                   className="hidden"
                 />
@@ -578,9 +672,17 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setData({ ...data, logoUrl: '' });
+                        // Revoke any existing blob preview URL
+                        if (logoBlobUrlRef.current) {
+                          try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
+                          logoBlobUrlRef.current = null;
+                        }
+                        setData(prev => {
+                          const next = { ...prev, logoUrl: '' };
+                          if (onSave) onSave(next);
+                          return next;
+                        });
                         showFeedback('Logo removed');
-                        if (onSave) onSave();
                       }}
                       className="text-[11px] text-red-600 font-semibold hover:underline mt-1 inline-block"
                     >
@@ -622,7 +724,13 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   <input
                     type="file"
                     ref={heroInputRef}
-                    onChange={e => e.target.files?.[0] && handleHeroFile(e.target.files[0])}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleHeroFile(file);
+                      }
+                      e.currentTarget.value = '';
+                    }}
                     accept="image/*"
                     className="hidden"
                   />

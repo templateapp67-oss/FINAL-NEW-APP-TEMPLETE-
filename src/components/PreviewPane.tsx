@@ -291,7 +291,7 @@ export default function PreviewPane({ data, step, activeStaffId }: { data: Salon
             <div className={`px-6 py-4 flex items-center justify-between border-b sticky top-0 backdrop-blur-md z-30 transition-colors ${templateConfig.navBg}`}>
               <div className="flex items-center gap-2">
                 {data.logoUrl ? (
-                  <img src={data.logoUrl} alt="Logo" className="h-7 w-auto object-contain max-w-[120px]" />
+                  <img src={data.logoUrl} alt="Logo" className="h-7 w-auto object-contain max-w-[120px]" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} referrerPolicy="no-referrer" />
                 ) : (
                   <Sparkles className="w-5 h-5" style={{ color: templateConfig.accentColor }} />
                 )}

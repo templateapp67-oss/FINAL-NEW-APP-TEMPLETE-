@@ -46,6 +46,38 @@ import {
   X,
 } from 'lucide-react';
 
+/* Safe logo image with fallback handling — ensures logoUrl rendering has graceful fallback */
+function SafeHeaderLogo({
+  logoUrl,
+  alt,
+  className,
+  fallback,
+}: {
+  logoUrl: string;
+  alt: string;
+  className: string;
+  fallback: React.ReactNode;
+}) {
+  const [errored, setErrored] = useState(false);
+  // Reset error when URL changes (new upload)
+  useEffect(() => {
+    setErrored(false);
+  }, [logoUrl]);
+  if (!logoUrl || errored) {
+    return <>{fallback}</>;
+  }
+  return (
+    <img
+      src={logoUrl}
+      alt={alt}
+      className={className}
+      onError={() => setErrored(true)}
+      // Ensure blob: and data: URLs work, plus https
+      referrerPolicy="no-referrer"
+    />
+  );
+}
+
 interface Props {
   /** One of the five database-backed theme ids. */
   themeId: SiteHeaderThemeId;
@@ -173,17 +205,25 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     brand: (data, a) => {
       const nameStyle = { ...getSalonNameStyle(data) };
       if (!nameStyle.color) nameStyle.color = a === 'dark' ? B.cream : '#1b1a17';
+      const barberFallback = (
+        <div
+          className="w-9 h-9 flex items-center justify-center border-2 shrink-0"
+          style={{ borderColor: B.gold, backgroundColor: a === 'dark' ? 'transparent' : B.goldSoft }}
+        >
+          <Scissors className="w-4 h-4" style={{ color: B.gold }} />
+        </div>
+      );
       return (
         <div className="flex items-center gap-2.5 min-w-0">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-8 w-auto object-contain max-w-[110px]" />
+            <SafeHeaderLogo
+              logoUrl={data.logoUrl}
+              alt="Logo"
+              className="h-8 w-auto object-contain max-w-[110px]"
+              fallback={barberFallback}
+            />
           ) : (
-            <div
-              className="w-9 h-9 flex items-center justify-center border-2 shrink-0"
-              style={{ borderColor: B.gold, backgroundColor: a === 'dark' ? 'transparent' : B.goldSoft }}
-            >
-              <Scissors className="w-4 h-4" style={{ color: B.gold }} />
-            </div>
+            barberFallback
           )}
           <div className="leading-tight min-w-0">
             <span className="block text-sm md:text-base font-black uppercase tracking-[0.18em] truncate" style={nameStyle}>
@@ -257,12 +297,18 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     brand: (data, a) => {
       const nameStyle = { ...getSalonNameStyle(data) };
       if (!nameStyle.color) nameStyle.color = a === 'dark' ? '#faf8f5' : H.ink;
+      const hairFallback = <Scissors className="w-4 h-4 shrink-0" style={{ color: a === 'dark' ? H.roseBright : H.rose }} />;
       return (
         <div className="flex items-center gap-3 min-w-0">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-8 w-auto object-contain max-w-[120px]" />
+            <SafeHeaderLogo
+              logoUrl={data.logoUrl}
+              alt="Logo"
+              className="h-8 w-auto object-contain max-w-[120px]"
+              fallback={hairFallback}
+            />
           ) : (
-            <Scissors className="w-4 h-4 shrink-0" style={{ color: a === 'dark' ? H.roseBright : H.rose }} />
+            hairFallback
           )}
           <div className="leading-tight min-w-0">
             <span className="block text-base md:text-lg font-serif tracking-wide truncate" style={nameStyle}>
@@ -333,17 +379,25 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     brand: (data, a) => {
       const nameStyle = { ...getSalonNameStyle(data) };
       if (!nameStyle.color) nameStyle.color = a === 'dark' ? '#fbf9f5' : S.emeraldDeep;
+      const beautyFallback = (
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+          style={{ backgroundColor: a === 'dark' ? 'rgba(255,255,255,0.14)' : S.emeraldSoft }}
+        >
+          <Leaf className="w-4 h-4" style={{ color: a === 'dark' ? '#bfe3d6' : S.emerald }} />
+        </div>
+      );
       return (
         <div className="flex items-center gap-3 min-w-0 pl-1">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-8 w-auto object-contain max-w-[120px]" />
+            <SafeHeaderLogo
+              logoUrl={data.logoUrl}
+              alt="Logo"
+              className="h-8 w-auto object-contain max-w-[120px]"
+              fallback={beautyFallback}
+            />
           ) : (
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-              style={{ backgroundColor: a === 'dark' ? 'rgba(255,255,255,0.14)' : S.emeraldSoft }}
-            >
-              <Leaf className="w-4 h-4" style={{ color: a === 'dark' ? '#bfe3d6' : S.emerald }} />
-            </div>
+            beautyFallback
           )}
           <div className="leading-tight min-w-0">
             <span className="block text-base md:text-lg font-serif tracking-wide truncate" style={nameStyle}>
@@ -416,17 +470,25 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     brand: (data, a) => {
       const nameStyle = { ...getSalonNameStyle(data) };
       if (!nameStyle.color) nameStyle.color = a === 'dark' ? '#ffffff' : F.navy;
+      const familyFallback = (
+        <span
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{ backgroundColor: a === 'dark' ? 'rgba(205,234,255,0.14)' : F.tealSoft, color: a === 'dark' ? F.skyDeep : F.tealDeep }}
+        >
+          <Users className="w-5 h-5" />
+        </span>
+      );
       return (
         <div className="flex items-center gap-2.5 min-w-0">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-8 w-auto max-w-[110px] object-contain" />
+            <SafeHeaderLogo
+              logoUrl={data.logoUrl}
+              alt="Logo"
+              className="h-8 w-auto max-w-[110px] object-contain"
+              fallback={familyFallback}
+            />
           ) : (
-            <span
-              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-              style={{ backgroundColor: a === 'dark' ? 'rgba(205,234,255,0.14)' : F.tealSoft, color: a === 'dark' ? F.skyDeep : F.tealDeep }}
-            >
-              <Users className="w-5 h-5" />
-            </span>
+            familyFallback
           )}
           <span className="font-extrabold text-sm md:text-base truncate" style={nameStyle}>
             {data.salonName || 'The Family Salon'}
@@ -493,17 +555,25 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     brand: (data, a) => {
       const nameStyle = { ...getSalonNameStyle(data) };
       if (!nameStyle.color) nameStyle.color = a === 'dark' ? '#fffaf7' : N.ink;
+      const nailFallback = (
+        <span
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{ backgroundColor: a === 'dark' ? N.pink : N.ink, color: a === 'dark' ? N.ink : N.pink }}
+        >
+          <Sparkles className="w-4 h-4" />
+        </span>
+      );
       return (
         <div className="flex items-center gap-2.5 min-w-0">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-8 w-auto max-w-[110px] object-contain" />
+            <SafeHeaderLogo
+              logoUrl={data.logoUrl}
+              alt="Logo"
+              className="h-8 w-auto max-w-[110px] object-contain"
+              fallback={nailFallback}
+            />
           ) : (
-            <span
-              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-              style={{ backgroundColor: a === 'dark' ? N.pink : N.ink, color: a === 'dark' ? N.ink : N.pink }}
-            >
-              <Sparkles className="w-4 h-4" />
-            </span>
+            nailFallback
           )}
           <div className="min-w-0">
             <p className="text-sm font-extrabold truncate" style={nameStyle}>

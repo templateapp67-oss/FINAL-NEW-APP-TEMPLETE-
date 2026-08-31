@@ -87,6 +87,8 @@ export default function NailLashHero({ data, mode }: Props) {
               <img
                 data-testid="hero-logo"
                 src={data.logoUrl}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                referrerPolicy="no-referrer"
                 alt={`${heroSalonName(data)} logo`}
                 className="w-11 h-11 rounded-full object-cover border-2"
                 style={{ borderColor: t.pink }}

@@ -350,7 +350,15 @@ export async function fetchVideoMetadata(
     if (response.status === 429) {
       return { ok: false, code: 'rate_limited', message: videoMetadataErrorMessage('rate_limited') };
     }
-    if (response.status === 404) {
+    // Gracefully handle 401/403/404 from oEmbed — return derived thumbnail instead of UI error
+    // This allows manual title entry and ensures thumbnail is set via VIDEO_ID
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      if (parsed.platform === 'youtube') {
+        return {
+          ok: true,
+          metadata: derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+        };
+      }
       return { ok: false, code: 'not_found', message: videoMetadataErrorMessage('not_found') };
     }
     if (response.status === 400) {

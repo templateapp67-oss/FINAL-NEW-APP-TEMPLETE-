@@ -71,6 +71,16 @@ function youtubeThumbFromId(videoId: string): string {
 }
 
 /**
+ * Notices that exist ONLY because the title is missing ("Thumbnail loaded.
+ * Title and channel were not available…", "Title is required…"). They are
+ * cleared automatically the moment the Title field has any text.
+ */
+function isTitleRequiredNotice(notice: string | null): boolean {
+  if (!notice) return false;
+  return /add a title|title is required|type them manually|were not available/i.test(notice);
+}
+
+/**
  * PHASE 15.4 — paste-only add flow.
  * Owner pastes a YouTube URL; Phase 15.2 `fetchVideoMetadata` auto-fills
  * thumbnail, title, description, channel and canonical URL. No second fetch
@@ -579,6 +589,15 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
     (!!extractYoutubeIdFromRaw(trimmedNewVideoUrl) || parseVideoUrl(trimmedNewVideoUrl).ok === true);
   const canSubmitNewVideo = newVideoUrlIsValid && newVideoTitle.trim().length > 0;
 
+  /**
+   * As soon as the Title has any text — whether auto-filled by metadata or
+   * typed manually — "title is required"-style warnings are stale: hide them.
+   */
+  useEffect(() => {
+    if (!newVideoTitle.trim()) return;
+    setFetchNotice((prev) => (isTitleRequiredNotice(prev) ? null : prev));
+  }, [newVideoTitle]);
+
   return (
     <div className="flex-1 flex flex-col md:flex-row w-full h-full bg-[#f9f9f9]">
       {/* Mobile Tab Switcher */}
@@ -1003,6 +1022,7 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                   <input
                     id="video-title-input"
                     data-testid="video-title-input"
+                    name="title"
                     type="text"
                     value={newVideoTitle}
                     disabled={false}
@@ -1013,7 +1033,7 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                       // Typing a title resolves the "title is required"
                       // warning — hide it immediately.
                       if (e.target.value.trim()) {
-                        setFetchNotice(null);
+                        setFetchNotice(prev => (isTitleRequiredNotice(prev) ? null : prev));
                       }
                     }}
                     placeholder={fetchStatus === 'loading' ? 'Loading title…' : 'Fills automatically from YouTube'}
@@ -1031,6 +1051,7 @@ export default function StepSocials({ data, setData, onNext, onPrev, onSave }: P
                   <input
                     id="video-channel-input"
                     data-testid="video-channel-field"
+                    name="channel"
                     type="text"
                     value={newVideoChannel}
                     disabled={false}

@@ -31,6 +31,7 @@ import {
 } from './siteSocialFeed';
 import { isSafeMediaUrl, safeMediaUrl } from './siteHero';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { fetchYoutubeOembedFromBrowser } from './videoMetadataClientFallback';
 
 /* ------------------------------------------------------------------ */
 /* Public types                                                        */
@@ -306,6 +307,37 @@ export function derivedYoutubeMetadata(
 /* Server fetch                                                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * When the server pipeline could not resolve a title for a valid YouTube id
+ * (blocked egress, datacenter-IP 403s, rate limits…), retry public oEmbed
+ * straight from the owner's browser (direct + CORS proxy — see
+ * videoMetadataClientFallback). Fields the fallback cannot provide are left
+ * untouched; on total failure the original metadata is returned unchanged so
+ * the manual-title flow still works.
+ */
+async function enrichYoutubeMetadataViaBrowser(
+  metadata: VideoPlatformMetadata,
+  signal?: AbortSignal,
+): Promise<VideoPlatformMetadata> {
+  if (metadata.platform !== 'youtube') return metadata;
+  if (metadata.title.trim()) return metadata;
+  if (!metadata.externalVideoId) return metadata;
+  try {
+    const fallback = await fetchYoutubeOembedFromBrowser(metadata.externalVideoId, { signal });
+    if (!fallback) return metadata;
+    const fallbackThumb = isSafeMediaUrl(fallback.thumbnailUrl) ? fallback.thumbnailUrl : '';
+    return {
+      ...metadata,
+      title: fallback.title || metadata.title,
+      channelName: metadata.channelName || fallback.channelName,
+      thumbnailUrl: metadata.thumbnailUrl || fallbackThumb,
+      source: fallback.title ? 'oembed' : metadata.source,
+    };
+  } catch {
+    return metadata;
+  }
+}
+
 async function authHeader(): Promise<Record<string, string>> {
   if (!isSupabaseConfigured || !supabase) return {};
   try {
@@ -356,7 +388,10 @@ export async function fetchVideoMetadata(
       if (parsed.platform === 'youtube') {
         return {
           ok: true,
-          metadata: derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+          metadata: await enrichYoutubeMetadataViaBrowser(
+            derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+            options.signal,
+          ),
         };
       }
       return { ok: false, code: 'not_found', message: videoMetadataErrorMessage('not_found') };
@@ -380,7 +415,10 @@ export async function fetchVideoMetadata(
       if (parsed.platform === 'youtube') {
         return {
           ok: true,
-          metadata: derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+          metadata: await enrichYoutubeMetadataViaBrowser(
+            derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+            options.signal,
+          ),
         };
       }
       return { ok: false, code: 'fetch_failed', message: videoMetadataErrorMessage('fetch_failed') };
@@ -423,7 +461,7 @@ export async function fetchVideoMetadata(
           : 'oembed',
     };
 
-    return { ok: true, metadata };
+    return { ok: true, metadata: await enrichYoutubeMetadataViaBrowser(metadata, options.signal) };
   } catch (err) {
     if (options.signal?.aborted) {
       return { ok: false, code: 'network', message: videoMetadataErrorMessage('network') };
@@ -432,7 +470,10 @@ export async function fetchVideoMetadata(
     if (parsed.platform === 'youtube') {
       return {
         ok: true,
-        metadata: derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+        metadata: await enrichYoutubeMetadataViaBrowser(
+          derivedYoutubeMetadata(parsed.externalVideoId, parsed.originalUrl),
+          options.signal,
+        ),
       };
     }
     return { ok: false, code: 'network', message: videoMetadataErrorMessage('network') };

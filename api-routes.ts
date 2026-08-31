@@ -32,6 +32,8 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const YT_VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 const VIDEO_META_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+/** Degraded (empty-title) results expire fast so a later retry can succeed. */
+const VIDEO_META_DEGRADED_TTL_MS = 60 * 1000; // 1 minute
 const VIDEO_META_MIN_INTERVAL_MS = 350;
 const videoMetaCache = new Map<string, { at: number; body: unknown }>();
 let videoMetaLastAt = 0;
@@ -181,6 +183,54 @@ async function fetchYoutubeOembed(videoId: string): Promise<{
     };
   } catch (err) {
     console.warn(`YouTube oEmbed fetch exception for ${videoId}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Keyless fallback when direct YouTube oEmbed fails server-side (datacenter
+ * IPs are frequently 403'd / rate-limited by YouTube). noembed.com is a
+ * public oEmbed proxy — same public fields (title, author_name,
+ * thumbnail_url), no API key, no YouTube Data API.
+ */
+async function fetchYoutubeOembedViaProxy(videoId: string): Promise<{
+  title: string;
+  channelName: string;
+  thumbnailUrl: string;
+  html: string;
+} | null> {
+  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const proxyUrl = `https://noembed.com/embed?url=${encodeURIComponent(watchUrl)}`;
+  try {
+    const response = await fetch(proxyUrl, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'NexoraSalonWebsiteBuilder/1.0 (+https://nexorabeauty.com)',
+      },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      title?: string;
+      author_name?: string;
+      thumbnail_url?: string;
+      html?: string;
+      error?: string;
+    };
+    if (data.error) return null;
+    const title = typeof data.title === 'string' ? data.title.trim() : '';
+    const channelName = typeof data.author_name === 'string' ? data.author_name.trim() : '';
+    if (!title && !channelName) return null;
+    return {
+      title,
+      channelName,
+      thumbnailUrl:
+        typeof data.thumbnail_url === 'string' && /^https?:\/\//i.test(data.thumbnail_url)
+          ? data.thumbnail_url.trim()
+          : `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      html: typeof data.html === 'string' ? data.html : '',
+    };
+  } catch (err) {
+    console.warn(`noembed oEmbed proxy exception for ${videoId}:`, err);
     return null;
   }
 }
@@ -385,12 +435,21 @@ export function setupApiRoutes(app: express.Express): void {
 
       const cacheKey = `yt:${videoId}`;
       const cached = videoMetaCache.get(cacheKey);
-      if (cached && Date.now() - cached.at < VIDEO_META_CACHE_TTL_MS) {
-        return res.json(cached.body);
+      if (cached) {
+        const cachedBody = cached.body as { source?: string; title?: string } | undefined;
+        const isDegraded = !cachedBody?.title || cachedBody?.source === 'derived';
+        const ttl = isDegraded ? VIDEO_META_DEGRADED_TTL_MS : VIDEO_META_CACHE_TTL_MS;
+        if (Date.now() - cached.at < ttl) {
+          return res.json(cached.body);
+        }
       }
 
       try {
-        const oembed = await videoMetaRateLimited(() => fetchYoutubeOembed(videoId));
+        const oembed =
+          (await videoMetaRateLimited(() => fetchYoutubeOembed(videoId))) ||
+          // Direct oEmbed failed (403/429/network) — try the keyless public
+          // proxy before degrading to a thumbnail-only response.
+          (await videoMetaRateLimited(() => fetchYoutubeOembedViaProxy(videoId)));
 
         // Graceful fallback: if oEmbed fails (401/403/404 or any error returns null),
         // still return thumbnail based on VIDEO_ID so UI can show preview and allow manual title

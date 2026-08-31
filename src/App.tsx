@@ -39,7 +39,7 @@ import { initialData, SalonData } from './types';
 import { normalizeThemeId, type ThemeId } from './lib/themeServices';
 import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
+import { CheckCircle2, ArrowRight, Loader2, TriangleAlert } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useLocationSync } from './hooks/useLocationSync';
 import { redirectToOwnerLoginForSessionLoss, useAuth } from './lib/useAuth';
@@ -58,7 +58,7 @@ import {
   switchSalonTemplatePresentation,
 } from './lib/templateConfig';
 import { templateSwitchProtectedRevision, templateVisualConfigRevision } from './lib/templateSwitchInvariants';
-import { safeSetItem, safeGetItem } from './lib/safeStorage';
+import { safeSetItem, safeGetItem, safeRemoveItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
 import OwnerWorkspaceSelector from './components/OwnerWorkspaceSelector';
@@ -174,7 +174,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   });
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+  const [toastKind, setToastKind] = useState<'success' | 'error'>('success');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  // One save-failure toast per failure streak: the debounced autosave keeps
+  // retrying on every edit and must not spam the user with repeated toasts.
+  const saveFailureToastShown = useRef(false);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
 
   // Authenticated Nexora location synchronization. Starts only once a real
@@ -365,12 +369,17 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     } catch {}
   }, [dashboardTab]);
 
-  // Auto save state to localStorage whenever step or data changes
+  // Auto save state to localStorage whenever step or data changes.
+  // In configured deployments this cache is never read (hydrate-from-Supabase
+  // invariant) and must never become the refresh authority — so it is not
+  // written at all, and the backend business autosave below owns the save
+  // indicator. Unconfigured mode keeps the localStorage persistence path.
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
+    if (isSupabaseConfigured) return;
 
     setSaveStatus('saving');
     const timer = setTimeout(() => {
@@ -417,9 +426,17 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       void save
         .then((saved) => {
           if ('error' in saved) {
-            setSaveStatus('saved');
+            // The backend rejected the write (network / RLS / validation).
+            // Fail loud instead of claiming "Saved": surface the error state
+            // and one toast; the next autosave tick retries automatically.
+            if (!saveFailureToastShown.current) {
+              saveFailureToastShown.current = true;
+              showToast('Could not save your changes. Check your connection and try again.', 'error');
+            }
+            setSaveStatus('error');
             return;
           }
+          saveFailureToastShown.current = false;
           setData((current) => current.salonId === saved.salonId
             ? current
             : { ...current, salonId: saved.salonId, websiteSlug: saved.slug || current.websiteSlug });
@@ -427,7 +444,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         })
         .catch((error) => {
           console.error('Backend business autosave failed:', error);
-          setSaveStatus('saved');
+          if (!saveFailureToastShown.current) {
+            saveFailureToastShown.current = true;
+            showToast('Could not save your changes. Check your connection and try again.', 'error');
+          }
+          setSaveStatus('error');
         });
     }, 1200);
     return () => window.clearTimeout(timer);
@@ -439,7 +460,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     if (!isSupabaseConfigured) return;
     const flush = () => {
       if (!latestData.current.salonName && !latestData.current.lastCompletedStep) return;
-      void persistOwnerBusinessSetup(latestData.current);
+      void persistOwnerBusinessSetup(latestData.current).catch((error) => {
+        console.error('Backend flush save failed:', error);
+      });
     };
     window.addEventListener('pagehide', flush);
     window.addEventListener('beforeunload', flush);
@@ -510,7 +533,8 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
 
   const goToStep = (target: number) => setStep(Math.min(MAX_STEP_INDEX, Math.max(0, target)));
 
-  const showToast = (message: string) => {
+  const showToast = (message: string, kind: 'success' | 'error' = 'success') => {
+    setToastKind(kind);
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
   };
@@ -530,40 +554,70 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       setData(dataToSave);
     }
 
-    if (isSupabaseConfigured && user) {
-      void persistOwnerBusinessSetup(dataToSave);
-    }
-    
     setSaveStatus('saving');
-    try {
-      safeSetItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          step,
-          data: dataToSave,
-          activeModule,
-          dashboardTab,
-          lastSaved: new Date().toISOString(),
-          onboarding_progress: `Step ${step + 1} of ${TOTAL_STEPS}`,
-          lastCompletedStep: dataToSave.lastCompletedStep,
-          selectedTemplate: dataToSave.templateId,
-          websiteAppearance: dataToSave.websiteAppearance,
-          reviewedContent: dataToSave.reviewedContent,
-          currentStep: step + 1
-        })
-      );
-    } catch (e) {
-      console.error('Save failed:', e);
-      showToast('Storage full! Try removing some photos.');
-    }
-    setTimeout(() => {
-      setSaveStatus('saved');
-      if (typeof nextDataOrMessage === 'string') {
-        showToast(nextDataOrMessage);
-      } else {
-        showToast('Changes Saved');
+    // Configured deployments never read this cache (Supabase is the hydration
+    // authority), so skip the write there; the backend persist below confirms
+    // the save and purges any stale cache from an earlier unconfigured run.
+    if (!isSupabaseConfigured) {
+      try {
+        safeSetItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            step,
+            data: dataToSave,
+            activeModule,
+            dashboardTab,
+            lastSaved: new Date().toISOString(),
+            onboarding_progress: `Step ${step + 1} of ${TOTAL_STEPS}`,
+            lastCompletedStep: dataToSave.lastCompletedStep,
+            selectedTemplate: dataToSave.templateId,
+            websiteAppearance: dataToSave.websiteAppearance,
+            reviewedContent: dataToSave.reviewedContent,
+            currentStep: step + 1
+          })
+        );
+      } catch (e) {
+        console.error('Save failed:', e);
+        showToast('Storage full! Try removing some photos.', 'error');
       }
-    }, 800);
+    }
+    // The indicator and toast follow the REAL backend result. A failed write
+    // must never flip the UI to "Saved ✓" — the error state + toast tell the
+    // owner exactly what happened and that nothing was silently lost.
+    const persistPromise = (isSupabaseConfigured && user)
+      ? persistOwnerBusinessSetup(dataToSave)
+      : Promise.resolve({ salonId: dataToSave.salonId || '', slug: dataToSave.websiteSlug });
+    void persistPromise
+      .then((saved) => {
+        if ('error' in saved) {
+          saveFailureToastShown.current = true;
+          setSaveStatus('error');
+          showToast('Could not save your changes. Check your connection and try again.', 'error');
+          return;
+        }
+        saveFailureToastShown.current = false;
+        // Update the global UI state immediately with the persisted response.
+        setData((current) => current.salonId === saved.salonId
+          ? current
+          : { ...current, salonId: saved.salonId, websiteSlug: saved.slug || current.websiteSlug });
+        // Purge the unconfigured-mode draft cache after a confirmed backend
+        // write so a stale local draft can never shadow the server copy.
+        if (isSupabaseConfigured) {
+          safeRemoveItem(STORAGE_KEY);
+        }
+        setSaveStatus('saved');
+        if (typeof nextDataOrMessage === 'string') {
+          showToast(nextDataOrMessage);
+        } else {
+          showToast('Changes Saved');
+        }
+      })
+      .catch((error) => {
+        console.error('Backend business save failed:', error);
+        saveFailureToastShown.current = true;
+        setSaveStatus('error');
+        showToast('Could not save your changes. Check your connection and try again.', 'error');
+      });
   };
 
   // Universal 25-screen navigator
@@ -774,7 +828,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
               exit={{ opacity: 0, y: 50 }}
               className="absolute bottom-8 right-8 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3"
             >
-              <CheckCircle2 className="w-5 h-5 text-green-400" />
+              {toastKind === 'error' ? (
+                <TriangleAlert className="w-5 h-5 text-red-400" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-green-400" />
+              )}
               <span className="text-sm font-medium">{toastMessage}</span>
             </motion.div>
           )}
@@ -810,7 +868,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
               exit={{ opacity: 0, y: 50 }}
               className="absolute bottom-8 right-8 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3"
             >
-              <CheckCircle2 className="w-5 h-5 text-green-400" />
+              {toastKind === 'error' ? (
+                <TriangleAlert className="w-5 h-5 text-red-400" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-green-400" />
+              )}
               <span className="text-sm font-medium">{toastMessage}</span>
             </motion.div>
           )}
@@ -848,7 +910,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
               exit={{ opacity: 0, y: 50 }}
               className="absolute bottom-8 right-8 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3"
             >
-              <CheckCircle2 className="w-5 h-5 text-green-400" />
+              {toastKind === 'error' ? (
+                <TriangleAlert className="w-5 h-5 text-red-400" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-green-400" />
+              )}
               <span className="text-sm font-medium">{toastMessage}</span>
             </motion.div>
           )}
@@ -879,7 +945,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             exit={{ opacity: 0, y: 50 }}
             className="absolute bottom-8 right-8 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3"
           >
-            <CheckCircle2 className="w-5 h-5 text-green-400" />
+            {toastKind === 'error' ? (
+                            <TriangleAlert className="w-5 h-5 text-red-400" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-green-400" />
+            )}
             <span className="text-sm font-medium">{toastMessage}</span>
           </motion.div>
         )}
@@ -984,7 +1054,11 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
             exit={{ opacity: 0, y: 50 }}
             className="absolute bottom-8 right-8 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3"
           >
-            <CheckCircle2 className="w-5 h-5 text-green-400" />
+            {toastKind === 'error' ? (
+                            <TriangleAlert className="w-5 h-5 text-red-400" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-green-400" />
+            )}
             <span className="text-sm font-medium">{toastMessage}</span>
           </motion.div>
         )}

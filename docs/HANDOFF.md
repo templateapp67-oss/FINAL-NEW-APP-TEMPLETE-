@@ -1,6 +1,47 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-08-31** (BUG FIX: false "Unsaved service form restored" banner — conditional draft restoration + cleanup; plus the saved-service re-add fix — see top sections).
+> Last updated: **2026-09-01** (Full-stack save failure visibility + honest save status — see top section).
+> Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
+> any database work.
+
+## Full-stack save failure visibility & honest save status — 2026-09-01 (current PR)
+
+**Bug:** the app reported **"Saved ✓" / "Changes Saved" even when the backend
+write failed** (network down, RLS denied, RPC error). `handleSave` showed
+success on a fixed 800 ms timer regardless of the Supabase result, the
+debounced business autosave swallowed `{ error }` results and exceptions into
+`setSaveStatus('saved')`, and `saveOwnerWebsiteDraft` returned a
+success-shaped "graceful fallback" (guessed slug, `isPublished:false`) when
+both the client write and the server-side fallback had failed — so the whole
+pipeline reported success for data that was never persisted and would be gone
+on refresh.
+
+**Fixes:**
+- **`saveStatus` gained a real `'error'` state** (`src/App.tsx` + `TopBar.tsx`):
+  failed writes now render **"Save failed — check connection"** with a warning
+  icon instead of "Saved ✓".
+- **`handleSave` follows the real backend result**: it awaits
+  `persistOwnerBusinessSetup`, surfaces network/RLS/RPC failures as a red
+  error toast ("Could not save your changes. Check your connection and try
+  again."), and only shows "Changes Saved" after a confirmed write. The
+  success path also folds the persisted `{ salonId, slug }` back into global
+  state immediately (AC: state updates from the persisted response).
+- **The debounced business autosave fails loud, once per failure streak**:
+  `{ error }` returns and thrown exceptions set `saveStatus('error')` and show
+  one error toast (`saveFailureToastShown` ref resets on the next success);
+  the next edit retries automatically.
+- **`saveOwnerWebsiteDraft` no longer lies**: when both the client write and
+  the server fallback fail it logs and returns `null` instead of a fake
+  success; `persistOwnerBusinessSetup` propagates that as
+  `{ error: 'Unable to save your website details. Please try again.' }`.
+- **Unload flush** (`pagehide`/`beforeunload`) logs flush failures instead of
+  silently dropping them.
+- Toasts carry a success/error kind (green check vs red warning icon).
+
+**Coverage:** new `scripts/test-save-feedback.mjs` (9 source-contract checks:
+error saveStatus state, no fixed-timer success, one-toast-per-streak, TopBar
+error variant, null-draft contract, `{ error }` propagation). Run with
+`npx tsx scripts/test-save-feedback.mjs`.
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 

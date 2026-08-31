@@ -358,12 +358,12 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
     console.warn('Server fallback saveOwnerWebsiteDraft warning:', serverErr);
   }
 
-  // 3. Graceful fallback
-  return {
-    salonId: resolution.salonId,
-    slug: data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
-    isPublished: false,
-  };
+  // 3. Nothing was persisted. Return null (NOT a success-shaped fallback): a
+  // draft that did not reach the database must surface as a failed save so the
+  // UI can tell the owner to retry — a fake slug here would silently swallow
+  // the failure and show "Saved ✓" for data that will be gone on refresh.
+  console.error('saveOwnerWebsiteDraft: website draft was not persisted (client write and server fallback both failed).');
+  return null;
 }
 
 export const PUBLISH_OWNER_WEBSITE_FN = 'publish_owner_salon_website';

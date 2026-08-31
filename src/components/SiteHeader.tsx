@@ -26,7 +26,7 @@ import {
 } from '../lib/siteNavigation';
 import type { SiteAppearance, SiteHeaderThemeId, SiteNavItem } from '../lib/siteNavigation';
 import { useAuth, signOut } from '../lib/useAuth';
-import { useAuthModal } from './AuthModalProvider';
+import { useAuthModalOptional } from './AuthModalProvider';
 import { openSiteBooking } from '../lib/siteBooking';
 import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
 import { publicSalonAuthContinuation } from '../lib/authRedirect';
@@ -572,11 +572,11 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
   // The five themed templates own their surface design (the barber theme is
   // dark by design), so the header resolves from the theme default — never
   // the legacy `websiteAppearance` field those renderers intentionally ignore.
-  const [appearance, toggleAppearance] = useSiteAppearance(data.websiteAppearance, design.defaultAppearance);
+  const [appearance, toggleAppearance] = useSiteAppearance(undefined, design.defaultAppearance);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<string>('home');
   const { user } = useAuth();
-  const { openAuth } = useAuthModal();
+  const { openAuth } = useAuthModalOptional();
   const openCustomerAuth = (authMode: 'login' | 'signup') => openAuth(authMode, {
     accountIntent: 'customer',
     returnTo: publicSalonAuthContinuation(data.websiteSlug),

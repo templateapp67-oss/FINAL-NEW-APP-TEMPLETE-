@@ -231,6 +231,18 @@ ok('verify_phase1_whitelabel() is green');
 await execMigration(await read('20260824000501_m48_template_switch_isolation.sql'));
 ok('M48 template-switch isolation migration applies cleanly');
 
+// M66's public projection follows the canonical (Design-B / M38-reconciled)
+// business_locations shape. This replay bootstraps the older Design-A table,
+// so apply the same additive reconciliation columns the live M38 fix added
+// before redefining the SQL function.
+await execMigration(`
+  alter table public.business_locations
+    add column if not exists address_label text,
+    add column if not exists approval_status text not null default 'approved';
+`);
+await execMigration(await read('20260831000101_m66_owner_photo_public_parity.sql'));
+ok('M66 owner-photo public parity migration applies cleanly');
+
 const ids = {
   ownerA: '00000000-0000-4000-8000-0000000000a1',
   ownerB: '00000000-0000-4000-8000-0000000000b1',
@@ -445,6 +457,11 @@ for (const [index, templateId] of switchSequence.entries()) {
 await asRole('authenticated', ids.ownerA, async () => {
   await db.query(
     `select * from public.set_owner_salon_visual_config('{"brandColor":"#123456","templateConfig":{"showOwnerPhoto":false},"templateConfigs":{"barber_mens_grooming":{"heroPosition":"Top"},"hair_studio_color_bar":{"showOwnerPhoto":false}}}'::jsonb)`,
+  );
+  // M66 parity: the owner-photo toggle is accepted for EVERY owner template
+  // (barber and nail were rejected before M66).
+  await db.query(
+    `select * from public.set_owner_salon_visual_config('{"templateConfigs":{"barber_mens_grooming":{"showOwnerPhoto":true},"nail_lash_studio":{"showOwnerPhoto":true},"beauty_skin_spa":{"showOwnerPhoto":false},"family_full_service":{"showOwnerPhoto":true}}}'::jsonb)`,
   );
   await assert.rejects(
     () => db.query(`select * from public.set_owner_salon_visual_config('{"salonName":"Tampered"}'::jsonb)`),

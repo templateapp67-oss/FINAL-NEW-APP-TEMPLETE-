@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { SalonData, getPublicStaffData } from '../types';
 import { getSalonNameStyle } from '../lib/brandIdentity';
 import { normalizeThemeId, BARBER_THEME, HAIR_STUDIO_THEME, BEAUTY_SPA_THEME } from '../lib/themeServices';
+import { shouldShowOwnerPhoto } from '../lib/templateConfig';
 import CustomerBookingPreview from './CustomerBookingPreview';
 import OwnerAvatar from './OwnerAvatar';
 import { ServicePrice } from './PromotionalPricing';
@@ -332,9 +333,11 @@ export default function PreviewPane({ data, step, activeStaffId }: { data: Salon
             {/* Content based on step */}
             {(step >= 2 || data.ownerName) && (
                <div className="px-6 py-12 flex flex-col items-center text-center max-w-xl mx-auto">
-                 <div className="w-32 h-32 bg-gray-100 rounded-full mb-6 overflow-hidden border-4 border-white shadow-xl">
+                {shouldShowOwnerPhoto(data) && (
+                  <div className="w-32 h-32 bg-gray-100 rounded-full mb-6 overflow-hidden border-4 border-white shadow-xl">
                     <OwnerAvatar photoUrl={data.ownerPhotoUrl} name={data.ownerName} className="w-full h-full text-3xl" alt="Founder" />
-                 </div>
+                  </div>
+                )}
                  <h2 className={`text-xs font-bold uppercase tracking-widest ${accentTextCls} mb-2`}>Meet the Founder</h2>
                  <h3 className="text-2xl font-serif font-bold text-gray-900 mb-1">{data.ownerName || 'Owner Name'}</h3>
                  <p className="text-xs font-semibold text-gray-500 tracking-wide">{data.ownerRole || 'Role'}</p>

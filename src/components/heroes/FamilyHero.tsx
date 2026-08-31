@@ -107,7 +107,7 @@ export default function FamilyHero({ data, mode }: Props) {
               className={`mt-6 font-extrabold leading-[0.98] tracking-[-0.05em] ${h1Size}`}
               style={{ color: t.heading }}
             >
-              {headline.main}
+              {headline.main}{' '}
               {!ownerPreview && (
                 <><br /><span style={{ color: t.teal }}>{headline.accent}</span></>
               )}

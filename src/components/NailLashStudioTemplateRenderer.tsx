@@ -212,7 +212,10 @@ export default function NailLashStudioTemplateRenderer({ data, mode }: Props) {
   const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
-  setOwnerAppearanceDefault(data.websiteAppearance);
+  // Seed the owner's explicit per-template appearance choice, never the legacy
+  // global websiteAppearance field: when the owner never chose one, the
+  // theme's design default (e.g. barber dark) must win.
+  setOwnerAppearanceDefault(data.templateConfig?.appearance);
   const appearance = useThemeAppearance('nail_lash_studio');
   const t = surfacesOf(NAIL_LASH_SURFACES, appearance);
   const { ink, pink, pinkDeep, pinkGlow, pinkSoft, sand, sandDeep, nude, cream, muted, line, white } = t;

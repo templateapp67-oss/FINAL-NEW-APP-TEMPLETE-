@@ -219,8 +219,9 @@ await test('theme switching preserves business data while resetting transient se
   // Theme switching is persisted via the serialized owner RPC; only the
   // presentation changes after the RPC succeeds — business fields are spread
   // through and guarded by the runtime preservation assertion.
-  assert.ok(app.includes('(await setOwnerTemplate(nextTheme)).templateId'));
-  assert.ok(app.includes('switchSalonTemplatePresentation(current, appliedTheme)'));
+  assert.ok(app.includes('const applied = await setOwnerTemplate(normalizedNext);'));
+  assert.ok(app.includes('applied?.templateId'));
+  assert.ok(app.includes('switchSalonTemplatePresentation(current, applied.templateId)'));
   assert.ok(templateLib.includes('assertTemplateSwitchPreservesBusiness(data, switched)'));
   assert.ok(templateLib.includes('...data,'));
   assert.ok(services.includes('setLoadedCatalog(null)'));

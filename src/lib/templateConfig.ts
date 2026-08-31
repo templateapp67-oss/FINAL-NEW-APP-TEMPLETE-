@@ -118,11 +118,11 @@ const COMMON_TEMPLATE_CONFIG_FIELDS = [
  * of this matrix and are therefore discarded rather than copied across themes.
  */
 export const TEMPLATE_CONFIG_CAPABILITIES: Readonly<Record<ThemeId, readonly TemplateConfigField[]>> = {
-  barber_mens_grooming: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'heroPosition'],
+  barber_mens_grooming: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'heroPosition', 'showOwnerPhoto'],
   hair_studio_color_bar: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
   beauty_skin_spa: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
   family_full_service: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
-  nail_lash_studio: COMMON_TEMPLATE_CONFIG_FIELDS,
+  nail_lash_studio: [...COMMON_TEMPLATE_CONFIG_FIELDS, 'showOwnerPhoto'],
 };
 
 const HERO_POSITIONS = new Set(['Top', 'Center', 'Bottom']);

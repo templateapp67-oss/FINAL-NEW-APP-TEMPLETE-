@@ -70,3 +70,21 @@ export function useAuthModal(): AuthModalContextValue {
   }
   return context;
 }
+
+/**
+ * Provider-optional variant for PUBLIC WEBSITE surfaces (site header, booking
+ * flow, my-bookings). Those components render inside the published site shell
+ * where the provider always exists in the app, but they must never crash the
+ * whole page when mounted without it (test harnesses, embeds, future hosts):
+ * outside the provider the auth CTAs simply no-op instead of throwing.
+ * App-shell screens keep the strict `useAuthModal()` so a missing provider
+ * still fails loudly during development.
+ */
+const NOOP_AUTH_MODAL: AuthModalContextValue = {
+  openAuth: () => {},
+  closeAuth: () => {},
+};
+
+export function useAuthModalOptional(): AuthModalContextValue {
+  return useContext(AuthModalContext) ?? NOOP_AUTH_MODAL;
+}

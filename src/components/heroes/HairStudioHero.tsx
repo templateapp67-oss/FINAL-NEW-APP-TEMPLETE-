@@ -122,7 +122,7 @@ export default function HairStudioHero({ data, mode }: Props) {
               className={`font-serif leading-[1.02] ${h1Size}`}
               style={{ color: t.ink }}
             >
-              {headline.main}
+              {headline.main}{' '}
               {!ownerPreview && (
                 <><br /><em className="not-italic" style={{ color: t.roseDeep }}>{headline.accent}</em></>
               )}

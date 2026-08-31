@@ -89,7 +89,10 @@ export default function HairStudioTemplateRenderer({ data, mode }: Props) {
   const ownerPreview = useIsOwnerPreview();
   // Live locale + appearance: re-render when the header controls switch.
   const locale = useSiteLocale();
-  setOwnerAppearanceDefault(data.websiteAppearance);
+  // Seed the owner's explicit per-template appearance choice, never the legacy
+  // global websiteAppearance field: when the owner never chose one, the
+  // theme's design default (e.g. barber dark) must win.
+  setOwnerAppearanceDefault(data.templateConfig?.appearance);
   const appearance = useThemeAppearance('hair_studio_color_bar');
   const t = surfacesOf(HAIR_STUDIO_SURFACES, appearance);
   const { ink, inkSoft, paper, paperDeep, rose, roseBright, roseSoft, roseDeep, line, muted, card } = t;

@@ -42,7 +42,7 @@ import type { BookingConfirmationView } from '../lib/siteBookingConfirmation';
 import { bookingConfirmationText } from '../lib/siteBookingConfirmationI18n';
 import type { BookingNoticeInput } from '../lib/siteBookingNotices';
 import { useAuth } from '../lib/useAuth';
-import { useAuthModal } from './AuthModalProvider';
+import { useAuthModalOptional } from './AuthModalProvider';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { fetchCustomerBookings, cancelCustomerBooking as apiCancelCustomerBooking, type CustomerBookingItem } from '../lib/authoritativeBooking';
 import { publicSalonAuthContinuation } from '../lib/authRedirect';
@@ -63,7 +63,7 @@ export default function SiteMyBookings({ themeId, data, businessId, onShowToast 
   const CT = bookingConfirmationText(locale);
 
   const { user } = useAuth();
-  const { openAuth } = useAuthModal();
+  const { openAuth } = useAuthModalOptional();
   const openCustomerAuth = (mode: 'login' | 'signup') => openAuth(mode, {
     accountIntent: 'customer',
     returnTo: publicSalonAuthContinuation(data.websiteSlug),

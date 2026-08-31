@@ -190,11 +190,13 @@ await execMigration(db, '20260824000301_m46_public_access_security.sql');
 await execMigration(db, '20260825000101_m50_publish_readiness_validation.sql');
 await execMigration(db, '20260825000201_m51_slug_collision_hardening.sql');
 await execMigration(db, '20260825000301_m52_public_resolution_hardening.sql');
+await execMigration(db, '20260831000101_m66_owner_photo_public_parity.sql');
 
 const selfChecks = [
   (await db.query('select check_name, ok from public.verify_m45_business_slug_hardening()')).rows,
   (await db.query('select check_name, ok from public.verify_m51_slug_collision_hardening()')).rows,
   (await db.query('select check_name, ok from public.verify_m52_public_resolution_hardening()')).rows,
+  (await db.query('select check_name, ok from public.verify_m66_owner_photo_parity()')).rows,
 ];
 assert.ok(selfChecks.every((rows) => rows.every((r) => r.ok === true)), JSON.stringify(selfChecks));
 ok('M38 → M52 apply cleanly; M45 + M51 + M52 verifiers are green');
@@ -379,16 +381,84 @@ await db.query(
 assert.equal((await publicWebsite('nexora-salon')).length, 1);
 ok('active template enforced: deactivated/unknown themes resolve to zero rows, never a default');
 
+// ---- M66: owner identity is public ONLY behind the owner's toggle --------
+// Business A is barber_mens_grooming — previously the owner-photo toggle was
+// rejected for it; parity means the toggle saves and the identity projects.
+await asRole('authenticated', bizA.ownerId, () =>
+  db.query(
+    `select * from public.set_owner_salon_visual_config(
+       '{"templateConfig":{"showOwnerPhoto":true},"brandColor":"#7c3aed"}'::jsonb)`,
+  ));
+await db.query(
+  `update public.salon_public_websites
+   set config = config || jsonb_build_object(
+     'ownerName', 'Riya Kapoor',
+     'ownerRole', 'Founder & Master Stylist',
+     'ownerPhotoUrl', 'https://cdn.example.com/riya.jpg',
+     'phone', '9876543210',
+     'whatsappPhone', '9876543210',
+     'contactOptions', jsonb_build_object('callNow', false, 'whatsapp', true, 'bookNow', true)
+   )
+   where salon_id = $1`,
+  [bizA.salonId],
+);
+const ownerVisible = (await publicWebsite('nexora-salon'))[0];
+assert.equal(ownerVisible.public_config.ownerName, 'Riya Kapoor');
+assert.equal(ownerVisible.public_config.ownerRole, 'Founder & Master Stylist');
+assert.equal(ownerVisible.public_config.ownerPhotoUrl, 'https://cdn.example.com/riya.jpg');
+assert.equal(ownerVisible.public_config.phone, undefined, 'phone stays behind the callNow switch');
+assert.equal(ownerVisible.public_config.whatsappPhone, '9876543210', 'whatsapp exposed when enabled');
+assert.equal(ownerVisible.public_config.email, undefined, 'email is never projected');
+await asRole('authenticated', bizA.ownerId, () =>
+  db.query(
+    `select * from public.set_owner_salon_visual_config(
+       '{"templateConfig":{"showOwnerPhoto":false}}'::jsonb)`,
+  ));
+const ownerHidden = (await publicWebsite('nexora-salon'))[0];
+assert.equal(ownerHidden.public_config.ownerName, undefined, 'toggle off hides the owner identity');
+assert.equal(ownerHidden.public_config.ownerPhotoUrl, undefined);
+// The barber-only heroPosition boundary is unchanged: nail still rejects it.
+await db.query(
+  `update public.salon_public_websites set template_key = 'nail_lash_studio' where salon_id = $1`,
+  [bizA.salonId],
+);
+await asRole('authenticated', bizA.ownerId, () =>
+  db.query(
+    `select * from public.set_owner_salon_visual_config(
+       '{"templateConfigs":{"nail_lash_studio":{"showOwnerPhoto":true}}}'::jsonb)`,
+  ));
+const nailToggle = (await db.query(
+  `select config->'templateConfigs'->'nail_lash_studio'->>'showOwnerPhoto' as flag
+   from public.salon_public_websites where salon_id = $1`,
+  [bizA.salonId],
+)).rows[0];
+assert.equal(nailToggle.flag, 'true', 'nail template accepts the owner-photo toggle (M66 parity)');
+await asRole('authenticated', bizA.ownerId, () =>
+  assert.rejects(
+    () => db.query(
+      `select * from public.set_owner_salon_visual_config(
+         '{"templateConfigs":{"nail_lash_studio":{"heroPosition":"Top"}}}'::jsonb)`,
+    ),
+    /unsupported by its template|22023/i,
+  ));
+await db.query(
+  `update public.salon_public_websites set template_key = 'barber_mens_grooming' where salon_id = $1`,
+  [bizA.salonId],
+);
+ok('M66: owner identity projects on all five templates only behind the showOwnerPhoto toggle');
+
 // ---- Client rules: slug-only, no hardcoded id, no fallback business -------
-const [main, publicView, m52] = await Promise.all([
+const [main, publicView, resolver, m52] = await Promise.all([
   readRoot('src/main.tsx'),
   readRoot('src/components/PublicSalonView.tsx'),
+  readRoot('src/lib/publicSalonResolver.ts'),
   read('20260825000301_m52_public_resolution_hardening.sql'),
 ]);
 assert.match(main, /const normalizedPath = subdomainSlug \|\| normalizeRouteSlug\(pathname\)/);
-assert.match(main, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedPath \}\)/);
+assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
 assert.match(main, /setRoute\('not_found'\)/);
-assert.match(publicView, /\.rpc\('get_public_salon_website', \{ p_slug: slug \}\)/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
+assert.match(resolver, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedSlug \}\)/);
 assert.match(publicView, /\.rpc\('get_public_salon_services', \{ p_slug: slug \}\)/);
 assert.match(publicView, /applyPublicTemplateConfiguration\([\s\S]*, config, website\.template_key\)/);
 assert.doesNotMatch(main, /['"][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"]/i);

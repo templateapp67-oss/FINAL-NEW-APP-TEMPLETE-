@@ -43,9 +43,11 @@ const barberConfigured = applyTemplateConfigToSalon(source, {
 
 test('capability matrix rejects settings unsupported by the active template', () => {
   assert.equal(templateSupportsConfig('barber_mens_grooming', 'heroPosition'), true);
-  assert.equal(templateSupportsConfig('barber_mens_grooming', 'showOwnerPhoto'), false);
+  // Owner-photo parity: every one of the five templates renders the owner
+  // photo, so every template carries the toggle.
+  assert.equal(templateSupportsConfig('barber_mens_grooming', 'showOwnerPhoto'), true);
   assert.equal(barberConfigured.templateConfigs?.barber_mens_grooming?.heroPosition, 'Top');
-  assert.equal('showOwnerPhoto' in (barberConfigured.templateConfigs?.barber_mens_grooming || {}), false);
+  assert.equal(barberConfigured.templateConfigs?.barber_mens_grooming?.showOwnerPhoto, false);
 });
 
 const beauty = switchSalonTemplatePresentation(barberConfigured, 'beauty_skin_spa');
@@ -57,7 +59,9 @@ test('a first visit copies only settings supported by both source and target', (
   assert.equal(beauty.brandColor, '#123456');
   assert.equal(beauty.heroPosition, undefined);
   assert.equal('heroPosition' in (beauty.templateConfigs?.beauty_skin_spa || {}), false);
-  assert.equal(beauty.templateConfig?.showOwnerPhoto, true);
+  // showOwnerPhoto is now supported by both templates, so the owner's
+  // explicit opt-out travels with the presentation copy.
+  assert.equal(beauty.templateConfig?.showOwnerPhoto, false);
 });
 
 const withUnsafeStoredConfig: SalonData = {
@@ -83,7 +87,7 @@ test('unsafe saved keys and target-incompatible settings are stripped fail-close
   assert.equal(nail.websiteAppearance, 'dark');
   assert.equal('galleryLayout' in nailConfig, false);
   assert.equal('heroPosition' in nailConfig, false);
-  assert.equal('showOwnerPhoto' in nailConfig, false);
+  assert.equal(nailConfig.showOwnerPhoto, false);
   assert.equal(nailAfterUnsupportedEdit.heroPosition, undefined);
 });
 
@@ -127,11 +131,11 @@ test('normalizing the JSONB map permits only five known templates and known supp
   const normalized = normalizeTemplateConfigs({
     unknown_template: { appearance: 'dark' },
     barber_mens_grooming: { appearance: 'dark', heroPosition: 'Top', gallery: { columns: 4 } },
-    nail_lash_studio: { appearance: 'light', heroPosition: 'Bottom' },
+    nail_lash_studio: { appearance: 'light', heroPosition: 'Bottom', showOwnerPhoto: false },
   });
   assert.deepEqual(Object.keys(normalized).sort(), ['barber_mens_grooming', 'nail_lash_studio']);
   assert.deepEqual(normalized.barber_mens_grooming, { appearance: 'dark', heroPosition: 'Top' });
-  assert.deepEqual(normalized.nail_lash_studio, { appearance: 'light' });
+  assert.deepEqual(normalized.nail_lash_studio, { appearance: 'light', showOwnerPhoto: false });
 });
 
 test('a new owner cannot inherit or persist demonstration contact and deposit policy', () => {

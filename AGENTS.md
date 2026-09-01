@@ -88,7 +88,15 @@ The app contains:
   (`src/lib/storeSettings.ts`): jsonb MERGE (optionally namespaced by
   `configKey`), session-verified salon, serialized writes, `hydrate()` for
   loads, `saveNow()`/`retry()`. Wired into the owner **Settings** panel
-  (salon booking rules). `npm run test:autosave-store` (19 checks).
+  (salon booking rules). `npm run test:autosave-store` (20 checks).
+- **PageBuilder (2026-09-01)** — `src/components/PageBuilder.tsx` is the
+  two-panel builder: edit form on the left, the REAL `TemplateRenderer` on the
+  right, both driven by one `useAutoSaveStore` (business name, slug, owner,
+  about → canonical camelCase keys merged at the top level of the config jsonb).
+  One keystroke updates the store, the central `SalonData` and the preview;
+  the slug is validated live and normalised on blur but only published through
+  the guarded path. Lazy-mounted at the top of the **My Live Website** tab.
+  `npm run test:page-builder` (9 checks).
 
 There is **no README**; `AGENTS.md` + `docs/HANDOFF.md` are the orientation docs.
 
@@ -121,7 +129,8 @@ npm run validate:migrations # source-check M18 + apply M01–M27 twice + tests A
 npm run test:theme-catalog # verify five-theme DB/RPC/UI read boundaries
 npm run test:service-saving # verify saved-service CRUD/tenant/persistence flow
 npm run test:service-autosave # service autosave + live preview bridge (29 checks)
-npm run test:autosave-store # central state store autosave (18 checks)
+npm run test:autosave-store # central state store autosave (20 checks)
+npm run test:page-builder # PageBuilder edit panel + live preview (9 checks)
 npm run test:service-management # Phase 8.1 management E2E on real PostgreSQL
 npm run test:service-security # Phase 8.2 adversarial security/validation suite
 npm run test:acceptance     # Phase 8.3 five-theme acceptance (data + integration)

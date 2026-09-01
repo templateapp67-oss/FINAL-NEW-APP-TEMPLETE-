@@ -109,13 +109,25 @@ function fingerprint<T>(value: T): string {
 /**
  * A central settings store that saves itself.
  *
+ * The second argument accepts EITHER the documented positional store id
+ * (`useAutoSaveStore(initialData, storeId)`) or the full options object
+ * (`useAutoSaveStore(initialData, { storeId, configKey, delay, … })`), so the
+ * documented call style keeps working.
+ *
  * @param initialData starting state (often the values already in the draft)
- * @param options see `UseAutoSaveStoreOptions`
+ * @param storeIdOrOptions store id (string) or a full `UseAutoSaveStoreOptions`
  */
 export function useAutoSaveStore<T extends Record<string, unknown>>(
   initialData: T,
-  options: UseAutoSaveStoreOptions = {},
+  storeIdOrOptions?: string | null | UseAutoSaveStoreOptions,
 ): UseAutoSaveStoreApi<T> {
+  // Written this way because the project runs without `strictNullChecks`:
+  // narrowing on `=== null` alone cannot exclude the object member.
+  const options: UseAutoSaveStoreOptions =
+    storeIdOrOptions && typeof storeIdOrOptions === 'object'
+      ? (storeIdOrOptions as UseAutoSaveStoreOptions)
+      : { storeId: typeof storeIdOrOptions === 'string' ? storeIdOrOptions : null };
+
   const {
     delay = STORE_AUTOSAVE_DEBOUNCE_MS,
     enabled = true,

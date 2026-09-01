@@ -204,8 +204,10 @@ function createFakeClient({ owned = [SALON_ID], config = null, update, upsert } 
 
 function createHarness() {
   const api = { current: null };
-  function Probe({ initial, options }) {
-    api.current = useAutoSaveStore(initial, options);
+  function Probe({ initial, options, storeId }) {
+    // `storeId` (when provided) exercises the documented POSITIONAL call style:
+    // useAutoSaveStore(initialData, storeId).
+    api.current = useAutoSaveStore(initial, storeId === undefined ? options : storeId);
     return null;
   }
   return { api, Probe };
@@ -462,7 +464,75 @@ const INITIAL = { minNotice: '1 hour', allowStaffSelection: true };
   ok('load:true hydrates from the canonical config without writing');
 }
 
-/** 11. The persistence layer itself: read + save with an injected client. */
+/** 11. The documented positional call style: useAutoSaveStore(initialData, storeId).
+ *
+ *  This one cannot inject a client (that is the point of the positional form),
+ *  so the SHARED Supabase client is driven through a fetch bridge instead —
+ *  the real HTTP layer, no network.
+ */
+{
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(typeof url === 'string' ? url : (url && url.url) || '');
+    const headers = init.headers || {};
+    const wantsObject = JSON.stringify(headers).includes('pgrst.object');
+    if (target.includes('/rest/v1/rpc/owner_salon_ids')) {
+      return new Response(JSON.stringify([SALON_ID]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (target.includes('/rest/v1/salon_public_websites')) {
+      requests.push({ target, method: (init.method || 'GET').toUpperCase(), body: init.body });
+      if ((init.method || 'GET').toUpperCase() === 'PATCH') {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(
+        JSON.stringify(
+          wantsObject
+            ? { config: { bookingRules: INITIAL } }
+            : [{ config: { bookingRules: INITIAL } }],
+        ),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+
+  try {
+    const { api, Probe } = createHarness();
+    // No `options` at all — only the positional store id, exactly as documented.
+    await mount(Probe, { initial: { ...INITIAL }, storeId: SALON_ID });
+    await act(async () => {
+      api.current.updateField('minNotice', '2 hours');
+    });
+    await act(async () => { await sleep(STORE_AUTOSAVE_DEBOUNCE_MS + 450); });
+
+    const patches = requests.filter((entry) => entry.method === 'PATCH');
+    assert.ok(patches.length >= 1, 'the positional store id form saves');
+    const last = patches[patches.length - 1];
+    assert.ok(
+      last.target.includes(`salon_id=eq.${SALON_ID}`),
+      'the write is scoped to the positional salon id',
+    );
+    // No configKey here (the positional form passes none), so the patch merges
+    // at the TOP level of the config and existing keys must survive.
+    assert.equal(JSON.parse(last.body).config.minNotice, '2 hours', 'the edited field is written');
+    assert.deepEqual(
+      JSON.parse(last.body).config.bookingRules,
+      INITIAL,
+      'the rest of the config survives a top-level merge',
+    );
+    assert.equal(api.current.status, 'saved');
+    cleanup();
+    ok('documented call style useAutoSaveStore(initialData, storeId) works end-to-end');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+/** 12. The persistence layer itself: read + save with an injected client. */
 {
   const { client, calls } = createFakeClient({ config: { bookingRules: { minNotice: '90 minutes' } } });
   const slice = await readStoreSettingsWithClient(client, { configKey: 'bookingRules' });

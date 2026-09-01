@@ -62,6 +62,31 @@ implemented as `src/hooks/useAutoSaveStore.ts` + `src/lib/storeSettings.ts`.
 - **Tests** — `npm run test:autosave-store` (19 checks), also in
   `npm run test:builder-fixes`.
 
+### Builder UI — `PageBuilder.tsx`
+
+The third documented piece — left edit form, right live preview, one store —
+is now `src/components/PageBuilder.tsx`, lazy-mounted at the top of the
+**My Live Website** tab.
+
+- `'use client'` dropped (client-only Vite SPA, no RSC).
+- `useAutoSaveStore(initialData, storeId)` works as documented: the hook now
+  accepts the positional store id **or** an options object.
+- Fields are canonical camelCase (`salonName`, `websiteSlug`, `ownerName`,
+  `about`) merged at the top level of `salon_public_websites.config` — the same
+  keys the unified draft already persists, so there is still one source of
+  truth. No snake_case copy.
+- The right panel renders the **real** website (`TemplateRenderer`), not a mock
+  card, with a device toggle and an Inline ⇄ Isolated (iframe + postMessage)
+  transport toggle.
+- One keystroke does three things: updates the store, flips the badge to
+  “Saving…”, and propagates to the central `SalonData` so the preview
+  re-renders immediately — before the debounced write lands.
+- Slug safety: the field edits the DRAFT slug, validates live
+  (`isValidWebsiteSlug`), normalises on blur (`slugifySalonName`), and the live
+  `slug` column is still only written by the guarded publish path.
+- **Tests** — `npm run test:page-builder` (9 checks), also in
+  `npm run test:builder-fixes`.
+
 Full write-up: `docs/service-autosave-live-preview.md`.
 
 ## White-label SaaS transformation — 2026-09-01

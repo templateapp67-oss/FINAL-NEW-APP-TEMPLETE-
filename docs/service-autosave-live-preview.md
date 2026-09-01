@@ -235,14 +235,69 @@ Security:
   mutation. `/preview-frame` is matched before salon-slug resolution so a tenant
   can never claim that path.
 
-## Part 4 — Tests
+## Part 4 — `PageBuilder.tsx` (edit panel ⇄ live preview)
+
+The third documented piece — a two-panel builder: form inputs on the left,
+a preview that re-renders on every keystroke on the right, both driven by one
+`useAutoSaveStore`.
+
+### Adaptation
+
+| Snippet | Here | Why |
+| --- | --- | --- |
+| `'use client'` | removed | This is a client-only Vite SPA with no React Server Components; the directive is meaningless. |
+| `useAutoSaveStore(initialData, storeId)` | identical | The hook accepts the documented **positional store id** OR a full options object (`{ storeId, configKey, delay, … }`). |
+| `business_name` / `owner_name` / `about_text` / `slug` | `salonName` / `ownerName` / `about` / `websiteSlug` | The config jsonb already stores these canonical camelCase keys (they are `UNIFIED_DRAFT_FIELDS`). snake_case would create a second source of truth. |
+| mock preview card (name + owner + about) | the real `TemplateRenderer` | This app *has* a website renderer — the preview is the actual site, not a sketch. |
+| — | + transport toggle | Inline (props, same React tree) ⇄ Isolated (`LivePreviewFrame`, iframe + postMessage). |
+
+### Files
+
+| File | Role |
+| --- | --- |
+| `src/components/PageBuilder.tsx` | Left: edit form + status badge. Right: live preview + device/transport toggles. |
+| `src/screens/Landing.tsx` | Lazy-mounts `PageBuilder` at the top of the **My Live Website** tab. |
+| `scripts/test-page-builder.mjs` | 9 checks: `npm run test:page-builder` (part of `npm run test:builder-fixes`). |
+
+### Data flow
+
+```
+keystroke → store.updateField(field, value)
+              ├─ store state  → the input re-renders instantly
+              ├─ status       → 'saving' on the keystroke (badge turns amber)
+              ├─ 600 ms later → salon_public_websites.config merged write → 'Saved ✓'
+              └─ setData(...) → central SalonData → live preview re-renders
+```
+
+The preview is bound to `{ ...data, ...store.data }` by props, so it updates on
+the keystroke — before the database write lands.
+
+### Slug safety
+
+`salon_public_websites.slug` is a real column with a format check and a
+case-insensitive unique index, and it decides the public URL. The field
+therefore edits the **draft** slug (`SalonData.websiteSlug`):
+
+- typing is never blocked;
+- `isValidWebsiteSlug()` drives a live format hint;
+- on blur the value is normalised with `slugifySalonName()`;
+- the live column is only written by the guarded publish path, which also
+  resolves collisions (M45/M51/M52).
+
+---
+
+## Part 5 — Tests
 
 ```bash
 npm run test:service-autosave   # 29 checks — pattern 1 + both preview transports
-npm run test:autosave-store     # 19 checks — pattern 2 (central state store)
-npm run test:builder-fixes      # includes both suites above
+npm run test:autosave-store     # 20 checks — pattern 2 (central state store)
+npm run test:page-builder       #  9 checks — pattern 3 (PageBuilder UI)
+npm run test:builder-fixes      # includes all three suites above
 ```
 
-The suite runs the **real** React hook in jsdom against a recording Supabase
-stub, so behaviour (debounce coalescing, status transitions, tenant refusal,
-row shape, provenance) is asserted at the SQL boundary rather than mocked away.
+Every suite runs the **real** React hooks/components in jsdom. Where a database
+write is involved the Supabase transport is a recording stub (or a fetch bridge
+in front of the real client), so behaviour — debounce coalescing, status
+transitions, tenant refusal, row shape, provenance, preview propagation — is
+asserted at the SQL boundary rather than mocked away. The PageBuilder suite runs
+in the app's unconfigured state, so it is fully offline and deterministic.

@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
+import LivePreviewFrame from '../components/LivePreviewFrame';
 import { ArrowLeft, ArrowRight, Monitor, Smartphone, Tablet, Eye, Sparkles, Layout, Compass, Info } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
 import { publicWebsiteHref, suggestedWebsiteSlug } from '../lib/publicWebsiteUrl';
@@ -21,6 +22,17 @@ interface Props {
 export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) {
   const { platform } = useBrandConfig();
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
+  /**
+   * LIVE PREVIEW TRANSPORT.
+   *
+   * 'inline'   — the preview is rendered in the SAME React tree and bound
+   *              directly to the central edit state (`data`), so every edit
+   *              re-renders it through props. Zero latency, zero serialization.
+   * 'isolated' — the preview runs in its own document (iframe); the same state
+   *              is streamed in with `postMessage` (src/lib/previewBridge.ts)
+   *              so the site gets a fully isolated CSS/scroll context.
+   */
+  const [transport, setTransport] = useState<'inline' | 'isolated'>('inline');
   const previewRef = useRef<HTMLDivElement>(null);
 
   const previewData: SalonData = {
@@ -111,6 +123,28 @@ export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) 
             </button>
           </div>
 
+          {/* Live preview transport: same React tree (props) or iframe (postMessage) */}
+          <div className="flex bg-white border border-gray-200 rounded-xl p-1 text-xs font-semibold">
+            <button
+              onClick={() => setTransport('inline')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                transport === 'inline' ? 'bg-[#ac0053] text-white' : 'text-gray-500 hover:text-gray-900'
+              }`}
+              title="Rendered in the same React tree and bound directly to the edit state"
+            >
+              Inline
+            </button>
+            <button
+              onClick={() => setTransport('isolated')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                transport === 'isolated' ? 'bg-[#ac0053] text-white' : 'text-gray-500 hover:text-gray-900'
+              }`}
+              title="Rendered in an iframe and streamed with postMessage"
+            >
+              Isolated
+            </button>
+          </div>
+
           {/* Quick Edit Website Link */}
           <button
             onClick={onPrev}
@@ -168,7 +202,18 @@ export default function StepFullWebsitePreview({ data, onNext, onPrev }: Props) 
             ref={previewRef}
             className="w-full h-full flex items-center justify-center overflow-hidden relative"
           >
-            <TemplateRenderer data={previewData} mode={mode} renderMode="owner-preview" />
+            {transport === 'isolated' ? (
+              /* IFRAME TRANSPORT — the same central state, streamed across
+                 documents. Section jump still targets the inline canvas. */
+              <LivePreviewFrame
+                data={previewData}
+                mode={mode === 'mobile' ? 'mobile' : 'desktop'}
+                className="w-full h-full"
+              />
+            ) : (
+              /* SAME-TREE TRANSPORT — bound straight to the edit state. */
+              <TemplateRenderer data={previewData} mode={mode} renderMode="owner-preview" />
+            )}
           </div>
 
           {/* Toast / Help Tip overlay */}

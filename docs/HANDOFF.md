@@ -1,12 +1,95 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-09-01** (White-label SaaS transformation: custom
-> domain / CNAME routing, testimonials in the unified schema, and full
-> branding isolation — see the top section).
+> Last updated: **2026-09-01** (Service autosave + live preview transport on
+> top of the white-label SaaS transformation: custom domain / CNAME routing,
+> testimonials in the unified schema, and full branding isolation).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## White-label SaaS transformation — 2026-09-01 (current PR)
+## Service autosave + live preview transport — 2026-09-01 (current PR)
+
+The documented `useAutoSaveService` pattern (Next.js App Router + Supabase
+client, 800 ms debounce, `services` upsert with `updated_at`) is now
+implemented for this Vite/React app, plus both live-preview transports.
+
+- **`src/lib/serviceAutosave.ts`** — draft → canonical `services` row mapping
+  (rupees → integer `price_paise`), validation mirroring the DB constraints,
+  session-derived tenant resolution (`owner_salon_ids()`; a caller-suggested
+  salon id is only accepted when the session owns it), and the upsert itself
+  (`onConflict: 'id,salon_id'`). Provenance (`theme_id` / `category_id` /
+  `predefined_service_id`) is insert-only and never rewritten.
+- **`src/hooks/useAutoSaveService.ts`** — composes the existing `useAutosave`
+  (serialized writes, backoff retries, `saveNow()`/`retry()`), uses the repo's
+  own debounce instead of lodash, and returns
+  `'idle' | 'saving' | 'saved' | 'error'` + `error` / `lastSavedAt`.
+- **Wiring** — the service editor (`StepServices`) autosaves name, description,
+  price and duration for every DATABASE-backed row and shows
+  “Autosaving… / Autosaved ✓”. Confirmed values are mirrored into the central
+  edit state so the inline preview updates immediately. Insert remains the
+  explicit `create_saved_service` path (provenance + duplicate guards).
+- **Live preview** — `src/lib/previewBridge.ts` defines the `postMessage`
+  protocol (`state` / `ready` / `ack` / `error`) with origin allow-lists.
+  `StepFullWebsitePreview` toggles between **Inline** (same React tree, props
+  bound to the edit state) and **Isolated** (`LivePreviewFrame` → the
+  `/preview-frame` route, a read-only renderer).
+- **Tests** — `npm run test:service-autosave` (29 checks, jsdom + the real
+  hook against a recording Supabase stub), included in
+  `npm run test:builder-fixes`. No migration is required: the row shape and RLS
+  already exist (M28/M40/M67).
+
+### Central state + debounced auto-save store (`useAutoSaveStore`)
+
+The second documented pattern — a hook that OWNS the central state, updates it
+instantly through `updateField(field, value)` and syncs it 600 ms later — is
+implemented as `src/hooks/useAutoSaveStore.ts` + `src/lib/storeSettings.ts`.
+
+- **No `store_settings` table is created** (the Nexora spec forbids a duplicate
+  settings store). The canonical target is `salon_public_websites.config` — a
+  jsonb MERGE, optionally namespaced by `configKey`, exactly like the existing
+  visual-config save path. `updated_at` is not sent: the column grant
+  (`grant update (slug, template_key, config)`) keeps it database-maintained.
+- Tenant resolution is now shared by both autosave hooks
+  (`src/lib/autosaveTenant.ts`); a caller-suggested salon is verified against
+  `owner_salon_ids()`, so a hostile store id can never write.
+- Writes are serialized through a promise queue (a stale response can never
+  overwrite a newer edit); `hydrate()` loads state without saving;
+  `saveNow()` / `retry()` back explicit actions; a pending save is flushed on
+  `pagehide`.
+- **Wiring** — the owner **Settings** panel (Screen 23) now edits salon booking
+  rules through the store (`config.bookingRules`): the field and the live
+  preview update instantly, the database write follows in the background, and
+  “Save Configuration” becomes an explicit flush.
+- **Tests** — `npm run test:autosave-store` (19 checks), also in
+  `npm run test:builder-fixes`.
+
+### Builder UI — `PageBuilder.tsx`
+
+The third documented piece — left edit form, right live preview, one store —
+is now `src/components/PageBuilder.tsx`, lazy-mounted at the top of the
+**My Live Website** tab.
+
+- `'use client'` dropped (client-only Vite SPA, no RSC).
+- `useAutoSaveStore(initialData, storeId)` works as documented: the hook now
+  accepts the positional store id **or** an options object.
+- Fields are canonical camelCase (`salonName`, `websiteSlug`, `ownerName`,
+  `about`) merged at the top level of `salon_public_websites.config` — the same
+  keys the unified draft already persists, so there is still one source of
+  truth. No snake_case copy.
+- The right panel renders the **real** website (`TemplateRenderer`), not a mock
+  card, with a device toggle and an Inline ⇄ Isolated (iframe + postMessage)
+  transport toggle.
+- One keystroke does three things: updates the store, flips the badge to
+  “Saving…”, and propagates to the central `SalonData` so the preview
+  re-renders immediately — before the debounced write lands.
+- Slug safety: the field edits the DRAFT slug, validates live
+  (`isValidWebsiteSlug`), normalises on blur (`slugifySalonName`), and the live
+  `slug` column is still only written by the guarded publish path.
+- **Tests** — `npm run test:page-builder` (9 checks), also in
+  `npm run test:builder-fixes`.
+
+Full write-up: `docs/service-autosave-live-preview.md`.
+
+## White-label SaaS transformation — 2026-09-01
 
 Three modules added on top of the builder fixes (media upload, autosave,
 unified draft, dynamic slug). Every module is covered by

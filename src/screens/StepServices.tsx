@@ -64,6 +64,7 @@ import {
   persistServiceFormDraft,
   readServiceFormDraft,
 } from '../lib/offlineSync';
+import { useAutoSaveService } from '../hooks/useAutoSaveService';
 
 // Generates a professional, customer-friendly, category-specific service description.
 // Kept offline (rule-based) so it works without any API key, consistent with the app's
@@ -1035,6 +1036,62 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
   };
 
   /**
+   * AUTOSAVE (canonical `services` row) — see src/hooks/useAutoSaveService.ts.
+   *
+   * While a DATABASE-backed service is open in the editor, every field change
+   * is debounced (800 ms) and upserted into the canonical `services` table, so
+   * the owner never loses an edit to a refresh or a step change. The explicit
+   * "Save Changes" button below still owns status, translations and media,
+   * which need the saved-service RPC. Autosave is paused while that explicit
+   * save is in flight so the two writers can never interleave.
+   */
+  const editingService = editingServiceId
+    ? data.services.find((item) => item.id === editingServiceId) ?? null
+    : null;
+
+  const serviceAutosave = useAutoSaveService(
+    editingService
+      ? {
+          id: editingService.id,
+          salonId: editingService.businessId ?? null,
+          name: editServiceName,
+          category: editingService.category,
+          description: editServiceDescription,
+          price: editServicePrice,
+          duration: editServiceDuration,
+          featured: editingService.featured === true,
+          promotionalBadge: editingService.promotionalBadge ?? null,
+        }
+      : null,
+    {
+      // Only rows that already exist in the database are autosaved; creating a
+      // service keeps using `create_saved_service` (provenance + duplicates).
+      enabled: Boolean(editingService?.businessId) && managingServiceId !== editingServiceId,
+      onSaved: () => {
+        // Mirror the confirmed values into the CENTRAL edit state so the live
+        // preview (same React tree — bound to `data` by props) updates the
+        // instant the database confirms, without a second save.
+        if (!editingServiceId) return;
+        setData((previous) => ({
+          ...previous,
+          services: previous.services.map((item) =>
+            item.id === editingServiceId
+              ? {
+                  ...item,
+                  name: editServiceName,
+                  description: editServiceDescription,
+                  price: editServicePrice,
+                  duration: editServiceDuration,
+                }
+              : item,
+          ),
+        }));
+      },
+      onError: (message) => setSavedServicesError(message),
+    },
+  );
+
+  /**
    * Applies mutable field changes only. `theme_id`, `category_id` and
    * `predefined_service_id` are never sent, so the original theme/category/
    * predefined relationship (or the Custom NULL provenance) always survives.
@@ -1590,7 +1647,29 @@ export default function StepServices({ data, setData, onNext, onPrev, onSave }: 
                             </div>
                           </>
                         )}
-                        <div className="md:col-span-2 flex justify-end gap-2">
+                        <div className="md:col-span-2 flex items-center justify-end gap-2">
+                          {/* AUTOSAVE STATUS — the canonical `services` row is
+                              written automatically; this only reports it. */}
+                          <span
+                            className={`mr-auto text-[11px] font-semibold ${
+                              serviceAutosave.status === 'saved'
+                                ? 'text-emerald-600'
+                                : serviceAutosave.status === 'saving'
+                                  ? 'text-[#ac0053]'
+                                  : serviceAutosave.status === 'error'
+                                    ? 'text-red-600'
+                                    : 'text-[#8a8989]'
+                            }`}
+                            aria-live="polite"
+                          >
+                            {serviceAutosave.status === 'saving'
+                              ? 'Autosaving…'
+                              : serviceAutosave.status === 'saved'
+                                ? 'Autosaved ✓'
+                                : serviceAutosave.status === 'error'
+                                  ? 'Autosave failed — use Save Changes'
+                                  : 'Autosave on'}
+                          </span>
                           <button type="button" onClick={() => setEditingServiceId(null)} className="min-h-11 px-4 py-2 border border-[#eeeeee] rounded-lg text-xs font-semibold text-[#5f5e5e]">Cancel</button>
                           <button type="button" onClick={() => handleUpdateSavedService(s)} disabled={managingServiceId === s.id || !editServiceName.trim()} className="min-h-11 px-4 py-2 bg-[#ac0053] text-white rounded-lg text-xs font-semibold disabled:opacity-40">
                             {managingServiceId === s.id ? 'Saving…' : 'Save Changes'}

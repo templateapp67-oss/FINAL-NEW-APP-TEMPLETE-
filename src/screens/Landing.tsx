@@ -99,6 +99,9 @@ const BrandingWhiteLabel = lazy(() => import('../components/BrandingWhiteLabel')
 const PaymentsPanel = lazy(() => import('../components/dashboard/PaymentsPanel'));
 // Screen 23 — Salon Settings.
 const SettingsPanel = lazy(() => import('../components/dashboard/SettingsPanel'));
+// Business-details builder — left edit form + right live preview, both bound to
+// one central auto-saved store. Lazy: it pulls in the website renderer.
+const PageBuilder = lazy(() => import('../components/PageBuilder'));
 // Screen 22 — Share & Referral Marketing.
 const SharePanel = lazy(() => import('../components/dashboard/SharePanel'));
 // Screen 18 — Dashboard Overview.
@@ -1390,6 +1393,12 @@ export default function Landing({ data, setData, onNext, goToStep, onOpenStaffMa
                     </span>
                   </div>
                 </div>
+
+                {/* BUSINESS DETAILS BUILDER — edit form (left) + live preview
+                    (right), both driven by ONE central auto-saved store. */}
+                <Suspense fallback={<PanelFallback />}>
+                  <PageBuilder data={data} setData={setData} />
+                </Suspense>
 
                 {/* Template Selection Dashboard Component */}
                 <TemplateSelectionDashboard data={data} setData={setData} onSave={(msg) => console.log(msg)} onThemeChange={onThemeChange} />

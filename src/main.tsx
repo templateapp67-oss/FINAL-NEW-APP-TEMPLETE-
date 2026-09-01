@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import NearbySalonSearch from './components/NearbySalonSearch.tsx';
 import PublicSalonView from './components/PublicSalonView.tsx';
+import PreviewFrameSurface from './components/PreviewFrameSurface.tsx';
 import NotFound from './components/NotFound.tsx';
 import AuthCallbackPage from './components/AuthCallbackPage.tsx';
 import PasswordResetPage from './components/PasswordResetPage.tsx';
@@ -82,7 +83,7 @@ function ProtectedApp() {
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
-  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'auth_login' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'not_found'>('app');
+  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'auth_login' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'preview_frame' | 'not_found'>('app');
 
   // NOTE: slug resolution is fed by `location.pathname` and (when present)
   // `location.hostname` (subdomain). Query parameters (e.g. `?ref=NX-NEXORA-2026`)
@@ -131,6 +132,17 @@ function RootRouter() {
         setLoading(false);
         return;
       }
+      // 2b. LIVE PREVIEW FRAME — the child document of the builder's isolated
+      //     preview (`LivePreviewFrame`). It renders the website from state
+      //     streamed in with postMessage and holds no route data of its own.
+      //     It must be matched BEFORE salon-slug resolution, otherwise a salon
+      //     could claim the `/preview-frame` path as its public URL.
+      if (pathname === '/preview-frame') {
+        setRoute('preview_frame');
+        setLoading(false);
+        return;
+      }
+
       // 2. Standalone Sign-Up page — target of all referral links
       //    (`/signup?ref=NX-[SHORT]-2026`). The `ref` parameter was already
       //    captured into localStorage at module load (captureReferralFromUrl).
@@ -277,6 +289,9 @@ function RootRouter() {
       // On a custom domain the address bar keeps the tenant's own hostname but
       // the site is rendered from the tenant's canonical slug, resolved above.
       return <PublicSalonView slug={customDomainSlug || normalizedPath} />;
+    case 'preview_frame':
+      // Isolated live preview: read-only, driven entirely by postMessage.
+      return <PreviewFrameSurface />;
     case 'not_found':
       return <NotFound />;
     default:

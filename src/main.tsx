@@ -21,6 +21,12 @@ import {
   extractSubdomainSlug,
 } from './lib/salonRouting.ts';
 import { resolvePublicSalonWebsite } from './lib/publicSalonResolver.ts';
+import {
+  getCustomDomainMapping,
+  looksLikeCustomDomainHost,
+  rememberCustomDomainMapping,
+  resolveCustomDomainSalon,
+} from './lib/customDomainRouting.ts';
 
 import './index.css';
 
@@ -90,6 +96,10 @@ function RootRouter() {
   // Normalise the slug: lowercase, trim, slugify — so `/Nexora-Demo-Salon`,
   // `/Nexora Demo Salon`, and `/nexora-demo-salon` all resolve identically.
   const normalizedPath = subdomainSlug || normalizeRouteSlug(pathname);
+  // CUSTOM DOMAIN — resolved during route classification for this page load
+  // only (never persisted, so a writable browser store cannot spoof it).
+  const customDomainMapping = getCustomDomainMapping(window.location.hostname);
+  const customDomainSlug = customDomainMapping?.slug || '';
 
   useEffect(() => {
     // NOTE: the `?ref=` capture lives at module scope (captureReferralFromUrl,
@@ -152,6 +162,37 @@ function RootRouter() {
         setRoute('nearby');
         setLoading(false);
         return;
+      }
+
+      // 2b. CUSTOM DOMAIN (CNAME) — the browser is being served from a
+      //     hostname that is not the platform base host, e.g.
+      //     `www.artsbyuma.com`. Resolve it through the anonymous,
+      //     verification-gated resolver (M69) and rewrite to the tenant slug.
+      //     An UNVERIFIED domain resolves to nothing, so a tenant can never
+      //     serve their site from a host they have not proven they control.
+      if (
+        isSupabaseConfigured &&
+        supabase &&
+        !subdomainSlug &&
+        // Only the apex path of a foreign host is a custom domain (`/`). A
+        // nested path on that host keeps its ordinary meaning.
+        pathname === '/' &&
+        looksLikeCustomDomainHost(window.location.hostname)
+      ) {
+        try {
+          const host = window.location.hostname.toLowerCase();
+          const mapped = await resolveCustomDomainSalon(supabase, host);
+          if (mapped?.slug) {
+            // Keep the address bar on the tenant's own domain: remember the
+            // mapping for this page load so the public view renders directly.
+            rememberCustomDomainMapping(host, mapped.slug);
+            setRoute('public_salon');
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.error('Failed to resolve custom domain:', err);
+        }
       }
 
       // 3. Only a published salon_public_websites slug is a public site.
@@ -233,7 +274,9 @@ function RootRouter() {
         </div>
       );
     case 'public_salon':
-      return <PublicSalonView slug={normalizedPath} />;
+      // On a custom domain the address bar keeps the tenant's own hostname but
+      // the site is rendered from the tenant's canonical slug, resolved above.
+      return <PublicSalonView slug={customDomainSlug || normalizedPath} />;
     case 'not_found':
       return <NotFound />;
     default:

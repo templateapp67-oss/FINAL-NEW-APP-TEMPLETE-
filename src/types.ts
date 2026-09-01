@@ -426,6 +426,43 @@ export interface ReviewedContent {
  * UI. The `{name}` placeholder in `bookWithCta` and `{salon}` in
  * `whatsappMessage` are resolved at render time.
  */
+/**
+ * WHITE-LABEL SETTINGS — per-tenant branding isolation.
+ *
+ * These live inside `salon_public_websites.config` (i.e. they travel with the
+ * tenant's draft) rather than in the platform-wide `brandConfig`, because a
+ * white-label SaaS must let each tenant decide independently whether the
+ * platform badge appears on *their* site.
+ *
+ * The platform config still supplies the default badge text; a tenant may
+ * override the text or hide the badge entirely.
+ */
+export interface WhiteLabelSettings {
+  /** Hide the platform "Powered by …" badge on this tenant's published site. */
+  hidePoweredBy: boolean;
+  /** Optional tenant override for the badge text (max 80 chars). */
+  poweredByText?: string;
+  /** Optional tenant override for the accent color (hex, e.g. '#ac0053'). */
+  accentColor?: string;
+  /** Optional tenant override for the base appearance. */
+  appearance?: WebsiteAppearance;
+}
+
+/** An owner-authored testimonial shown in the public Reviews section. */
+export interface Testimonial {
+  id: string;
+  /** Customer display name (3–60 chars). */
+  name: string;
+  /** Star rating 1–5. */
+  rating: number;
+  /** The testimonial body (10–400 chars). */
+  body: string;
+  /** Optional role/context line, e.g. "Bridal client". */
+  role?: string;
+  /** ISO date (YYYY-MM-DD) the testimonial was given; used for ordering. */
+  date?: string;
+}
+
 export interface WebsiteCopy {
   /** Navigation labels (Home / Services / Team / Gallery / Videos / Contact). */
   nav?: Partial<Record<'home' | 'services' | 'team' | 'gallery' | 'videos' | 'contact', string>>;
@@ -569,6 +606,18 @@ export interface SalonData {
   websiteSlug?: string;
   publishState?: PublishState;
   publishedUrl?: string;
+  /**
+   * Per-tenant white-label settings (platform badge + theme overrides).
+   * Persisted in `salon_public_websites.config`, NOT in the browser-global
+   * `brandConfig` — so the setting survives a refresh on any device.
+   */
+  whiteLabel?: WhiteLabelSettings;
+  /** Owner-authored testimonials rendered in the public Reviews section. */
+  testimonials?: Testimonial[];
+  /** Custom domain (CNAME) mapped to this tenant's published site. */
+  customDomain?: string | null;
+  /** Verification status of `customDomain` ('not_configured' | 'pending' | 'verified' | 'failed'). */
+  customDomainStatus?: 'not_configured' | 'pending' | 'verified' | 'failed';
   /** Optional custom SEO meta description entered by the owner. */
   metaDescription?: string;
   /** Optional custom SEO / social share image (OG Image) URL entered by the owner. */

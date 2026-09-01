@@ -3,12 +3,10 @@ import { SalonData } from '../types';
 import TemplateRenderer from '../components/TemplateRenderer';
 import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor, Smartphone, Circle, Check } from 'lucide-react';
 import { useBrandConfig } from '../config/brandConfig';
-import {
-  publishOwnerSalonWebsite,
-  unpublishOwnerSalonWebsite,
-  verifyOwnerPublishReadiness,
-} from '../lib/salonWebsiteService';
-import { publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
+import { unpublishOwnerSalonWebsite, verifyOwnerPublishReadiness } from '../lib/salonWebsiteService';
+import { generateSalonSlug, publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
+import CustomDomainPanel from '../components/CustomDomainPanel';
+import { assertPublishPayloadComplete, saveAndPublishOwnerWebsite } from '../lib/saveAndPublish';
 import { STEP_PUBLISH, STEP_PUBLISH_SUCCESS, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 import {
   evaluatePublishReadiness,
@@ -26,8 +24,11 @@ interface Props {
 }
 
 function generatedSlug(data: SalonData): string {
+  // A PUBLISHED address is permanently allocated, so a business rename can
+  // never break a link the owner already shared. Before publication the slug
+  // tracks the real salon name: "Arts By Uma" → "arts-by-uma".
   if (data.publishState === 'published' && data.websiteSlug) return data.websiteSlug;
-  return slugifySalonName(data.salonName) || 'salon';
+  return generateSalonSlug(data.salonName) || slugifySalonName(data.salonName) || 'salon';
 }
 
 function displayUrl(value: string): string {
@@ -84,6 +85,10 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
   const optionalChecks = readiness.optional;
   const allRequiredDone = readiness.ready;
 
+  // "Save & Publish": commit EVERY step 1–14 field first (business details,
+  // logo, hero, gallery, services, offers, team, location and hours), then flip
+  // the site live. A failed draft commit aborts instead of publishing a
+  // half-saved salon.
   const handlePublish = async () => {
     // Re-validate at click time so a stale checklist can never publish.
     const clickReadiness = await verifyOwnerPublishReadiness(data);
@@ -99,7 +104,9 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
     setData(prev => ({ ...prev, publishState: 'publishing', websiteSlug: slug }));
     if (onSave) onSave();
     try {
-      const saved = await publishOwnerSalonWebsite({ ...data, websiteSlug: slug });
+      // Guard against publishing an empty shell after a hydration race.
+      assertPublishPayloadComplete({ ...data, websiteSlug: slug });
+      const saved = await saveAndPublishOwnerWebsite({ ...data, websiteSlug: slug });
       if (!saved.isPublished || !saved.publishedAt) {
         throw new Error('The database did not confirm publication.');
       }
@@ -311,6 +318,24 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
               </p>
             </div>
           </div>
+
+          {/* Custom Domain (CNAME) Section — connect a domain the tenant owns.
+              The database is the authority for the stored value; the panel only
+              renders and mutates it through the owner-scoped API. */}
+          <CustomDomainPanel
+            salonId={data.salonId || null}
+            domain={data.customDomain ?? null}
+            status={data.customDomainStatus ?? 'not_configured'}
+            published={data.publishState === 'published'}
+            target={platform.websiteUrl}
+            onChanged={({ domain, status }) =>
+              setData(prev => ({
+                ...prev,
+                customDomain: domain,
+                customDomainStatus: status as SalonData['customDomainStatus'],
+              }))
+            }
+          />
 
           {/* Website Checklist Section */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs flex flex-col gap-5">

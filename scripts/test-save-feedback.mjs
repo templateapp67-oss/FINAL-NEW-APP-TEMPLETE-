@@ -59,15 +59,28 @@ assert.ok(app.includes("toastKind === 'error'"), 'toast render switches on error
 assert.ok(app.includes("const [toastKind, setToastKind] = useState<'success' | 'error'>('success')"));
 ok('toast icon reflects success vs error');
 
-// --- 1b. Storage-clear authority (AC2): configured mode never treats the
-// local draft cache as a refresh authority and purges it after a confirmed
-// backend save. --------------------------------------------------------------
-assert.ok(app.includes('if (isSupabaseConfigured) return;\n\n    setSaveStatus(\'saving\');'),
-  'the localStorage autosave effect is disabled in configured mode');
-assert.ok(app.includes('if (!isSupabaseConfigured) {\n      try {\n        safeSetItem('),
-  'handleSave only writes the local draft cache in unconfigured mode');
-assert.ok(app.includes('safeRemoveItem(STORAGE_KEY)'), 'a confirmed backend save purges the stale draft cache');
-ok('configured mode never writes/persists the local draft cache and purges it after a confirmed save');
+// --- 1b. Storage authority (AC2): the tenant-scoped draft cache is a
+// FALLBACK only. It is written on every change (so a failed/offline save,
+// a refresh or a navigation cannot lose work) but it is never the refresh
+// authority: it is read back only when the server draft is empty, and a
+// confirmed backend save purges the legacy unscoped cache. --------------------
+const storage = await read('src/lib/salonDraftStorage.ts');
+const unified = await read('src/lib/unifiedSalonDraft.ts');
+assert.ok(app.includes('writeDraftCache(user?.id ?? null'),
+  'the autosave mirrors the draft to a TENANT-SCOPED localStorage cache');
+assert.match(storage, /const DRAFT_CACHE_PREFIX = 'nexora_salon_draft_v1'/);
+assert.ok(storage.includes("return `${DRAFT_CACHE_PREFIX}:${scope}`;"),
+  'the cache key is scoped per signed-in owner (never shared between accounts)');
+assert.match(storage, /if \(\(parsed\.userId \|\| 'anonymous'\) !== expected\) return null;/,
+  'a cache written for another account can never be restored');
+assert.ok(app.includes('if (isSupabaseConfigured) safeRemoveItem(STORAGE_KEY);'),
+  'a confirmed backend save purges the stale unscoped draft cache');
+// The fallback is only consumed when the server draft has no content.
+assert.ok(app.includes('if (cache && !hasDraftContent(draftConfig) && hasDraftContent(cache.draft))'),
+  'the local cache is restored ONLY when the backend draft is empty');
+assert.ok(unified.includes('export const UNIFIED_DRAFT_FIELDS'),
+  'one canonical field list owns what is persisted');
+ok('local draft cache is a tenant-scoped fallback and never the refresh authority');
 
 // --- 2. TopBar.tsx: visible failure indicator. -----------------------------
 assert.match(topBar, /saveStatus\?: 'saved' \| 'saving' \| 'error'/);

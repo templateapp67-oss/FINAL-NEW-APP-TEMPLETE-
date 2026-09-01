@@ -287,7 +287,13 @@ section('Moderation UI');
 
 function renderPanel(data, canModerate = true) {
   let saved = null;
-  const setData = (d) => { saved = d; };
+  // Mirrors React's `Dispatch<SetStateAction<T>>`: the screens use functional
+  // updates so an async upload can never write back a stale gallery array.
+  let state = data;
+  const setData = (d) => {
+    state = typeof d === 'function' ? d(state) : d;
+    saved = state;
+  };
   const utils = render(React.createElement(GalleryModerationPanel, { data, setData, onSave: () => {}, canModerate }));
   return { utils, getSaved: () => saved };
 }
@@ -390,9 +396,15 @@ await test('unauthorized user is blocked (locked notice, no moderation buttons)'
 section('Upload → Pending');
 
 await test('new uploads enter moderation as pending', async () => {
-  let saved = null;
-  const setData = (d) => { saved = d; };
   const data = salonData('barber_mens_grooming', { gallery: [], services: barberServices });
+  let saved = null;
+  // Mirrors React's `Dispatch<SetStateAction<T>>`: the screens use functional
+  // updates so an async upload can never write back a stale gallery array.
+  let state = data;
+  const setData = (d) => {
+    state = typeof d === 'function' ? d(state) : d;
+    saved = state;
+  };
   const utils = render(React.createElement(StepPhotos, { data, setData, onNext: () => {}, onPrev: () => {}, onSave: () => {} }));
   const input = utils.getByTestId('gallery-file-input');
   await act(async () => {

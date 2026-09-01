@@ -1,8 +1,232 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-09-01** (Full-stack save failure visibility + honest save status — see top section).
+> Last updated: **2026-09-01** (White-label SaaS transformation: custom
+> domain / CNAME routing, testimonials in the unified schema, and full
+> branding isolation — see the top section).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
+
+## White-label SaaS transformation — 2026-09-01 (current PR)
+
+Three modules added on top of the builder fixes (media upload, autosave,
+unified draft, dynamic slug). Every module is covered by
+`npm run test:white-label` (42 checks), wired into `npm run test`.
+
+### A. Custom domain (CNAME) mapping
+
+A tenant can now point their own hostname at their published site.
+
+- **Migration `20260901000201_m69_custom_domain_white_label.sql`** (must be
+  applied):
+  - `salon_public_websites.custom_domain`, `.custom_domain_status`
+    (`not_configured|pending|verified|failed`), `.custom_domain_verified_at`,
+    a format guard and a case-insensitive unique index.
+  - `public.resolve_public_salon_by_domain(host)` — `security definer`,
+    granted to `anon`, returns a row **only** when the domain is `verified`,
+    the site is `is_published`, the salon is active and its theme is active.
+  - `public.set_owner_custom_domain` / `clear_owner_custom_domain` — scoped
+    through `private.owned_publish_salon_id`, so an owner can only touch a
+    salon they own. Changing a domain resets it to `pending`.
+  - `public.mark_custom_domain_status` — **`service_role` only**, so a browser
+    can never self-verify a domain.
+  - `verify_m69_custom_domain_white_label()` — 8 self-checks.
+- **`src/lib/customDomain.ts`** — normalisation (strips scheme/path/port/
+  credentials), validation, reserved-host detection (platform + preview hosts
+  can never be claimed) and DNS instructions (A for apex, CNAME otherwise).
+- **`server/dnsVerification.ts`** — PostgreSQL cannot do DNS, so the server
+  probes CNAME / A / TXT (`nexora-verify=<salonId>`) with a timeout and then
+  calls the service-role flip. Failures are normal outcomes, not crashes.
+- **`api-routes.ts`** — `GET /api/public/resolve-domain` (anonymous) plus
+  `POST /api/owner/custom-domain` and `/verify` (auth + org-membership guard).
+- **`src/main.tsx` + `src/lib/customDomainRouting.ts`** — the Vite/React
+  equivalent of a Next.js `middleware.ts` host rewrite. The host→slug mapping
+  is **in-memory for the page load only**; it is deliberately never written to
+  LocalStorage, so a hand-edited cache cannot point a host at another tenant.
+- **`src/components/CustomDomainPanel.tsx`** — owner UI: save, verify, remove,
+  status pill and the exact DNS record to add.
+
+### B. Testimonials in the unified schema
+
+- `Testimonial` + `SalonData.testimonials` added to `src/types.ts` and to
+  `UNIFIED_DRAFT_FIELDS`, so they persist across refresh, step navigation and
+  publish exactly like services and team.
+- **`src/lib/testimonials.ts`** — normalisation of untrusted rows (DB JSONB or
+  a LocalStorage cache): markup characters stripped, rating clamped to 1–5,
+  list capped at 24, unusable rows dropped.
+- **`src/components/TestimonialsEditor.tsx`** — owner editor in step 4 with
+  per-field validation.
+- **`SiteReviews.tsx`** renders owner testimonials alongside genuine visitor
+  reviews, and keeps the section visible when only curated testimonials exist.
+- **M69** projects them through `private.nexora_public_testimonials`, which
+  re-sanitises server-side so a hostile config can never render.
+
+### C. Full white-label & branding isolation
+
+The reported problem: `hidePlatformBranding` existed but lived in the
+**browser-global** `brandConfig` (shared by every tenant, never persisted to
+the database), and both public footers rendered the badge **unconditionally**.
+The toggle was therefore both non-durable and non-functional.
+
+- `WhiteLabelSettings` (`hidePoweredBy`, `poweredByText`, `accentColor`,
+  `appearance`) added to `SalonData` **and** to the unified draft — so it is
+  per-tenant and database-backed.
+- **`src/lib/whiteLabel.ts`** — `resolvePoweredBy` / `resolveWhiteLabel` /
+  `normalizeWhiteLabel` / `sanitizeBrandingText` / `sanitizeAccentColor`.
+  Resolution order: tenant hides → tenant override text → platform default.
+- `TemplateRenderer.tsx` and `SiteFooter.tsx` now render the badge only when
+  `poweredBy.show`, and take their accent colour / appearance from the tenant
+  override first.
+- `BrandingWhiteLabel.tsx` writes the toggle through `setData` (database) and
+  keeps the platform default in sync for new tenants.
+- **M69** projects `whiteLabel` (plus `yearsOfExperience` / `happyCustomers`,
+  which the templates already rendered but the projection never sent).
+
+> **Projection gotcha worth remembering:** `get_public_salon_website` uses an
+> explicit **allowlist** of `config` keys. Any new business field must be added
+> there *and* to `PUBLIC_WEBSITE_FIELDS` in `publicSalonResolver.ts`, or it
+> will save in the builder and silently vanish on the live site.
+
+### Tests
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| White-label SaaS transformation | `npm run test:white-label` | 42/42 |
+| Media upload pipeline | `npm run test:media-upload` | 33/33 |
+| Autosave + draft persistence | `npm run test:autosave` | 25/25 |
+| Dynamic published link (slug) | `npm run test:dynamic-slug` | 18/18 |
+| Save-feedback wiring | `npm run test:save-feedback` | 10/10 |
+| All of the above | `npm run test:builder-fixes` | ✅ (last step of `npm run test`) |
+
+## Gallery upload & preview, autosave, complete draft persistence, dynamic slug — 2026-09-01 (current PR)
+
+Four reported defects, all fixed on one branch. Every fix is covered by a new
+regression suite wired into `npm run test`.
+
+### 1. "Unable to upload this media file." — gallery upload & preview
+
+**Bug:** every storage/PostgREST failure collapsed into one opaque sentence, so
+a missing bucket, an RLS denial, an oversized file and an expired session were
+indistinguishable. Photos also appeared only *after* the server round trip, so a
+slow or failing upload left an empty grid.
+
+**Fixes:**
+- **New shared pipeline — `src/lib/mediaUpload.ts`**: the single source of truth
+  for owner image uploads.
+  - `IMAGE_UPLOAD_MAX_BYTES = 5 MB`, `IMAGE_UPLOAD_ACCEPTED_TYPES` =
+    **JPG / PNG / WEBP / SVG**, `IMAGE_UPLOAD_ACCEPT_ATTR` (drives every file
+    input's `accept`) and `IMAGE_UPLOAD_FORMATS_LABEL` (drives every hint).
+  - `validateImageUploadFile()` returns `{ ok }` or `{ ok: false, error }` naming
+    the file, its real size and the accepted formats.
+  - `createPreviewUrl()` / `revokePreviewUrl()` — instant `URL.createObjectURL`
+    previews with a FileReader fallback, tracked so blobs are always revoked.
+  - `readImageAsDataUrl()`, `describeUploadError()`, `genericUploadError()`,
+    `isRetryableUploadError()`, `withRetry()` (3 attempts, exponential
+    backoff + jitter, re-throws the original error).
+  - `uploadSalonImage()` — the one wrapper every step-5 upload goes through.
+- **`salonMediaService.ts`**: `describeStorageError()` now maps each real
+  failure to actionable copy (expired session → "log in again"; RLS → permission
+  denied; missing bucket → contact support; mime → accepted formats; size → the
+  real cap; 5xx / network → retryable). It also understands Supabase's plain
+  `{ message, statusCode }` error objects, not just `Error` instances. Raw SQL /
+  constraint text is never echoed to the owner. Images are capped at **5 MB**;
+  videos keep the 50 MB cap.
+- **`StepPhotos.tsx`**: logo, hero and every gallery photo now render an
+  **instant preview before the round trip**. Each gallery thumb carries
+  `data-testid="gallery-thumb"` + `data-upload-status`, a spinner overlay
+  (`gallery-thumb-uploading`), a failure message with a **per-photo Retry**
+  button (`gallery-thumb-error` / `gallery-thumb-retry`) and an
+  `gallery-thumb-offline` badge when the LocalStorage fallback was used.
+  One bad file no longer discards the rest of the batch.
+- **The same contract now applies on every other owner upload surface** —
+  `StepTeam.tsx`, `StaffManagementModule.tsx`, `ServiceMediaEditor.tsx` and
+  `BrandingWhiteLabel.tsx` share the validator, the instant preview, the shared
+  reader and the accept list. No owner input still advertises a bare `image/*`.
+
+### 2. Auto-save
+
+**Bug:** two unrelated `setTimeout` autosaves (1200 ms business, 650 ms visual),
+no LocalStorage write in configured mode, and a status pill that could show
+"Saved" when nothing had been written.
+
+**Fixes:**
+- **New `src/hooks/useDebounce.ts`** — `useDebounce()` plus
+  `useDebouncedCallback()` with `flush()` / `cancel()`, so a pending save is
+  never stranded by a refresh or a step change.
+- **New `src/hooks/useAutosave.ts`** — one hook for the whole builder:
+  - `AUTOSAVE_DEBOUNCE_MS = 1800` (inside the requested 1.5–2 s window);
+  - `LOCAL_CACHE_DEBOUNCE_MS = 400` (the fallback lands before the API call);
+  - writes **LocalStorage *and* the API** on every change, on every step 1–14;
+  - `fingerprint: draftFingerprint(data)` — a content-based signature so
+    presentation-only tweaks don't fire a business write, but any business edit
+    (or a step change) does;
+  - `withRetry()` on the API call, `saveStatus` `'saving' → 'saved' → 'error'`,
+    and one error toast per failure streak.
+- **`src/App.tsx`** drives all of it, flushes on `pagehide`, clears the
+  tenant-scoped cache on sign-out, and restores the cache only when the server
+  draft is genuinely empty.
+
+### 3. Complete save & draft persistence
+
+**Bug:** several field lists could drift apart, so a logo, a gallery entry or a
+team member could be silently dropped; refreshing or stepping backwards lost
+state.
+
+**Fixes:**
+- **New `src/lib/unifiedSalonDraft.ts`** — one canonical
+  `UNIFIED_DRAFT_FIELDS` list (salon details, logo, hero, gallery, services,
+  packages, offers, team, socials, address, hours, announcements, holidays,
+  contact options, booking rules, appearance, brand/seo) with
+  `unifiedDraftFromSalonData()`, `mergeUnifiedDraft()`, `hasDraftContent()` and
+  `draftFingerprint()`. Identity (`salonId`, `publishState`, `publishedUrl`,
+  `websiteSlug`) is **never** serialized and **never** restorable from a browser
+  cache, so a hand-edited cache cannot hijack a tenant.
+- **`salonWebsiteService.ts`** now builds `websiteConfigFromSalonData()` **from
+  the unified draft** — there is no second field list to drift.
+- **New `src/lib/salonDraftStorage.ts`** — tenant-scoped
+  `nexora_salon_draft_v1:<userId>` cache (a second account can never read the
+  first account's draft) with `restoreDraftCache()` that merges business content
+  while leaving server-owned identity and publish state untouched.
+- **New `src/lib/saveAndPublish.ts`** — `saveAndPublishOwnerWebsite()` commits
+  the **full** draft via `persistOwnerBusinessSetup()` first and aborts if that
+  fails, then publishes. `assertPublishPayloadComplete()` blocks publishing an
+  empty shell caused by a hydration race. `StepPublishSetup.tsx` uses it.
+
+### 4. Dynamic slug
+
+**Bug:** the published link fell back to a generic `/my-salon-3`.
+
+**Fixes:**
+- **`ownerProvisioning.ts`** now uses the global `generateSalonSlug()` instead of
+  a `'my-salon'` fallback.
+- **`StepDetails.tsx`** shows a live `/arts-by-uma` slug preview
+  (`data-testid="salon-slug-preview"`) as the owner types the salon name.
+- **`StepPublishSetup.tsx`** generates the slug with the same global helper.
+- **`App.tsx`** keeps the stored slug in sync with the salon name until the site
+  is published (once `published_at` is set the slug is locked by
+  `publish_owner_salon_website`, so live links never break).
+- The backend resolves the slug through `resolveDraftSlug` →
+  `normalizeRouteSlug` → brand-fallback, and `hostRouting.ts` rewrites the
+  subdomain form to the path form.
+
+### Migration required
+
+**`supabase/migrations/20260901000101_m68_public_media_projection.sql`** must be
+applied. It adds `private.nexora_public_gallery(jsonb)` and redefines
+`get_public_salon_website` to project `logoUrl` / `heroImageUrl` / `gallery`
+from the owner draft, allows `image/svg+xml` in the `salon-media` bucket, and
+ships `verify_m68_public_media_projection()` (6 checks). The client
+(`publicSalonResolver.ts`, `PublicSalonView.tsx`) already tolerates both the old
+and the new projection, so it is safe to deploy the app first.
+
+### Tests
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| Media upload pipeline | `npm run test:media-upload` | 33/33 |
+| Autosave + draft persistence | `npm run test:autosave` | 25/25 |
+| Dynamic published link (slug) | `npm run test:dynamic-slug` | 18/18 |
+| Save-feedback wiring | `npm run test:save-feedback` | 10/10 |
+| All four together | `npm run test:builder-fixes` | ✅ (also runs as the last step of `npm run test`) |
 
 ## Full-stack save failure visibility & honest save status — 2026-09-01 (current PR)
 

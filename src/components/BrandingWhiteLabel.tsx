@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   Palette,
   Upload,
@@ -28,6 +28,15 @@ import {
 import { SalonData } from '../types';
 import { useBrandConfig, updateBrandConfig, applyBrandConfigToDocument } from '../config/brandConfig';
 import { compressImageToMaxFileSize } from '../lib/imageCompression';
+import { normalizeWhiteLabel } from '../lib/whiteLabel';
+import {
+  createPreviewUrl,
+  readImageAsDataUrl,
+  revokePreviewUrl,
+  validateImageUploadFile,
+  describeUploadError,
+  IMAGE_UPLOAD_ACCEPT_ATTR,
+} from '../lib/mediaUpload';
 
 interface Props {
   data: SalonData;
@@ -52,7 +61,11 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
   const { config } = useBrandConfig();
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(data.logoUrl || config.defaultSalon.ownerPhotoUrl || null);
   const [faviconDataUrl, setFaviconDataUrl] = useState<string | null>(config.platform.faviconUrl || null);
-  const [hideBranding, setHideBranding] = useState(config.platform.hidePlatformBranding || false);
+  // Per-tenant white-label: the tenant's own persisted setting wins; the
+  // platform config is only the default for tenants that never chose.
+  const [hideBranding, setHideBranding] = useState(
+    data.whiteLabel?.hidePoweredBy ?? config.platform.hidePlatformBranding ?? false,
+  );
   const [brandName, setBrandName] = useState(data.salonName || config.defaultSalon.name || 'Nexora Lumina');
   const [brandTagline, setBrandTagline] = useState(data.tagline || config.defaultSalon.tagline || 'Premium Salon & Spa Experience');
   const [brandEmail, setBrandEmail] = useState(data.email || config.defaultSalon.email || '');
@@ -79,14 +92,50 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
   const socialImageInputRef = useRef<HTMLInputElement>(null);
+  // Object-URL previews awaiting revocation once the data URL takes over.
+  const previewUrls = useRef<Partial<Record<'logo' | 'favicon' | 'social', string>>>({});
 
   const symbol = CURRENCY_SYMBOLS[currency];
   const notify = (msg: string) => {
     if (onNotify) onNotify(msg);
   };
 
+  const applyResult = useCallback(
+    (kind: 'logo' | 'favicon' | 'social', result: string, optimized: boolean) => {
+      if (kind === 'logo') {
+        setLogoDataUrl(result);
+        notify(optimized ? 'Custom logo uploaded & optimized' : 'Custom logo uploaded');
+      } else if (kind === 'favicon') {
+        setFaviconDataUrl(result);
+        notify(optimized ? 'Favicon uploaded & optimized' : 'Favicon uploaded');
+      } else if (kind === 'social') {
+        setSocialShareImageUrl(result);
+        notify(optimized ? 'Social share image uploaded & optimized' : 'Social share image uploaded');
+      }
+    },
+    [notify],
+  );
+
   const handleFile = async (file: File | undefined, kind: 'logo' | 'favicon' | 'social') => {
     if (!file) return;
+
+    // Shared upload contract: 5 MB max, JPG / PNG / WEBP / SVG, with a
+    // specific, human-readable reason instead of a silent no-op.
+    const validation = validateImageUploadFile(file);
+    if (!validation.ok) {
+      notify(validation.error);
+      return;
+    }
+
+    // INSTANT PREVIEW — the logo / favicon renders before compression finishes.
+    const previewUrl = createPreviewUrl(file);
+    if (previewUrl) {
+      const stale = previewUrls.current[kind];
+      if (stale) revokePreviewUrl(stale);
+      previewUrls.current[kind] = previewUrl;
+      applyResult(kind, previewUrl, false);
+    }
+
     try {
       let targetFile = file;
       if (kind === 'favicon') {
@@ -96,32 +145,20 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
       } else if (kind === 'social') {
         targetFile = await compressImageToMaxFileSize(file, 0.1, 1000);
       }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || '');
-        if (kind === 'logo') {
-          setLogoDataUrl(result);
-          notify('Custom logo uploaded & optimized');
-        } else if (kind === 'favicon') {
-          setFaviconDataUrl(result);
-          notify('Favicon uploaded & optimized');
-        } else if (kind === 'social') {
-          setSocialShareImageUrl(result);
-          notify('Social share image uploaded & optimized');
-        }
-      };
-      reader.readAsDataURL(targetFile);
+      const result = await readImageAsDataUrl(targetFile);
+      const stale = previewUrls.current[kind];
+      if (stale) {
+        revokePreviewUrl(stale);
+        delete previewUrls.current[kind];
+      }
+      applyResult(kind, result, true);
     } catch (e) {
       console.warn('Image processing fallback:', e);
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || '');
-        if (kind === 'logo') setLogoDataUrl(result);
-        else if (kind === 'favicon') setFaviconDataUrl(result);
-        else if (kind === 'social') setSocialShareImageUrl(result);
-      };
-      reader.readAsDataURL(file);
+      // Compression/read failed — keep the working object-URL preview rather
+      // than blanking the owner's logo, and tell them what happened.
+      if (!previewUrls.current[kind]) {
+        notify(describeUploadError(e, 'Could not read that image. Try another image.'));
+      }
     }
   };
 
@@ -147,6 +184,9 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
   const handleSave = () => {
     setSavedTick(true);
 
+    // Keep the deployment-wide default in sync too, so new tenants inherit the
+    // operator's choice — but the authoritative, per-tenant value below is what
+    // the published website actually renders.
     const updatedConfig = {
       ...config,
       platform: {
@@ -354,7 +394,7 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
                     <input
                       ref={socialImageInputRef}
                       type="file"
-                      accept="image/png,image/jpeg,image/webp"
+                      accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                       className="hidden"
                       onChange={(e) => handleFile(e.target.files?.[0], 'social')}
                     />
@@ -570,7 +610,7 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
                   <input
                     ref={logoInputRef}
                     type="file"
-                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                    accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                     className="hidden"
                     onChange={(e) => handleFile(e.target.files?.[0], 'logo')}
                   />
@@ -682,9 +722,18 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
                 <input
                   type="checkbox"
                   checked={hideBranding}
+                  data-testid="white-label-toggle"
                   onChange={(e) => {
-                    setHideBranding(e.target.checked);
-                    notify(e.target.checked ? 'White-label mode enabled' : 'White-label mode disabled');
+                    const next = e.target.checked;
+                    setHideBranding(next);
+                    // Persist per TENANT (travels to the database) — the old
+                    // code only wrote the browser-global platform config, so
+                    // the badge came back on refresh and on every other device.
+                    setData?.((prev) => ({
+                      ...prev,
+                      whiteLabel: normalizeWhiteLabel({ ...prev.whiteLabel, hidePoweredBy: next }),
+                    }));
+                    notify(next ? 'White-label mode enabled' : 'White-label mode disabled');
                   }}
                   className="sr-only peer"
                 />

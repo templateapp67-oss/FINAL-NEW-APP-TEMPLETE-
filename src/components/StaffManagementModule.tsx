@@ -1,5 +1,5 @@
 import { authenticatedApiFetch } from '../lib/apiFetch';
-import { useState, useMemo, FormEvent, ChangeEvent } from 'react';
+import { useState, useMemo, useRef, FormEvent, ChangeEvent } from 'react';
 import { 
   Users, 
   UserCheck, 
@@ -42,6 +42,14 @@ import {
 } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToMaxFileSize } from '../lib/imageCompression';
+import {
+  createPreviewUrl,
+  readImageAsDataUrl,
+  revokePreviewUrl,
+  validateImageUploadFile,
+  describeUploadError,
+  IMAGE_UPLOAD_ACCEPT_ATTR,
+} from '../lib/mediaUpload';
 
 interface Props {
   data: SalonData;
@@ -135,6 +143,9 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
   // Form Errors
   const [formErrors, setFormErrors] = useState<{ name?: string; role?: string }>({});
   const [photoError, setPhotoError] = useState<string | null>(null);
+  // Holds the current object-URL preview so it can be revoked when the
+  // compressed data URL replaces it (prevents a blob memory leak).
+  const photoPreviewUrlRef = useRef<string | null>(null);
 
   // Summary Counts
   const stats = useMemo(() => {
@@ -216,33 +227,36 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Pre-check size to avoid obvious huge files if necessary, 
-    // but the compression tool handles it anyway.
-    if (file.size > 10 * 1024 * 1024) {
-      setPhotoError('Image must be less than 10MB');
+    // Shared upload contract: 5 MB max, JPG / PNG / WEBP / SVG, with a
+    // specific, human-readable reason instead of a silent no-op.
+    const validation = validateImageUploadFile(file);
+    if (!validation.ok) {
+      setPhotoError(validation.error);
       return;
+    }
+
+    // INSTANT PREVIEW — the avatar renders before compression finishes.
+    const previewUrl = createPreviewUrl(file);
+    if (previewUrl) {
+      if (photoPreviewUrlRef.current) revokePreviewUrl(photoPreviewUrlRef.current);
+      photoPreviewUrlRef.current = previewUrl;
+      setFormPhoto(previewUrl);
     }
 
     setIsUploadingPhoto(true);
     try {
       // Compress to ~50KB and 400px max for avatars to save localStorage space
       const compressedFile = await compressImageToMaxFileSize(file, 0.05, 400);
-      
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result && typeof event.target.result === 'string') {
-          setFormPhoto(event.target.result);
-        }
-        setIsUploadingPhoto(false);
-      };
-      reader.onerror = () => {
-        setPhotoError('Failed to read image file');
-        setIsUploadingPhoto(false);
-      };
-      reader.readAsDataURL(compressedFile);
+      const dataUrl = await readImageAsDataUrl(compressedFile);
+      if (photoPreviewUrlRef.current) {
+        revokePreviewUrl(photoPreviewUrlRef.current);
+        photoPreviewUrlRef.current = null;
+      }
+      setFormPhoto(dataUrl);
     } catch (err) {
       console.error('Image compression failed:', err);
-      setPhotoError('Failed to process image');
+      setPhotoError(describeUploadError(err, 'Failed to process image'));
+    } finally {
       setIsUploadingPhoto(false);
     }
   };
@@ -983,7 +997,7 @@ export default function StaffManagementModule({ data, setData, onSave, onBackToW
                           <span>{isUploadingPhoto ? 'Processing...' : 'Upload Photo'}</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                             className="hidden"
                             disabled={isUploadingPhoto}
                             onChange={handlePhotoFileChange}

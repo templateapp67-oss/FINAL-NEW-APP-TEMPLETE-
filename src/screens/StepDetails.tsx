@@ -4,6 +4,7 @@ import { SalonData } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import { motion } from 'motion/react';
 import { useBrandConfig } from '../config/brandConfig';
+import { generateSalonSlug } from '../lib/publicWebsiteUrl';
 import { listOwnerTemplates, normalizeThemeId, switchSalonTemplatePresentation } from '../lib/templateConfig';
 import type { ThemeId } from '../lib/themeServices';
 import TemplateQuickViewModal from '../components/TemplateQuickViewModal';
@@ -35,6 +36,11 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [quickViewThemeId, setQuickViewThemeId] = useState<ThemeId | null>(null);
   const latestTemplateRequest = useRef(0);
+  // The published address is generated from the salon name while the site is
+  // still a draft (a published slug is permanently allocated instead).
+  const generatedSlug = data.publishState === 'published'
+    ? (data.websiteSlug || '')
+    : generateSalonSlug(data.salonName);
   const pendingTemplateCount = Object.values(switchingTemplates as Record<string, number | undefined>)
     .reduce<number>((total, count) => total + (count ?? 0), 0);
 
@@ -118,14 +124,22 @@ export default function StepDetails({ data, setData, onNext, onPrev, onSave, onT
               <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-semibold text-gray-900 mb-2">Business / Salon Name <span className="text-[#ac0053]">*</span></label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={data.salonName}
-                    onChange={e => setData({...data, salonName: e.target.value})}
+                    // Functional update: a debounced autosave or an upload can
+                    // change `data` between keystrokes, and a spread of a stale
+                    // snapshot would drop those edits.
+                    onChange={e => setData(prev => ({ ...prev, salonName: e.target.value }))}
                     onBlur={onSave}
                     className="w-full px-4 py-3.5 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#d9006b] focus:ring-2 focus:ring-pink-100 outline-none transition-all"
                   />
                   <p className="text-xs text-gray-400 mt-2">This name will appear on your website.</p>
+                  {generatedSlug && (
+                    <p data-testid="salon-slug-preview" className="text-xs text-[#ac0053] font-semibold mt-1 break-all">
+                      Your website address: /{generatedSlug}
+                    </p>
+                  )}
                 </div>
 
                 <div data-testid="owner-onboarding-templates">

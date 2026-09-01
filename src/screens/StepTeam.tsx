@@ -8,6 +8,15 @@ import PreviewPane from '../components/PreviewPane';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, FormEvent, useRef, DragEvent } from 'react';
 import { compressImageToMaxFileSize } from '../lib/imageCompression';
+import TestimonialsEditor from '../components/TestimonialsEditor';
+import {
+  createPreviewUrl,
+  readImageAsDataUrl,
+  revokePreviewUrl,
+  validateImageUploadFile,
+  describeUploadError,
+  IMAGE_UPLOAD_ACCEPT_ATTR,
+} from '../lib/mediaUpload';
 
 interface Props {
   data: SalonData;
@@ -119,7 +128,12 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
   const [generatingIds, setGeneratingIds] = useState<Record<string, boolean>>({});
   const [isGeneratingFormBio, setIsGeneratingFormBio] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Holds the current object-URL preview so it can be revoked when it is
+  // replaced by the compressed data URL (prevents a blob memory leak).
+  const teamPreviewUrlRef = useRef<string | null>(null);
 
   // Helper to get effective role string
   const getEffectiveRole = (pRole: string, cRole: string) => {
@@ -158,28 +172,38 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
   };
 
   const handleFileUpload = async (file: File) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    
+    // Shared upload contract: 5 MB max, JPG / PNG / WEBP / SVG, with a
+    // specific, human-readable message instead of a silent no-op.
+    const validation = validateImageUploadFile(file);
+    if (!validation.ok) {
+      setPhotoError(validation.error);
+      return;
+    }
+    setPhotoError(null);
+
+    // INSTANT PREVIEW — the photo renders before compression/reading finishes.
+    const previewUrl = createPreviewUrl(file);
+    if (previewUrl) {
+      handleUpdateImage(previewUrl);
+      // Revoked on the next upload so a long editing session cannot leak blobs.
+      if (teamPreviewUrlRef.current) revokePreviewUrl(teamPreviewUrlRef.current);
+      teamPreviewUrlRef.current = previewUrl;
+    }
+
     setIsUploadingPhoto(true);
     try {
       // Compress to ~50KB and 400px max for avatars
       const compressedFile = await compressImageToMaxFileSize(file, 0.05, 400);
-      
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        if (dataUrl) {
-          handleUpdateImage(dataUrl);
-        }
-        setIsUploadingPhoto(false);
-      };
-      reader.onerror = () => {
-        console.error('Failed to read image file');
-        setIsUploadingPhoto(false);
-      };
-      reader.readAsDataURL(compressedFile);
+      const dataUrl = await readImageAsDataUrl(compressedFile);
+      if (teamPreviewUrlRef.current) {
+        revokePreviewUrl(teamPreviewUrlRef.current);
+        teamPreviewUrlRef.current = null;
+      }
+      handleUpdateImage(dataUrl);
     } catch (err) {
       console.error('Image upload/compression failed:', err);
+      setPhotoError(describeUploadError(err, 'Could not read that image. Try another image.'));
+    } finally {
       setIsUploadingPhoto(false);
     }
   };
@@ -188,6 +212,7 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setPhotoError(null);
       handleFileUpload(e.dataTransfer.files[0]);
     }
   };
@@ -558,13 +583,26 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
                         type="file" 
                         ref={fileInputRef}
                         onChange={e => {
-                          if (e.target.files && e.target.files[0]) {
-                            handleFileUpload(e.target.files[0]);
+                          const file = e.target.files?.[0];
+                          e.currentTarget.value = '';
+                          if (file) {
+                            setPhotoError(null);
+                            handleFileUpload(file);
                           }
                         }}
-                        accept="image/*" 
-                        className="hidden" 
+                        accept={IMAGE_UPLOAD_ACCEPT_ATTR}
+                        className="hidden"
                       />
+
+                      {photoError && (
+                        <p
+                          role="alert"
+                          data-testid="team-photo-error"
+                          className="w-full text-[12px] text-[#c0003a]"
+                        >
+                          {photoError}
+                        </p>
+                      )}
 
                       {imageUrl ? (
                         <div className="relative shrink-0">
@@ -1147,6 +1185,13 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
                 </button>
               )}
             </div>
+
+            {/* Owner-authored testimonials — part of the unified draft, so they
+                persist across refresh, step navigation and publish. */}
+            <TestimonialsEditor
+              data={data}
+              onChange={(next) => setData({ ...data, testimonials: next })}
+            />
 
           </div>
         </div>

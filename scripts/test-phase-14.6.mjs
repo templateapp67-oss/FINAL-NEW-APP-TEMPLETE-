@@ -378,7 +378,13 @@ section('Owner management UI');
 
 async function renderStepPhotos(data, onSave = () => {}) {
   let saved = null;
-  const setData = (d) => { saved = d; };
+  // Mirrors React's `Dispatch<SetStateAction<T>>`: the screens use functional
+  // updates so an async upload can never write back a stale gallery array.
+  let state = data;
+  const setData = (d) => {
+    state = typeof d === 'function' ? d(state) : d;
+    saved = state;
+  };
   const utils = render(React.createElement(StepPhotos, { data, setData, onNext: () => {}, onPrev: () => {}, onSave }));
   return { utils, getSaved: () => saved };
 }

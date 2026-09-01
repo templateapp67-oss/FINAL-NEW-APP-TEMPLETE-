@@ -18,6 +18,13 @@ import { setupPrivacyRoutes } from './server/privacyRoutes';
 import { setupSeoRoutes } from './server/seoRoutes';
 import { observabilityMiddleware } from './server/observability';
 import { requireAuthenticatedUser, getSupabaseAdmin } from './server/supabaseAdmin';
+import {
+  isValidCustomDomain,
+  isReservedHost,
+  normalizeCustomDomain,
+  validateCustomDomain,
+} from './src/lib/customDomain';
+import { probeCustomDomainDns } from './server/dnsVerification';
 import { callNominatim } from './server/geocoding';
 
 /* ------------------------------------------------------------------ *
@@ -340,6 +347,72 @@ export function setupApiRoutes(app: express.Express): void {
       return res.status(401).json({ error: 'Please log in to use AI writing tools.' });
     }
   };
+
+  // ------------------------------------------------------------------ *
+  // Published-link slug resolution (server half of the dynamic salon URL)
+  // ------------------------------------------------------------------ *
+
+  /** Slugs owned by platform routes — never usable as a business address. */
+  const RESERVED_SLUGS = new Set([
+    'dashboard', 'builder', 'nearby', 'auth', 'login', 'signup', 'register',
+    'reset-password', 'api', 'admin', 'www', 'app', 'static', 'assets',
+  ]);
+
+  /**
+   * Mirrors `private.normalize_website_slug` / `private.nexora_business_slug`:
+   * lowercase, strip accents, collapse every run of non-alphanumeric
+   * characters into one hyphen, clamp to 50 chars.
+   */
+  function normalizeSlug(value: string): string {
+    return (value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50)
+      .replace(/-+$/g, '');
+  }
+
+  function isValidSlug(value: string): boolean {
+    return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) && value.length >= 3 && value.length <= 60;
+  }
+
+  function draftSlugFromName(name: string): string {
+    let slug = normalizeSlug(name);
+    if (!slug) slug = 'salon';
+    if (slug.length < 3) slug = `${slug}-salon`.slice(0, 50).replace(/-+$/g, '');
+    if (RESERVED_SLUGS.has(slug)) slug = `${slug}-salon`.slice(0, 50).replace(/-+$/g, '');
+    return slug;
+  }
+
+  /**
+   * The address a salon advertises after a draft save:
+   *   - PUBLISHED  → the allocated slug is permanent (shared links survive a
+   *                  business rename), so it is returned unchanged.
+   *   - UNPUBLISHED → derived from the business name so the placeholder
+   *                   `my-salon-3` allocated at provisioning is replaced by
+   *                   `arts-by-uma` as soon as the real name is entered.
+   * The database unique index stays the collision authority: a rejected slug
+   * simply keeps the previously allocated one.
+   */
+  function resolveDraftSlug(input: {
+    requestedSlug: string;
+    salonName: string;
+    existingSlug: string;
+    isPublished: boolean;
+    fallback: string;
+  }): string {
+    if (input.isPublished && isValidSlug(input.existingSlug)) return input.existingSlug;
+    const fromName = draftSlugFromName(input.salonName);
+    if (isValidSlug(fromName) && !RESERVED_SLUGS.has(fromName)) return fromName;
+    if (isValidSlug(input.requestedSlug) && !RESERVED_SLUGS.has(input.requestedSlug)) return input.requestedSlug;
+    if (isValidSlug(input.existingSlug)) return input.existingSlug;
+    return input.fallback;
+  }
 
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
@@ -666,13 +739,20 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
   });
 
   // Owner website draft persistence fallback
+  //
+  // Also the server-side half of the dynamic published link: an UNPUBLISHED
+  // salon re-derives its slug from the business name on every draft save, so
+  // the placeholder address allocated at provisioning (`my-salon-3`) becomes
+  // the real one (`arts-by-uma`) as soon as the owner types the salon name.
+  // A published address is permanently allocated and never rewritten.
   app.post('/api/owner/save-website-draft', async (req, res) => {
     try {
       const user = await requireAuthenticatedUser(req);
       const salonId = (req.body?.salonId || '').trim();
       const config = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
       const templateKey = (req.body?.templateKey || 'hair').trim();
-      const slug = (req.body?.slug || '').trim();
+      const requestedSlug = (req.body?.slug || '').trim().toLowerCase();
+      const salonName = typeof req.body?.salonName === 'string' ? req.body.salonName : '';
 
       if (!salonId) {
         return res.status(400).json({ error: 'Missing salonId' });
@@ -702,7 +782,20 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
         return res.status(403).json({ error: 'Not authorized for this salon' });
       }
 
-      const finalSlug = slug || salon.slug || `salon-${salonId.slice(0, 8)}`;
+      const { data: existingSite } = await admin
+        .from('salon_public_websites')
+        .select('slug, is_published, published_at')
+        .eq('salon_id', salonId)
+        .maybeSingle();
+
+      const isPublished = existingSite?.is_published === true;
+      const finalSlug = resolveDraftSlug({
+        requestedSlug,
+        salonName,
+        existingSlug: existingSite?.slug || salon.slug || '',
+        isPublished,
+        fallback: `salon-${salonId.slice(0, 8)}`,
+      });
 
       // Upsert website draft
       const { data: website, error: upsertErr } = await admin
@@ -712,13 +805,20 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
           slug: finalSlug,
           template_key: templateKey,
           config,
-          is_published: false,
+          is_published: isPublished,
         } as any, { onConflict: 'salon_id' })
         .select('slug, is_published')
         .maybeSingle();
 
+      // Keep the canonical salon row on the same address so public routing and
+      // the owner workspace agree on one slug.
+      if (finalSlug && finalSlug !== (salon.slug || '')) {
+        await admin.from('salons').update({ slug: finalSlug } as any).eq('id', salonId);
+      }
+
       if (upsertErr) {
-        // If upsert fails, try update
+        // If upsert fails, try update (config only — never overwrite a slug we
+        // could not verify as free).
         const { data: updated } = await admin
           .from('salon_public_websites')
           .update({ config } as any)
@@ -728,7 +828,7 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
 
         return res.json({
           salonId,
-          slug: updated?.slug || finalSlug,
+          slug: updated?.slug || existingSite?.slug || finalSlug,
           isPublished: updated?.is_published === true,
         });
       }
@@ -741,6 +841,219 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
     } catch (err: any) {
       console.error('Error in /api/owner/save-website-draft:', err);
       res.status(500).json({ error: err.message || 'Draft save failed' });
+    }
+  });
+
+  // ==========================================================================
+  // CUSTOM DOMAIN (CNAME) ROUTING — see supabase migration M69.
+  //
+  // Two endpoints, deliberately split by trust level:
+  //   * /api/owner/custom-domain       — authenticated owner writes (RPC-scoped)
+  //   * /api/public/resolve-domain     — anonymous read used by the edge/router
+  //
+  // Verification is performed here, on the server, with Node's DNS resolver:
+  // PostgreSQL cannot do DNS lookups, and a browser must never be able to mark
+  // its own domain verified. Only after the probe passes does the server call
+  // `mark_custom_domain_status` with the service-role key.
+  // ==========================================================================
+
+  /**
+   * GET /api/public/resolve-domain?host=www.artsbyuma.com
+   * Anonymous, read-only host -> published-site resolution.
+   *
+   * Returns `{ slug, templateKey }` on a verified+published match, or
+   * `{ slug: null }` otherwise. Never leaks why resolution failed.
+   */
+  app.get('/api/public/resolve-domain', async (req, res) => {
+    try {
+      const rawHost = typeof req.query?.host === 'string' ? req.query.host : '';
+      const host = normalizeCustomDomain(rawHost);
+
+      if (!host || !isValidCustomDomain(host) || isReservedHost(host)) {
+        return res.json({ slug: null, templateKey: null, reason: 'invalid-host' });
+      }
+
+      const admin = getSupabaseAdmin();
+      const { data, error } = await admin.rpc('resolve_public_salon_by_domain', {
+        p_host: host,
+      });
+
+      if (error) {
+        console.error('resolve_public_salon_by_domain failed:', error.message);
+        return res.json({ slug: null, templateKey: null, reason: 'lookup-failed' });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.slug) {
+        return res.json({ slug: null, templateKey: null, reason: 'not-verified' });
+      }
+
+      res.json({
+        slug: row.slug,
+        templateKey: row.template_key ?? null,
+        customDomain: row.custom_domain ?? host,
+        salonId: row.salon_id ?? null,
+      });
+    } catch (err: any) {
+      console.error('Error in GET /api/public/resolve-domain:', err);
+      res.status(500).json({ slug: null, templateKey: null, error: 'Domain resolution failed' });
+    }
+  });
+
+  /** Ownership guard shared by the owner custom-domain endpoints. */
+  async function authorizeOwnerSalon(userId: string, salonId: string) {
+    const admin = getSupabaseAdmin();
+    const { data: salon } = await admin
+      .from('salons')
+      .select('id, organization_id')
+      .eq('id', salonId)
+      .maybeSingle();
+
+    if (!salon) return { ok: false as const, status: 404, error: 'Salon not found' };
+
+    const { data: member } = await admin
+      .from('organization_members')
+      .select('role')
+      .eq('organization_id', salon.organization_id)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!member) return { ok: false as const, status: 403, error: 'Not authorized for this salon' };
+    return { ok: true as const, salonId };
+  }
+
+  /**
+   * POST /api/owner/custom-domain
+   * Body: { salonId, domain } — `domain: '' | null` clears the mapping.
+   *
+   * Always routes through the owner-scoped `set_owner_custom_domain` /
+   * `clear_owner_custom_domain` RPCs, so an owner can only ever touch a salon
+   * they actually own. Setting or changing a domain resets it to 'pending'.
+   */
+  app.post('/api/owner/custom-domain', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonId = (req.body?.salonId || '').trim();
+      const rawDomain = req.body?.domain;
+
+      if (!salonId) {
+        return res.status(400).json({ error: 'Missing salonId' });
+      }
+
+      const auth = await authorizeOwnerSalon(user.id, salonId);
+      if (!auth.ok) {
+        return res.status(auth.status).json({ error: auth.error });
+      }
+
+      // Empty / null clears the mapping.
+      const normalized = normalizeCustomDomain(rawDomain);
+      const admin = getSupabaseAdmin();
+
+      if (!normalized) {
+        const { data, error } = await admin.rpc('clear_owner_custom_domain', {
+          p_salon_id: salonId,
+        });
+        if (error) {
+          return res.status(400).json({ error: error.message || 'Could not remove the domain' });
+        }
+        const row = Array.isArray(data) ? data[0] : data;
+        return res.json({
+          salonId,
+          domain: null,
+          status: row?.custom_domain_status || 'not_configured',
+        });
+      }
+
+      // Presentation-only pre-check so the owner gets a friendly message; the
+      // RPC re-validates and the unique index remains the final invariant.
+      const problems = validateCustomDomain(normalized);
+      if (problems.length > 0) {
+        return res.status(400).json({ error: problems[0].message });
+      }
+
+      const { data, error } = await admin.rpc('set_owner_custom_domain', {
+        p_domain: normalized,
+        p_salon_id: salonId,
+      });
+
+      if (error) {
+        // Surface the RPC's own, already user-safe message.
+        return res.status(400).json({ error: error.message || 'Could not save that domain' });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      res.json({
+        salonId,
+        domain: row?.custom_domain ?? normalized,
+        status: row?.custom_domain_status || 'pending',
+      });
+    } catch (err: any) {
+      console.error('Error in POST /api/owner/custom-domain:', err);
+      res.status(500).json({ error: err.message || 'Could not save that domain' });
+    }
+  });
+
+  /**
+   * POST /api/owner/custom-domain/verify
+   * Body: { salonId }
+   *
+   * Probes DNS from the server and flips the status via the service-role-only
+   * `mark_custom_domain_status` RPC. A tenant must prove control of the host
+   * with either:
+   *   - a CNAME/A record pointing at the platform base host, or
+   *   - a TXT record `nexora-verify=<salonId>`.
+   */
+  app.post('/api/owner/custom-domain/verify', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonId = (req.body?.salonId || '').trim();
+
+      if (!salonId) {
+        return res.status(400).json({ error: 'Missing salonId' });
+      }
+
+      const auth = await authorizeOwnerSalon(user.id, salonId);
+      if (!auth.ok) {
+        return res.status(auth.status).json({ error: auth.error });
+      }
+
+      const admin = getSupabaseAdmin();
+      const { data: site, error: readErr } = await admin
+        .from('salon_public_websites')
+        .select('custom_domain, custom_domain_status')
+        .eq('salon_id', salonId)
+        .maybeSingle();
+
+      if (readErr) {
+        return res.status(500).json({ error: 'Could not read your website settings' });
+      }
+
+      const domain = normalizeCustomDomain(site?.custom_domain);
+      if (!domain) {
+        return res.status(400).json({ error: 'No custom domain is configured yet' });
+      }
+
+      const probe = await probeCustomDomainDns(domain, salonId);
+
+      const { data, error } = await admin.rpc('mark_custom_domain_status', {
+        p_salon_id: salonId,
+        p_status: probe.verified ? 'verified' : 'failed',
+      });
+
+      if (error) {
+        return res.status(500).json({ error: 'Could not update the domain status' });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      res.json({
+        salonId,
+        domain,
+        status: row?.custom_domain_status || (probe.verified ? 'verified' : 'failed'),
+        detail: probe.detail,
+      });
+    } catch (err: any) {
+      console.error('Error in POST /api/owner/custom-domain/verify:', err);
+      res.status(500).json({ error: err.message || 'Domain verification failed' });
     }
   });
 

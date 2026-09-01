@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { GalleryImage } from '../types';
 
 export interface PublicSalonProjection {
   salon_id: string;
@@ -57,6 +58,11 @@ const PUBLIC_WEBSITE_FIELDS = [
   'meta_keywords:config->>metaKeywords',
   'services:config->services',
   'address_json:config->address',
+  // M68 — the owner's published brand visuals (safe URL schemes only, active
+  // + non-rejected gallery items only; projected by get_public_salon_website).
+  'logo_url:config->>logoUrl',
+  'hero_image_url:config->>heroImageUrl',
+  'gallery:config->gallery',
 ].join(',');
 
 function firstRow<T>(value: T | T[] | null): T | null {
@@ -104,6 +110,62 @@ export function ownerIdentityPubliclyEnabled(
   return flag !== false;
 }
 
+/** Mirrors the RPC guard: only http(s), root-relative and data:image URLs. */
+const SAFE_PUBLIC_IMAGE_SCHEME = /^(https?:\/\/|\/|\.\/|\.\.\/|data:image\/)/i;
+
+/** Accepts an owner media URL only when it uses a safe scheme. */
+export function safePublicImageUrl(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const url = value.trim();
+    if (!url || !SAFE_PUBLIC_IMAGE_SCHEME.test(url)) continue;
+    if (/[\u0000-\u001F\u007F]/.test(url)) continue;
+    return url;
+  }
+  return '';
+}
+
+/**
+ * Projects the publishable subset of a saved gallery (active, non-rejected,
+ * safe URL only). Internal fields — storagePath, serviceId, rejectionReason —
+ * never reach an anonymous visitor.
+ */
+export function publicGalleryItems(...sources: unknown[]): GalleryImage[] {
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
+    const items = source
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+      .filter((entry) => (entry.status === undefined ? 'active' : entry.status) !== 'inactive')
+      .filter((entry) => (entry.moderation === undefined ? 'approved' : entry.moderation) !== 'rejected')
+      .map((entry, index) => {
+        const url = safePublicImageUrl(entry.url);
+        if (!url) return null;
+        const beforeUrl = safePublicImageUrl(entry.beforeUrl);
+        const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id : `pub-${index}`;
+        return {
+          id,
+          url,
+          alt: typeof entry.alt === 'string' ? entry.alt : undefined,
+          title: typeof entry.title === 'string' ? entry.title : undefined,
+          description: typeof entry.description === 'string' ? entry.description : undefined,
+          category: typeof entry.category === 'string' ? entry.category : 'General',
+          caption: typeof entry.caption === 'string' ? entry.caption : undefined,
+          beforeUrl: beforeUrl || undefined,
+          beforeAlt: beforeUrl && typeof entry.beforeAlt === 'string' ? entry.beforeAlt : undefined,
+          featured: entry.featured === true,
+          displayOrder: typeof entry.displayOrder === 'number' ? entry.displayOrder : index,
+          themeId: typeof entry.themeId === 'string' ? entry.themeId : null,
+          status: 'active' as const,
+          moderation: 'approved' as const,
+        } as GalleryImage;
+      })
+      .filter((entry): entry is GalleryImage => entry !== null)
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    if (items.length > 0) return items;
+  }
+  return [];
+}
+
 /**
  * Resolve a published salon through the canonical field-limited RPC. Older
  * live projects that have not applied the public-read RPC migration fall back
@@ -148,6 +210,11 @@ export async function resolvePublicSalonWebsite(
   );
   const publicConfig: Record<string, unknown> = {
     salonName: businessName,
+    // M68 — owner media parity. Only safe schemes and visible gallery items
+    // are accepted here, mirroring the RPC projection.
+    logoUrl: safePublicImageUrl(row.logo_url),
+    heroImageUrl: safePublicImageUrl(row.hero_image_url),
+    gallery: publicGalleryItems(row.gallery),
     ...(ownerIdentityEnabled ? {
       ownerName: row.owner_name,
       ownerRole: row.owner_role,

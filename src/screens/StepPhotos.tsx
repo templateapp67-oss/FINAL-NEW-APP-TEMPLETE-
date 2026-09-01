@@ -1,13 +1,13 @@
 import { 
   ArrowLeft, ArrowRight, Plus, Edit2, Trash2, X, Image as ImageIcon, Monitor, 
   Sparkles, Upload, Check, ChevronLeft, ChevronRight, Wand2, Eye, RefreshCw,
-  ArrowLeftRight, ShieldAlert, Loader2
+  ArrowLeftRight, ShieldAlert, Loader2, TriangleAlert
 } from 'lucide-react';
 import { SalonData, GalleryImage } from '../types';
 import PreviewPane from '../components/PreviewPane';
 import GalleryModerationPanel from '../components/GalleryModerationPanel';
 import { motion, AnimatePresence } from 'motion/react';
-import { useState, useRef, DragEvent, useEffect } from 'react';
+import { useState, useRef, DragEvent, useEffect, useCallback, type Dispatch, type SetStateAction } from 'react';
 import {
   GALLERY_MANAGEMENT_THEMES,
   GALLERY_OWNER_CATEGORIES,
@@ -18,7 +18,6 @@ import {
   normalizeGalleryCategory,
   nextGalleryDisplayOrder,
   applyGalleryDisplayOrder,
-  readGalleryFileAsDataUrl,
   validateGalleryImageFile,
   type GalleryStatus,
 } from '../lib/galleryManagement';
@@ -26,15 +25,42 @@ import { isSiteHeaderTheme, type SiteHeaderThemeId } from '../lib/siteNavigation
 import { useAuth } from '../lib/useAuth';
 import { resolveOwnerSalonId } from '../lib/ownerSalon';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
-import { deleteSalonMedia, uploadSalonMedia } from '../lib/salonMediaService';
-import { compressImageToMaxFileSize, formatFileSize } from '../lib/imageCompression';
+import { deleteSalonMedia } from '../lib/salonMediaService';
+import {
+  IMAGE_UPLOAD_ACCEPT_ATTR,
+  IMAGE_UPLOAD_FORMATS_LABEL,
+  IMAGE_UPLOAD_MAX_BYTES,
+  ImageUploadError,
+  createPreviewUrl,
+  describeUploadError,
+  formatBytes,
+  genericUploadError,
+  readImageAsDataUrl,
+  revokePreviewUrl,
+  uploadSalonImage,
+  validateImageUploadFile,
+} from '../lib/mediaUpload';
 
 interface Props {
   data: SalonData;
-  setData: (d: SalonData) => void;
+  setData: Dispatch<SetStateAction<SalonData>>;
   onNext: () => void;
   onPrev: () => void;
   onSave?: (d?: SalonData) => void;
+}
+
+/** Per-file upload state driving the optimistic gallery thumbnails. */
+interface GalleryUploadState {
+  /** Progress 0–100. */
+  progress: number;
+  status: 'uploading' | 'uploaded' | 'error';
+  error?: string;
+  /** `true` when the file was kept as a local data URL after Storage failed. */
+  usedFallback?: boolean;
+  /** Retained so a failed item can be retried without re-picking the file. */
+  file?: File;
+  /** Local `blob:` preview, revoked once the persisted URL replaces it. */
+  previewUrl?: string;
 }
 
 const DEMO_GALLERY_PRESETS: GalleryImage[] = [
@@ -118,6 +144,49 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   const [beforeUploadProgress, setBeforeUploadProgress] = useState<number | null>(null);
   const beforeInputRef = useRef<HTMLInputElement>(null);
 
+  /**
+   * Upload bookkeeping for the optimistic gallery items. Keyed by the gallery
+   * item id so a thumbnail can show "Uploading… 42%", a specific failure, and a
+   * real Retry button — all without blocking the rest of the grid.
+   */
+  const [uploadStates, setUploadStates] = useState<Record<string, GalleryUploadState>>({});
+  /** Every `blob:` preview created here, revoked when the screen unmounts. */
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+  /** Latest salon data, so async uploads never write back a stale array. */
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  const trackPreviewUrl = useCallback((url: string | null) => {
+    if (url) previewUrlsRef.current.add(url);
+    return url;
+  }, []);
+
+  const releasePreviewUrl = useCallback((url?: string | null) => {
+    if (!url) return;
+    revokePreviewUrl(url);
+    previewUrlsRef.current.delete(url);
+  }, []);
+
+  useEffect(() => {
+    const tracked = previewUrlsRef.current;
+    return () => {
+      tracked.forEach((url) => revokePreviewUrl(url));
+      tracked.clear();
+    };
+  }, []);
+
+  /** Replaces one gallery item (functional update — never a stale snapshot). */
+  const patchGalleryItem = useCallback((id: string, patch: Partial<GalleryImage>) => {
+    setData((current) => ({
+      ...current,
+      gallery: (current.gallery || []).map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    }));
+  }, [setData]);
+
+  const appendGalleryItems = useCallback((items: GalleryImage[]) => {
+    setData((current) => ({ ...current, gallery: [...(current.gallery || []), ...items] }));
+  }, [setData]);
+
   // PHASE 14.6 — authorization (existing auth + ownership logic)
   const { user, loading: authLoading } = useAuth();
   const [editPermission, setEditPermission] = useState<'authorized' | 'not-configured' | 'not-authenticated' | 'no-ownership' | 'ambiguous' | 'permission-denied' | 'error'>(isSupabaseConfigured ? 'not-authenticated' : 'not-configured');
@@ -149,131 +218,100 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
     setTimeout(() => setFeedback(null), 2500);
   };
 
+  /**
+   * Shared upload runner used by the logo and the hero image.
+   *
+   *   1. validate (5 MB, JPG/PNG/WEBP/SVG) — specific message on failure
+   *   2. instant `blob:` preview so the image renders immediately
+   *   3. upload with retry through the shared pipeline
+   *   4. on total failure keep the preview and surface the REAL error
+   */
   const persistSinglePhoto = async (rawFile: File, mediaType: 'logo' | 'hero') => {
-    if (!rawFile || !rawFile.type.startsWith('image/')) return;
+    const field = mediaType === 'logo' ? 'logoUrl' : 'heroImageUrl';
+    const label = mediaType === 'logo' ? 'Logo' : 'Main photo';
 
-    // 1. IMMEDIATE BLOB PREVIEW — real-time visual feedback before any compression/upload
-    // This satisfies: Image State & Preview requirement (URL.createObjectURL on file select)
-    const immediatePreviewUrl = URL.createObjectURL(rawFile);
-    try {
-      if (mediaType === 'logo') {
-        if (logoBlobUrlRef.current) {
-          try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
-        }
-        logoBlobUrlRef.current = immediatePreviewUrl;
-        // Functional update avoids stale closure when data changes between renders
-        setData(prev => ({ ...prev, logoUrl: immediatePreviewUrl }));
-      } else {
-        if (heroBlobUrlRef.current) {
-          try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
-        }
-        heroBlobUrlRef.current = immediatePreviewUrl;
-        setData(prev => ({ ...prev, heroImageUrl: immediatePreviewUrl }));
-      }
-      showFeedback(mediaType === 'logo' ? 'Logo preview ready — uploading...' : 'Photo preview ready — uploading...');
-    } catch (previewErr) {
-      console.warn('Immediate preview failed, continuing with upload:', previewErr);
+    const validation = validateImageUploadFile(rawFile);
+    if (!validation.ok) {
+      setUploadError(validation.error);
+      showFeedback(validation.error || 'That image could not be used.');
+      return;
+    }
+
+    // 1. IMMEDIATE PREVIEW — the owner sees their image before the round trip.
+    const immediatePreviewUrl = trackPreviewUrl(createPreviewUrl(rawFile));
+    const previousBlob = mediaType === 'logo' ? logoBlobUrlRef.current : heroBlobUrlRef.current;
+    if (immediatePreviewUrl) {
+      if (mediaType === 'logo') logoBlobUrlRef.current = immediatePreviewUrl;
+      else heroBlobUrlRef.current = immediatePreviewUrl;
+      setData(prev => ({ ...prev, [field]: immediatePreviewUrl }));
+      showFeedback(`${label} preview ready — uploading…`);
     }
 
     setIsProcessing(true);
-    try {
-      // Auto-resize to 0.25MB max for localStorage friendliness (offline path) and faster uploads
-      const file = await compressImageToMaxFileSize(rawFile, 0.25);
-      if (file.size < rawFile.size) {
-        showFeedback(`Resized to ${formatFileSize(file.size)} — uploading...`);
-      } else {
-        showFeedback(`Uploading ${formatFileSize(file.size)}...`);
-      }
+    setUploadError(null);
+    setUploadProgress(10);
 
-      if (isSupabaseConfigured) {
-        setUploadError(null);
-        setUploadProgress(20);
-        try {
-          const resolution = await resolveOwnerSalonId();
-          if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
-          // FormData / S3 payload: uploadSalonMedia internally creates a Storage upload
-          // (Supabase storage uses multipart FormData under the hood). We pass the File
-          // directly, which is appended to FormData as `file` with proper content-type.
-          const media = await uploadSalonMedia({
-            salonId: resolution.salonId,
-            file,
-            mediaType,
-            title: file.name.replace(/\.[^/.]+$/, ''),
-            status: 'active',
-          });
-          if (!media.signedUrl) throw new Error('The uploaded image preview could not be created.');
-
-          // Replace blob preview with final persisted URL (signed URL from Storage)
-          // and revoke the temporary blob URL to free memory
-          if (mediaType === 'logo') {
-            if (logoBlobUrlRef.current) {
-              try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
-              logoBlobUrlRef.current = null;
-            }
-            setData(prev => {
-              const nextData = { ...prev, logoUrl: media.signedUrl! };
-              // Persistence: ensure DB + localStorage sync (step-5 -> step-6 retention)
-              if (onSave) onSave(nextData);
-              return nextData;
-            });
-          } else {
-            if (heroBlobUrlRef.current) {
-              try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
-              heroBlobUrlRef.current = null;
-            }
-            setData(prev => {
-              const nextData = { ...prev, heroImageUrl: media.signedUrl! };
-              if (onSave) onSave(nextData);
-              return nextData;
-            });
-          }
-          setUploadProgress(100);
-          showFeedback(mediaType === 'logo' ? 'Logo uploaded securely' : 'Main photo uploaded securely');
-        } catch (error) {
-          // Keep blob preview on error so user still sees their selection
-          setUploadError(error instanceof Error ? error.message : 'Unable to upload this image.');
-        } finally {
-          setUploadProgress(null);
+    let salonId: string | null = null;
+    if (isSupabaseConfigured) {
+      try {
+        const resolution = await resolveOwnerSalonId();
+        if (resolution.status !== 'resolved') {
+          throw new Error('A single owned salon is required to upload media.');
         }
+        salonId = resolution.salonId;
+      } catch (error) {
+        setUploadError(describeUploadError(error, 'A single owned salon is required to upload media.'));
+        setIsProcessing(false);
+        setUploadProgress(null);
         return;
       }
+    }
 
-      // Explicit offline/demo fallback only. Configured deployments use Storage.
-      // Convert to base64 / data URL for persistence in localStorage / config JSONB
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const url = event.target?.result as string;
-        if (!url) return;
-        // Revoke blob after base64 is ready — base64 is now the persistent representation
-        if (mediaType === 'logo') {
-          if (logoBlobUrlRef.current) {
-            try { URL.revokeObjectURL(logoBlobUrlRef.current); } catch {}
-            logoBlobUrlRef.current = null;
-          }
-          setData(prev => {
-            const nextData = { ...prev, logoUrl: url };
-            // Persistence: save base64 payload to localStorage + DB config
-            if (onSave) onSave(nextData);
-            return nextData;
-          });
-        } else {
-          if (heroBlobUrlRef.current) {
-            try { URL.revokeObjectURL(heroBlobUrlRef.current); } catch {}
-            heroBlobUrlRef.current = null;
-          }
-          setData(prev => {
-            const nextData = { ...prev, heroImageUrl: url };
-            if (onSave) onSave(nextData);
-            return nextData;
-          });
-        }
-        showFeedback(mediaType === 'logo' ? 'Logo updated successfully' : 'Main photo updated successfully');
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error('Photo persistence failed:', err);
-      showFeedback('Failed to process image');
+    try {
+      const result = await uploadSalonImage({
+        file: rawFile,
+        salonId,
+        mediaType,
+        title: rawFile.name.replace(/\.[^/.]+$/, ''),
+        status: 'active',
+        onProgress: (percent) => setUploadProgress(percent),
+      });
+
+      // Retire the previous blob preview only after the new URL is in place.
+      releasePreviewUrl(previousBlob);
+      if (mediaType === 'logo') {
+        if (logoBlobUrlRef.current !== result.previewUrl) releasePreviewUrl(logoBlobUrlRef.current);
+        logoBlobUrlRef.current = null;
+      } else {
+        if (heroBlobUrlRef.current !== result.previewUrl) releasePreviewUrl(heroBlobUrlRef.current);
+        heroBlobUrlRef.current = null;
+      }
+      releasePreviewUrl(result.previewUrl);
+
+      setData(prev => {
+        const nextData = { ...prev, [field]: result.url };
+        if (onSave) onSave(nextData);
+        return nextData;
+      });
+      setUploadProgress(100);
+      showFeedback(
+        result.usedFallback
+          ? `${label} saved to your draft (offline — it will sync when you're back online)`
+          : `${label} uploaded successfully`,
+      );
+      result.warnings
+        .filter((warning) => !warning.startsWith('Upload attempt'))
+        .forEach((warning) => console.warn('[StepPhotos]', warning));
+    } catch (error) {
+      // The blob preview STAYS so the owner still sees their selection, and the
+      // message is the real cause — never a generic, un-actionable dead end.
+      const message = error instanceof ImageUploadError
+        ? error.message
+        : describeUploadError(error, genericUploadError(mediaType === 'logo' ? 'logo' : 'photo'));
+      setUploadError(message);
+      console.error('Photo upload failed:', error);
     } finally {
+      setUploadProgress(null);
       setIsProcessing(false);
     }
   };
@@ -281,114 +319,220 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   const handleLogoFile = (file: File) => { void persistSinglePhoto(file, 'logo'); };
   const handleHeroFile = (file: File) => { void persistSinglePhoto(file, 'hero'); };
 
-  // Helper for gallery upload (validated, with progress + error + retry)
+  /**
+   * Uploads one gallery image and reconciles its optimistic thumbnail.
+   * Returns true when a renderable URL was produced.
+   */
+  const runGalleryUpload = useCallback(async (itemId: string, file: File): Promise<boolean> => {
+    setUploadStates((current) => ({
+      ...current,
+      [itemId]: { ...(current[itemId] || {}), status: 'uploading', progress: 4, error: undefined, file },
+    }));
+
+    let salonId: string | null = null;
+    if (isSupabaseConfigured) {
+      try {
+        const resolution = await resolveOwnerSalonId();
+        if (resolution.status !== 'resolved') {
+          throw new Error('A single owned salon is required to upload media.');
+        }
+        salonId = resolution.salonId;
+      } catch (error) {
+        const message = describeUploadError(error, 'A single owned salon is required to upload media.');
+        setUploadStates((current) => ({
+          ...current,
+          [itemId]: { ...(current[itemId] || {}), status: 'error', error: message, file },
+        }));
+        return false;
+      }
+    }
+
+    try {
+      const result = await uploadSalonImage({
+        file,
+        salonId,
+        mediaType: 'gallery',
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        status: 'active',
+        onProgress: (percent) => {
+          setUploadStates((current) => ({
+            ...current,
+            [itemId]: { ...(current[itemId] || {}), status: 'uploading', progress: percent, file },
+          }));
+        },
+      });
+
+      patchGalleryItem(itemId, {
+        url: result.url,
+        storagePath: result.storagePath || undefined,
+        status: 'active',
+        moderation: 'pending',
+      });
+
+      setUploadStates((current) => {
+        const previous = current[itemId];
+        if (previous?.previewUrl && previous.previewUrl !== result.url) releasePreviewUrl(previous.previewUrl);
+        return {
+          ...current,
+          [itemId]: {
+            ...(previous || {}),
+            status: 'uploaded',
+            progress: 100,
+            error: undefined,
+            usedFallback: result.usedFallback,
+            previewUrl: result.url === previous?.previewUrl ? undefined : previous?.previewUrl,
+            file: undefined,
+          },
+        };
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof ImageUploadError
+        ? error.message
+        : describeUploadError(error, genericUploadError('image'));
+      console.error('Gallery image upload failed:', error);
+      setUploadStates((current) => ({
+        ...current,
+        [itemId]: { ...(current[itemId] || {}), status: 'error', error: message, file },
+      }));
+      return false;
+    }
+  }, [patchGalleryItem, releasePreviewUrl]);
+
+  /**
+   * Gallery upload: instant optimistic previews, per-file retry, and no
+   * all-or-nothing batch failure — one bad photo never discards the others.
+   */
   const handleGalleryFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (list.length === 0) return;
-    setIsProcessing(true);
-    try {
-      setUploadError(null);
-      setUploadProgress(0);
 
-      if (isSupabaseConfigured) {
-      const uploaded: Awaited<ReturnType<typeof uploadSalonMedia>>[] = [];
-      try {
-        const resolution = await resolveOwnerSalonId();
-        if (resolution.status !== 'resolved') throw new Error('A single owned salon is required to upload media.');
-        for (let index = 0; index < list.length; index += 1) {
-          const file = list[index];
-          const problem = validateGalleryImageFile(file);
-          if (problem) throw new Error(problem);
-          const media = await uploadSalonMedia({
-            salonId: resolution.salonId,
-            file,
-            mediaType: 'gallery',
-            title: file.name.replace(/\.[^/.]+$/, ''),
-            status: 'pending',
-            displayOrder: nextGalleryDisplayOrder(data.gallery || []) + index,
-          });
-          uploaded.push(media);
-          setUploadProgress(Math.round(((index + 1) / list.length) * 100));
-        }
-        const currentGallery = data.gallery || [];
-        const newItems: GalleryImage[] = uploaded.map((media) => ({
-          id: media.id,
-          storagePath: media.storagePath || undefined,
-          url: media.signedUrl || '',
-          alt: media.title || 'Salon gallery image',
-          category: 'General',
-          title: media.title || undefined,
-          displayOrder: media.displayOrder,
-          status: 'active',
-          moderation: 'pending',
-        }));
-        const nextData = { ...data, gallery: [...currentGallery, ...newItems] };
-        setData(nextData);
-        showFeedback(`Uploaded ${newItems.length} photo(s) for moderation`);
-        if (onSave) onSave(nextData);
-      } catch (error) {
-        // Preserve all-or-nothing UI semantics. Best-effort delete any objects
-        // persisted earlier in this batch when a later upload fails.
-        await Promise.all(uploaded.map((media) => deleteSalonMedia(media).catch(() => undefined)));
-        setUploadError(error instanceof Error ? error.message : 'Unable to upload these images.');
-      } finally {
-        setUploadProgress(null);
-      }
+    setIsProcessing(true);
+    setUploadProgress(0);
+
+    // 1. Validate everything up front and report every problem at once.
+    const accepted: File[] = [];
+    const rejected: string[] = [];
+    for (const file of list) {
+      const result = validateImageUploadFile(file);
+      if (result.ok) accepted.push(file);
+      else rejected.push(result.error || `“${file.name}” could not be used.`);
+    }
+
+    if (rejected.length > 0) {
+      setUploadError(rejected.join(' '));
+    } else {
+      setUploadError(null);
+    }
+    if (accepted.length === 0) {
+      setUploadProgress(null);
+      setIsProcessing(false);
       return;
     }
 
-    const valid: { file: File; url: string }[] = [];
-    for (const rawFile of list) {
-      const file = await compressImageToMaxFileSize(rawFile, 0.2);
-      if (file.size < rawFile.size) {
-        showFeedback(`Resized ${formatFileSize(rawFile.size)} to ${formatFileSize(file.size)}`);
-      } else {
-        showFeedback(`Uploading ${formatFileSize(file.size)}...`);
-      }
-
-      const problem = validateGalleryImageFile(file);
-      if (problem) {
-        setUploadError(problem);
-        setUploadProgress(null);
-        return;
-      }
-      try {
-        const url = await readGalleryFileAsDataUrl(file, (percent) => setUploadProgress(percent));
-        valid.push({ file, url });
-      } catch {
-        setUploadError('Could not read that image. Try another image.');
-        setUploadProgress(null);
-        return;
-      }
-    }
-
-    if (valid.length > 0) {
-      const currentGallery = data.gallery || [];
-      const start = nextGalleryDisplayOrder(currentGallery);
-      const newItems: GalleryImage[] = valid.map((entry, idx) => ({
-        id: 'g-' + Date.now() + '-' + idx,
-        url: entry.url,
-        alt: entry.file.name.replace(/\.[^/.]+$/, ''),
+    // 2. Add every accepted file to the gallery IMMEDIATELY with a local
+    //    preview, so the grid shows the photo before the server responds.
+    const startOrder = nextGalleryDisplayOrder(dataRef.current.gallery || []);
+    const optimistic: GalleryImage[] = accepted.map((file, index) => {
+      const id = `g-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+      const previewUrl = trackPreviewUrl(createPreviewUrl(file));
+      return {
+        id,
+        // `blob:` preview now; replaced by the persisted URL once uploaded.
+        url: previewUrl || '',
+        alt: file.name.replace(/\.[^/.]+$/, ''),
         category: 'General',
-        title: entry.file.name.replace(/\.[^/.]+$/, ''),
-        displayOrder: start + idx,
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        displayOrder: startOrder + index,
         status: 'active',
         // PHASE 14.7 — new uploads enter moderation as pending.
         moderation: 'pending',
-      }));
-      const nextData = { ...data, gallery: [...currentGallery, ...newItems] };
-      setData(nextData);
-      showFeedback(`Added ${newItems.length} photo(s) to gallery`);
-      if (onSave) onSave(nextData);
+      };
+    });
+
+    setUploadStates((current) => {
+      const next = { ...current };
+      optimistic.forEach((item, index) => {
+        next[item.id] = {
+          progress: 0,
+          status: 'uploading',
+          file: accepted[index],
+          previewUrl: item.url.startsWith('blob:') ? item.url : undefined,
+        };
+      });
+      return next;
+    });
+    // The thumbnails appear NOW — before any network round trip.
+    appendGalleryItems(optimistic);
+    showFeedback(
+      accepted.length === 1
+        ? 'Photo added — uploading…'
+        : `${accepted.length} photos added — uploading…`,
+    );
+
+    // Environments without `URL.createObjectURL` (older browsers, some test
+    // runners) fall back to a Base64 preview, filled in as soon as it is read.
+    // The upload itself never waits for it.
+    optimistic.forEach((item, index) => {
+      if (item.url) return;
+      void readImageAsDataUrl(accepted[index])
+        .then((url) => patchGalleryItem(item.id, { url }))
+        .catch(() => undefined);
+    });
+
+    // 3. Upload with a small concurrency limit so one slow file cannot stall
+    //    the whole batch, then persist once.
+    const queue = [...optimistic];
+    let completed = 0;
+    let failed = 0;
+    const worker = async () => {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item) return;
+        const index = optimistic.indexOf(item);
+        const file = accepted[index];
+        if (!file) continue;
+        const ok = await runGalleryUpload(item.id, file);
+        if (ok) completed += 1;
+        else failed += 1;
+        setUploadProgress(Math.round(((completed + failed) / optimistic.length) * 100));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, optimistic.length) }, () => worker()));
+
+    setUploadProgress(null);
+    setIsProcessing(false);
+
+    if (failed > 0 && completed === 0) {
+      setUploadError((current) => current || 'No photos could be uploaded. Check your connection and retry.');
+    } else if (failed > 0) {
+      setUploadError((current) => current || `${failed} of ${optimistic.length} photos failed. Use Retry on the photo to try again.`);
     }
-    } catch (err) {
-      console.error('Gallery files processing failed:', err);
-      showFeedback('Failed to process gallery images');
-    } finally {
-      setUploadProgress(null);
-      setIsProcessing(false);
-    }
+
+    // Persist the whole gallery (including any data-URL fallbacks) once.
+    setData((current) => {
+      if (onSave) onSave(current);
+      return current;
+    });
   };
+
+  /** Retries a single failed gallery upload without re-picking the file. */
+  const retryGalleryUpload = useCallback(async (itemId: string) => {
+    const state = uploadStates[itemId];
+    if (!state?.file) {
+      galleryInputRef.current?.click();
+      return;
+    }
+    setUploadError(null);
+    const ok = await runGalleryUpload(itemId, state.file);
+    if (ok) {
+      showFeedback('Photo uploaded successfully');
+      setData((current) => {
+        if (onSave) onSave(current);
+        return current;
+      });
+    }
+  }, [uploadStates, runGalleryUpload, setData, onSave]);
 
   // Drag & drop handlers
   const handleDragOver = (e: DragEvent, field: 'logo' | 'hero' | 'gallery') => {
@@ -432,6 +576,10 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   const handleDeleteGalleryImage = async (id: string) => {
     const current = data.gallery || [];
     const image = current.find((item) => item.id === id);
+    // Free the local preview and forget any retry state for this item.
+    const uploadState = uploadStates[id];
+    if (uploadState?.previewUrl) releasePreviewUrl(uploadState.previewUrl);
+    setUploadStates(({ [id]: _removed, ...rest }) => rest);
     if (isSupabaseConfigured && image?.storagePath) {
       try {
         await deleteSalonMedia({ id: image.id, storagePath: image.storagePath });
@@ -477,14 +625,14 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
   const handleBeforeFile = async (file: File) => {
     setUploadError(null);
     setBeforeUploadProgress(0);
-    const problem = validateGalleryImageFile(file);
-    if (problem) {
-      setUploadError(problem);
+    const validation = validateImageUploadFile(file);
+    if (!validation.ok) {
+      setUploadError(validation.error);
       setBeforeUploadProgress(null);
       return;
     }
     try {
-      const url = await readGalleryFileAsDataUrl(file, (percent) => setBeforeUploadProgress(percent));
+      const url = await readImageAsDataUrl(file, (percent) => setBeforeUploadProgress(percent));
       setEditBeforeUrl(url);
     } catch {
       setUploadError('Could not read that before image. Try another image.');
@@ -602,7 +750,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   <span className="w-2 h-2 rounded-full bg-[#ac0053]"></span> Salon Logo
                 </h2>
                 <span className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-md">
-                  PNG or SVG, max 5MB
+                  {IMAGE_UPLOAD_FORMATS_LABEL} — max {formatBytes(IMAGE_UPLOAD_MAX_BYTES)}
                 </span>
               </div>
 
@@ -629,7 +777,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                     // Reset input so same file can be selected again
                     e.currentTarget.value = '';
                   }}
-                  accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                  accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                   className="hidden"
                 />
 
@@ -705,7 +853,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
               </div>
 
               <p className="text-xs text-gray-600 leading-relaxed">
-                This is the first image clients will see. Choose a wide shot of your interior or a stunning portrait. Files auto-resized to 5MB max.
+                This is the first image clients will see. Choose a wide shot of your interior or a stunning portrait. {IMAGE_UPLOAD_FORMATS_LABEL} — max {formatBytes(IMAGE_UPLOAD_MAX_BYTES)}.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4">
@@ -731,7 +879,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                       }
                       e.currentTarget.value = '';
                     }}
-                    accept="image/*"
+                    accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                     className="hidden"
                   />
 
@@ -794,7 +942,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   <h2 className="text-base font-bold text-[#1a1c1c] flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-[#ac0053]"></span> Gallery
                   </h2>
-                  <p className="text-xs text-gray-500 mt-0.5">3–10 photos recommended. Files auto-resized to 5MB max.</p>
+                  <p className="text-xs text-gray-500 mt-0.5">3–10 photos recommended. {IMAGE_UPLOAD_FORMATS_LABEL} — max {formatBytes(IMAGE_UPLOAD_MAX_BYTES)} each.</p>
                 </div>
 
                 <button
@@ -809,8 +957,14 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   ref={galleryInputRef}
                   data-testid="gallery-file-input"
                   multiple
-                  onChange={e => e.target.files && handleGalleryFiles(e.target.files)}
-                  accept="image/*"
+                  onChange={e => {
+                    const selected = e.target.files;
+                    // Reset first so the same file can be re-selected after a
+                    // failed upload / retry.
+                    e.currentTarget.value = '';
+                    if (selected && selected.length > 0) void handleGalleryFiles(Array.from(selected));
+                  }}
+                  accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                   className="hidden"
                 />
               </div>
@@ -850,19 +1004,68 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                 }`}
               >
                 <AnimatePresence>
-                  {galleryList.map((img, index) => (
+                  {galleryList.map((img, index) => {
+                    const uploadState = uploadStates[img.id];
+                    return (
                     <motion.div
                       key={img.id}
+                      data-testid="gallery-thumb"
+                      data-upload-status={uploadState?.status || 'ready'}
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.8 }}
-                      className="relative group aspect-square rounded-xl overflow-hidden border border-gray-200 bg-gray-100 shadow-2xs hover:shadow-md transition-all cursor-pointer"
+                      className={`relative group aspect-square rounded-xl overflow-hidden border bg-gray-100 shadow-2xs hover:shadow-md transition-all cursor-pointer ${
+                        uploadState?.status === 'error'
+                          ? 'border-red-400 ring-2 ring-red-200'
+                          : uploadState?.status === 'uploading'
+                            ? 'border-[#ac0053] ring-2 ring-[#ffd9e1]'
+                            : 'border-gray-200'
+                      }`}
                     >
                       <img
                         src={img.url}
                         alt={img.alt || 'Gallery image'}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${
+                          uploadState?.status === 'uploading' ? 'opacity-60' : ''
+                        }`}
                       />
+
+                      {/* Uploading overlay — real-time feedback for the optimistic preview */}
+                      {uploadState?.status === 'uploading' && (
+                        <div
+                          data-testid="gallery-thumb-uploading"
+                          className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1.5 text-white"
+                        >
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span className="text-[10px] font-bold tabular-nums">
+                            Uploading {Math.max(0, Math.min(100, Math.round(uploadState.progress)))}%
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Failed overlay — keeps the preview and offers a real retry */}
+                      {uploadState?.status === 'error' && (
+                        <div
+                          data-testid="gallery-thumb-error"
+                          className="absolute inset-0 bg-red-900/60 flex flex-col items-center justify-center gap-1.5 text-white px-2 text-center"
+                        >
+                          <TriangleAlert className="w-5 h-5" />
+                          <span className="text-[9px] font-semibold leading-tight line-clamp-3">
+                            {uploadState.error || 'Upload failed'}
+                          </span>
+                          <button
+                            type="button"
+                            data-testid="gallery-thumb-retry"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void retryGalleryUpload(img.id);
+                            }}
+                            className="mt-0.5 inline-flex items-center gap-1 bg-white text-red-700 text-[10px] font-bold px-2 py-1 rounded-md hover:bg-red-50"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Retry
+                          </button>
+                        </div>
+                      )}
 
                       {/* Overlay controls */}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2 text-white">
@@ -952,10 +1155,16 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                               Rejected
                             </span>
                           )}
+                          {uploadState?.status === 'uploaded' && uploadState.usedFallback && (
+                            <span data-testid="gallery-thumb-offline" className="bg-slate-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md inline-block">
+                              Saved locally
+                            </span>
+                          )}
                         </div>
                       </div>
                     </motion.div>
-                  ))}
+                    );
+                  })}
                 </AnimatePresence>
 
                 {/* Empty Slot for Drag & Drop / Click */}
@@ -1159,7 +1368,7 @@ export default function StepPhotos({ data, setData, onNext, onPrev, onSave }: Pr
                   ref={beforeInputRef}
                   data-testid="gallery-before-input"
                   onChange={e => e.target.files?.[0] && handleBeforeFile(e.target.files[0])}
-                  accept="image/*"
+                  accept={IMAGE_UPLOAD_ACCEPT_ATTR}
                   className="hidden"
                 />
                 {beforeUploadProgress !== null && (

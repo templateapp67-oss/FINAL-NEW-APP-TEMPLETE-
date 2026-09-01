@@ -1,12 +1,45 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-09-01** (White-label SaaS transformation: custom
-> domain / CNAME routing, testimonials in the unified schema, and full
-> branding isolation — see the top section).
+> Last updated: **2026-09-01** (Service autosave + live preview transport on
+> top of the white-label SaaS transformation: custom domain / CNAME routing,
+> testimonials in the unified schema, and full branding isolation).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## White-label SaaS transformation — 2026-09-01 (current PR)
+## Service autosave + live preview transport — 2026-09-01 (current PR)
+
+The documented `useAutoSaveService` pattern (Next.js App Router + Supabase
+client, 800 ms debounce, `services` upsert with `updated_at`) is now
+implemented for this Vite/React app, plus both live-preview transports.
+
+- **`src/lib/serviceAutosave.ts`** — draft → canonical `services` row mapping
+  (rupees → integer `price_paise`), validation mirroring the DB constraints,
+  session-derived tenant resolution (`owner_salon_ids()`; a caller-suggested
+  salon id is only accepted when the session owns it), and the upsert itself
+  (`onConflict: 'id,salon_id'`). Provenance (`theme_id` / `category_id` /
+  `predefined_service_id`) is insert-only and never rewritten.
+- **`src/hooks/useAutoSaveService.ts`** — composes the existing `useAutosave`
+  (serialized writes, backoff retries, `saveNow()`/`retry()`), uses the repo's
+  own debounce instead of lodash, and returns
+  `'idle' | 'saving' | 'saved' | 'error'` + `error` / `lastSavedAt`.
+- **Wiring** — the service editor (`StepServices`) autosaves name, description,
+  price and duration for every DATABASE-backed row and shows
+  “Autosaving… / Autosaved ✓”. Confirmed values are mirrored into the central
+  edit state so the inline preview updates immediately. Insert remains the
+  explicit `create_saved_service` path (provenance + duplicate guards).
+- **Live preview** — `src/lib/previewBridge.ts` defines the `postMessage`
+  protocol (`state` / `ready` / `ack` / `error`) with origin allow-lists.
+  `StepFullWebsitePreview` toggles between **Inline** (same React tree, props
+  bound to the edit state) and **Isolated** (`LivePreviewFrame` → the
+  `/preview-frame` route, a read-only renderer).
+- **Tests** — `npm run test:service-autosave` (29 checks, jsdom + the real
+  hook against a recording Supabase stub), included in
+  `npm run test:builder-fixes`. No migration is required: the row shape and RLS
+  already exist (M28/M40/M67).
+
+Full write-up: `docs/service-autosave-live-preview.md`.
+
+## White-label SaaS transformation — 2026-09-01
 
 Three modules added on top of the builder fixes (media upload, autosave,
 unified draft, dynamic slug). Every module is covered by

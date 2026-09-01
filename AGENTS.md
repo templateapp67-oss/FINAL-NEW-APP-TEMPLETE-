@@ -71,6 +71,16 @@ The app contains:
 - **Owner auth + shop location** — Supabase Auth, Leaflet map with Nominatim
   geocoding, and a **public nearby-salon search** at the `/nearby` route
   (`src/components/NearbySalonSearch.tsx`).
+- **Service autosave + live preview transport** — `useAutoSaveService`
+  (`src/hooks/useAutoSaveService.ts`) debounces the service editor (800 ms) and
+  upserts the canonical `services` row through the ONE shared Supabase client
+  (`src/lib/serviceAutosave.ts`): salon id resolved from the session, tenant
+  verified against `owner_salon_ids()`, provenance immutable, inserts opt-in.
+  Live preview has exactly two transports — the inline canvas is bound to the
+  central edit state by props; the isolated iframe (`LivePreviewFrame` →
+  `/preview-frame`) streams the same state with origin-validated `postMessage`
+  (`src/lib/previewBridge.ts`). `npm run test:service-autosave` (29 checks);
+  full write-up in `docs/service-autosave-live-preview.md`.
 
 There is **no README**; `AGENTS.md` + `docs/HANDOFF.md` are the orientation docs.
 
@@ -102,6 +112,7 @@ npm run generate:theme-seed # regenerate M18 from src/lib/themeServices.ts
 npm run validate:migrations # source-check M18 + apply M01–M27 twice + tests A–U
 npm run test:theme-catalog # verify five-theme DB/RPC/UI read boundaries
 npm run test:service-saving # verify saved-service CRUD/tenant/persistence flow
+npm run test:service-autosave # service autosave + live preview bridge (29 checks)
 npm run test:service-management # Phase 8.1 management E2E on real PostgreSQL
 npm run test:service-security # Phase 8.2 adversarial security/validation suite
 npm run test:acceptance     # Phase 8.3 five-theme acceptance (data + integration)

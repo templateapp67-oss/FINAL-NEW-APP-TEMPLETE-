@@ -6,6 +6,7 @@ import NearbySalonSearch from './components/NearbySalonSearch.tsx';
 import PublicSalonView from './components/PublicSalonView.tsx';
 import PreviewFrameSurface from './components/PreviewFrameSurface.tsx';
 import NotFound from './components/NotFound.tsx';
+import PublicSalonUnavailable from './components/PublicSalonUnavailable.tsx';
 import AuthCallbackPage from './components/AuthCallbackPage.tsx';
 import PasswordResetPage from './components/PasswordResetPage.tsx';
 import SignUpPage from './components/SignUpPage.tsx';
@@ -21,7 +22,10 @@ import {
   matchesBrandFallbackSlug,
   extractSubdomainSlug,
 } from './lib/salonRouting.ts';
-import { resolvePublicSalonWebsite } from './lib/publicSalonResolver.ts';
+import {
+  resolvePublicSalonWebsiteResult,
+  type PublicSalonProjection,
+} from './lib/publicSalonResolver.ts';
 import {
   getCustomDomainMapping,
   looksLikeCustomDomainHost,
@@ -83,7 +87,10 @@ function ProtectedApp() {
  */
 function RootRouter() {
   const [loading, setLoading] = useState(true);
-  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'auth_login' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'preview_frame' | 'not_found'>('app');
+  const [route, setRoute] = useState<'app' | 'protected_app' | 'auth_callback' | 'auth_login' | 'reset_password' | 'signup' | 'nearby' | 'public_salon' | 'preview_frame' | 'not_found' | 'salon_unavailable'>('app');
+  // The tenant resolved by the router, handed to PublicSalonView so the SAME
+  // canonical projection is rendered without a second slug lookup.
+  const [resolvedSalon, setResolvedSalon] = useState<PublicSalonProjection | null>(null);
 
   // NOTE: slug resolution is fed by `location.pathname` and (when present)
   // `location.hostname` (subdomain). Query parameters (e.g. `?ref=NX-NEXORA-2026`)
@@ -210,18 +217,28 @@ function RootRouter() {
       // 3. Only a published salon_public_websites slug is a public site.
       //    No hardcoded salon. Offline/local draft is a last-resort fallback.
       if (isSupabaseConfigured && supabase) {
-        try {
-          // Resolve through the field-limited published projection. Anonymous
-          // users never receive the owner-private draft/config row.
-          const website = await resolvePublicSalonWebsite(supabase, normalizedPath);
-          if (website) {
-            setRoute('public_salon');
-            setLoading(false);
-            return;
-          }
-        } catch (err) {
-          console.error('Failed to query salon slug from Supabase:', err);
+        // Resolve through the ONE canonical, field-limited published
+        // projection (the same helper PublicSalonView uses). Anonymous users
+        // never receive the owner-private draft/config row.
+        const resolution = await resolvePublicSalonWebsiteResult(supabase, normalizedPath);
+        if (resolution.status === 'found') {
+          setResolvedSalon(resolution.website);
+          setRoute('public_salon');
+          setLoading(false);
+          return;
         }
+        if (resolution.status === 'unavailable') {
+          // The directory could not be reached (offline, RPC/permission or
+          // 5xx failure). This is NOT proof that the salon does not exist, so
+          // it must never render "Salon Not Found" — and never a default
+          // tenant either.
+          console.error('Failed to query salon slug from Supabase:', resolution.error);
+          setResolvedSalon(null);
+          setRoute('salon_unavailable');
+          setLoading(false);
+          return;
+        }
+        setResolvedSalon(null);
       }
 
       // 4. Offline demo fallback only. In configured deployments a missing or
@@ -288,12 +305,16 @@ function RootRouter() {
     case 'public_salon':
       // On a custom domain the address bar keeps the tenant's own hostname but
       // the site is rendered from the tenant's canonical slug, resolved above.
-      return <PublicSalonView slug={customDomainSlug || normalizedPath} />;
+      return <PublicSalonView slug={customDomainSlug || normalizedPath} resolved={resolvedSalon} />;
     case 'preview_frame':
       // Isolated live preview: read-only, driven entirely by postMessage.
       return <PreviewFrameSurface />;
     case 'not_found':
       return <NotFound />;
+    case 'salon_unavailable':
+      // Distinct from NotFound: the address may be perfectly valid, the
+      // lookup itself failed.
+      return <PublicSalonUnavailable slug={normalizedPath} />;
     default:
       return <App />;
   }

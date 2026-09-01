@@ -145,7 +145,7 @@ ok('800 ms debounce · conflict target id,salon_id');
 const previewFrameIndex = mainSource.indexOf("pathname === '/preview-frame'");
 assert.ok(previewFrameIndex > -1, 'the /preview-frame route must be registered');
 assert.ok(
-  previewFrameIndex < mainSource.indexOf('await resolvePublicSalonWebsite('),
+  previewFrameIndex < mainSource.indexOf('await resolvePublicSalonWebsiteResult('),
   'the preview frame route must be matched BEFORE salon-slug resolution',
 );
 assert.ok(PREVIEW_FRAME_ROUTE === '/preview-frame', 'route constant matches main.tsx');

@@ -157,6 +157,7 @@
     "test:cache-clear-auth": "tsx scripts/test-cache-clear-auth-recovery.mjs",
     "test:multi-tenant": "tsx scripts/test-multi-tenant-owners.mjs",
     "test:public-website": "tsx scripts/test-public-website-resolution.mjs",
+    "test:public-resolution": "tsx scripts/test-public-slug-resolution.mjs",
     "test:public-template-rendering": "tsx scripts/test-public-template-rendering.mjs",
     "test:public-security": "tsx scripts/test-public-access-security.mjs",
     "test:slug-collision": "tsx scripts/test-slug-collision-handling.mjs",
@@ -219,7 +220,7 @@
     "test:page-builder": "tsx scripts/test-page-builder.mjs",
     "test:dynamic-slug": "tsx scripts/test-dynamic-slug.mjs",
     "test:white-label": "tsx scripts/test-white-label-and-domains.mjs",
-    "test:builder-fixes": "npm run test:media-upload && npm run test:autosave && npm run test:service-autosave && npm run test:autosave-store && npm run test:page-builder && npm run test:dynamic-slug && npm run test:white-label && tsx scripts/test-save-feedback.mjs"
+    "test:builder-fixes": "npm run test:public-resolution && npm run test:media-upload && npm run test:autosave && npm run test:service-autosave && npm run test:autosave-store && npm run test:page-builder && npm run test:dynamic-slug && npm run test:white-label && tsx scripts/test-save-feedback.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

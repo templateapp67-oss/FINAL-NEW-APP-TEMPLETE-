@@ -18,6 +18,7 @@
 import { initialData, type SalonData } from '../types';
 import { DEFAULT_BRAND_CONFIG } from '../config/brandConfig';
 import { slugifySalonName } from './publicWebsiteUrl';
+import { canonicalPublicSlug } from './publicSalonResolver';
 
 /** Normalised slug stored on the configured default business. */
 export const BRAND_FALLBACK_SLUG =
@@ -33,14 +34,10 @@ export const BRAND_FALLBACK_SLUG =
  * all resolve to the same canonical `nexora-demo-salon` slug.
  */
 export function normalizeRouteSlug(pathname: string): string {
-  const segment = (pathname || '')
-    .replace(/^\/+|\/+$/g, '')
-    .split('/')[0] || '';
-  // Business-name generation falls back to `salon`; route parsing must not.
-  // An empty/invalid path remains the application root rather than silently
-  // becoming the public `/salon` address.
-  if (!segment || !/[a-z0-9]/i.test(segment)) return '';
-  return slugifySalonName(segment);
+  // ONE canonical implementation, shared with the public resolver and the
+  // public view, so the router can never look up a subtly different slug from
+  // the one the resolver queries.
+  return canonicalPublicSlug(pathname);
 }
 
 /**

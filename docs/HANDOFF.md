@@ -1,12 +1,58 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-09-01** (Service autosave + live preview transport on
+> Last updated: **2026-09-02** (Public slug resolution / `/arts-by-uma` fix,
+> on top of: Service autosave + live preview transport on
 > top of the white-label SaaS transformation: custom domain / CNAME routing,
 > testimonials in the unified schema, and full branding isolation).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
-## Service autosave + live preview transport — 2026-09-01 (current PR)
+## Public slug resolution — `/arts-by-uma` "Salon Not Found" fix — 2026-09-02 (current PR)
+
+**Live root cause** (read-only anon audit of project `qwaehqsmodekbgvnaavz`):
+`salon_public_websites` contains **no `arts-by-uma` row**. The tenant sites are
+still on their provisioning placeholder slugs (`my-salon`, `my-salon-1..3`,
+`my-salon-ww8h`, `salon-<uuid>`), unpublished, with an empty `config`. Two
+systemic defects amplified it:
+
+1. `get_public_salon_website(text)` (M44/M46/M49/M52/M66/M68), plus
+   `get_public_salon_services` and M69's `resolve_public_salon_by_domain`, are
+   **not applied** on the live project (`PGRST202`). The SPA therefore ran the
+   compatibility path that reads `salon_public_websites` directly — which only
+   worked because `anon` still holds a raw SELECT grant, exposing every
+   tenant's full owner `config` (email included) to anonymous visitors.
+2. `RootRouter` treated **any** lookup failure (offline / RPC / permission /
+   5xx) as "Salon Not Found".
+
+**Shipped**
+
+- `supabase/migrations/20260902000101_m70_public_slug_resolution_repair.sql`
+  (additive, idempotent, single transaction): canonical field-limited
+  `get_public_salon_website(text)` granted to `anon`; `revoke select … from
+  anon` on `salon_public_websites` in the same transaction; placeholder →
+  business slug repair that keeps `salons.slug` and
+  `salon_public_websites.slug` in agreement and **never** flips
+  `is_published`/`published_at`; `verify_m70_public_slug_resolution(text)`
+  diagnostic (service_role). Apply steps + expected output:
+  `docs/m70-public-slug-resolution-runbook.md`. **Not applied from the agent
+  sandbox — it has anonymous access only.**
+- `src/lib/publicSalonResolver.ts` — `canonicalPublicSlug()` is now THE slug
+  normaliser (name, path, mixed case, trailing slash, query, percent-encoding)
+  and `resolvePublicSalonWebsiteResult()` returns
+  `found | not-found | unavailable`.
+- `src/lib/salonRouting.ts` — `normalizeRouteSlug` delegates to it, so router
+  and resolver can never disagree.
+- `src/main.tsx` — one resolution per page load, the projection is handed to
+  `PublicSalonView` (`resolved` prop), and an `unavailable` outcome renders the
+  new `PublicSalonUnavailable` screen instead of the 404 page.
+- `vercel.json` — SPA fallback moved from `routes` to `rewrites`; Vercel
+  rejects `routes` when `headers` are present.
+- `npm run test:public-resolution` (19 checks) — runs the M70 SQL for real in
+  PGlite (published tenant, mixed case, unpublished, inactive, deleted,
+  inactive template, tenant isolation, field-limited projection, anon grant
+  revoked) plus the client normaliser/resolver/routing wiring.
+
+## Service autosave + live preview transport — 2026-09-01
 
 The documented `useAutoSaveService` pattern (Next.js App Router + Supabase
 client, 800 ms debounce, `services` upsert with `updated_at`) is now

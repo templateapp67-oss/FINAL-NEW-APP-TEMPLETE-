@@ -135,7 +135,7 @@ assert.match(app, /publicWebsiteUrl\(draft\.slug\)/);
 assert.match(service, /import \{[^}]*slugifySalonName[^}]*\} from '\.\/publicWebsiteUrl'/);
 assert.match(service, /const slug = slugifySalonName\(data\.salonName\) \|\| 'salon'/);
 assert.match(setup, /const publishedUrl = publicWebsiteUrl\(saved\.slug, platform\.websiteUrl\)/);
-assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
+assert.match(main, /resolvePublicSalonWebsiteResult\(supabase, normalizedPath\)/);
 assert.match(migrate44, /private\.nexora_business_slug/);
 assert.match(migrate44, /private\.nexora_allocate_business_slug/);
 assert.match(migrate44, /URL is generated from the persisted/);

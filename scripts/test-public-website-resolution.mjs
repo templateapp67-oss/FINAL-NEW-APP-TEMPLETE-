@@ -26,12 +26,12 @@ let passed = 0;
 const ok = (label) => { passed += 1; console.log(`PASS ${label}`); };
 
 assert.match(main, /const normalizedPath = subdomainSlug \|\| normalizeRouteSlug\(pathname\)/);
-assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
+assert.match(main, /resolvePublicSalonWebsiteResult\(supabase, normalizedPath\)/);
 assert.match(hostRouting, /return `\/\$\{slug\}\$\{path === '\/' \? '' : path\}`/);
 ok('path and existing white-label subdomain routes resolve one normalized slug');
 
-assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
-assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
+assert.match(main, /resolvePublicSalonWebsiteResult\(supabase, normalizedPath\)/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)|resolvePublicSalonWebsiteResult\(requireSupabase\(\), normalizedSlug\)/);
 assert.match(publicResolver, /\.eq\('slug', normalizedSlug\)/);
 assert.match(publicResolver, /\.eq\('is_published', true\)/);
 assert.doesNotMatch(publicResolver, /royal-hair-studio/);
@@ -46,7 +46,9 @@ assert.match(publicResolver, /ownerIdentityPubliclyEnabled\(\s*templateKey,\s*ro
 assert.match(publicResolver, /contactOptions\?\.callNow === true \? \{ phone: row\.phone \}/);
 assert.match(publicResolver, /contactOptions\?\.whatsapp === true \? \{ whatsappPhone: row\.whatsapp_phone \}/);
 assert.doesNotMatch(publicResolver, /email:config->>email/);
-assert.match(vercel, /"src": "\/\.\*", "dest": "\/index\.html"/);
+// M70: `routes` cannot coexist with `headers` on Vercel, so the SPA fallback
+// is expressed as a rewrite (filesystem still wins for real assets).
+assert.match(vercel, /"source": "\/\(\(\?!api\/\)\.\*\)", "destination": "\/index\.html"/);
 ok('every published owner slug has a safe compatibility lookup and Vercel dynamic path');
 
 assert.match(publicResolver, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedSlug \}\)/);

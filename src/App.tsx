@@ -328,6 +328,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           : '',
         templateId: configTemplate,
         publishState: draft?.isPublished ? 'published' : 'draft',
+        // M69 — database-owned routing state (never restorable from a cache).
+        customDomain: draft?.customDomain ?? null,
+        customDomainStatus: draft?.customDomainStatus ?? 'not_configured',
       }, salonRow);
       const authoritativeTemplate = hydratedTemplate
         || configTemplate

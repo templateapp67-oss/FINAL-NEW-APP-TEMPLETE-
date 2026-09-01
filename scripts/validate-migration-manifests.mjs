@@ -37,21 +37,22 @@ const overlap = designA.files.filter((file) => existing.files.includes(file));
 assert.deepEqual(overlap, []);
 assert.ok(designA.files.every((file) => /_m(?:0[1-9]|1\d|2[0-7])_/.test(file)));
 assert.ok(existing.files[0].includes('_m28_'));
-// M55-M68 in timestamp order. M59-M62 came from main; M63/M64 from that
+// M55-M69 in timestamp order. M59-M62 came from main; M63/M64 from that
 // branch; M65 adds home-service bookings; M66 adds owner-photo public parity;
 // M67 fixes saved-service re-add ("already saved" on archived rows) with
 // upsert/revive semantics; M68 adds published-site media parity (logo / hero /
-// gallery projection) and SVG uploads to the media bucket. Asserted by
+// gallery projection) and SVG uploads to the media bucket; M69 adds custom
+// domain (CNAME) routing and projects whiteLabel + testimonials. Asserted by
 // position so a re-ordering or a dropped file fails loudly.
-const tail = existing.files.slice(-14);
+const tail = existing.files.slice(-15);
 const expectedTail = [
   '_m55_', '_m56_', '_m57_', '_m58_', '_m59_', '_m60_', '_m61_',
-  '_m62_', '_m63_', '_m64_', '_m65_', '_m66_', '_m67_', '_m68_',
+  '_m62_', '_m63_', '_m64_', '_m65_', '_m66_', '_m67_', '_m68_', '_m69_',
 ];
 expectedTail.forEach((needle, index) => {
   assert.ok(tail[index].includes(needle), `expected ${needle} at position -${expectedTail.length - index}`);
 });
-ok('Design-A M01-M27 and canonical M28-M68 tracks cannot be conflated');
+ok('Design-A M01-M27 and canonical M28-M69 tracks cannot be conflated');
 
 const helpers = [
   '20260821203500_setup_public_salon_v2.sql',

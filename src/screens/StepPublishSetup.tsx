@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Globe, CheckCircle2, Link2, AlertCircle, Monitor
 import { useBrandConfig } from '../config/brandConfig';
 import { unpublishOwnerSalonWebsite, verifyOwnerPublishReadiness } from '../lib/salonWebsiteService';
 import { generateSalonSlug, publicWebsiteHref, publicWebsiteUrl, slugifySalonName } from '../lib/publicWebsiteUrl';
+import CustomDomainPanel from '../components/CustomDomainPanel';
 import { assertPublishPayloadComplete, saveAndPublishOwnerWebsite } from '../lib/saveAndPublish';
 import { STEP_PUBLISH, STEP_PUBLISH_SUCCESS, TOTAL_OWNER_STEPS } from '../lib/ownerFlow';
 import {
@@ -317,6 +318,24 @@ export default function StepPublishSetup({ data, setData, onNext, onPrev, onSave
               </p>
             </div>
           </div>
+
+          {/* Custom Domain (CNAME) Section — connect a domain the tenant owns.
+              The database is the authority for the stored value; the panel only
+              renders and mutates it through the owner-scoped API. */}
+          <CustomDomainPanel
+            salonId={data.salonId || null}
+            domain={data.customDomain ?? null}
+            status={data.customDomainStatus ?? 'not_configured'}
+            published={data.publishState === 'published'}
+            target={platform.websiteUrl}
+            onChanged={({ domain, status }) =>
+              setData(prev => ({
+                ...prev,
+                customDomain: domain,
+                customDomainStatus: status as SalonData['customDomainStatus'],
+              }))
+            }
+          />
 
           {/* Website Checklist Section */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs flex flex-col gap-5">

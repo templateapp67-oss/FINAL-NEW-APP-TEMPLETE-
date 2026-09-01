@@ -1,9 +1,101 @@
 # HANDOFF — Nexora Salon Website Builder
 
-> Last updated: **2026-09-01** (Gallery upload & preview, autosave, complete
-> draft persistence and dynamic slugs — see the top section).
+> Last updated: **2026-09-01** (White-label SaaS transformation: custom
+> domain / CNAME routing, testimonials in the unified schema, and full
+> branding isolation — see the top section).
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
+
+## White-label SaaS transformation — 2026-09-01 (current PR)
+
+Three modules added on top of the builder fixes (media upload, autosave,
+unified draft, dynamic slug). Every module is covered by
+`npm run test:white-label` (42 checks), wired into `npm run test`.
+
+### A. Custom domain (CNAME) mapping
+
+A tenant can now point their own hostname at their published site.
+
+- **Migration `20260901000201_m69_custom_domain_white_label.sql`** (must be
+  applied):
+  - `salon_public_websites.custom_domain`, `.custom_domain_status`
+    (`not_configured|pending|verified|failed`), `.custom_domain_verified_at`,
+    a format guard and a case-insensitive unique index.
+  - `public.resolve_public_salon_by_domain(host)` — `security definer`,
+    granted to `anon`, returns a row **only** when the domain is `verified`,
+    the site is `is_published`, the salon is active and its theme is active.
+  - `public.set_owner_custom_domain` / `clear_owner_custom_domain` — scoped
+    through `private.owned_publish_salon_id`, so an owner can only touch a
+    salon they own. Changing a domain resets it to `pending`.
+  - `public.mark_custom_domain_status` — **`service_role` only**, so a browser
+    can never self-verify a domain.
+  - `verify_m69_custom_domain_white_label()` — 8 self-checks.
+- **`src/lib/customDomain.ts`** — normalisation (strips scheme/path/port/
+  credentials), validation, reserved-host detection (platform + preview hosts
+  can never be claimed) and DNS instructions (A for apex, CNAME otherwise).
+- **`server/dnsVerification.ts`** — PostgreSQL cannot do DNS, so the server
+  probes CNAME / A / TXT (`nexora-verify=<salonId>`) with a timeout and then
+  calls the service-role flip. Failures are normal outcomes, not crashes.
+- **`api-routes.ts`** — `GET /api/public/resolve-domain` (anonymous) plus
+  `POST /api/owner/custom-domain` and `/verify` (auth + org-membership guard).
+- **`src/main.tsx` + `src/lib/customDomainRouting.ts`** — the Vite/React
+  equivalent of a Next.js `middleware.ts` host rewrite. The host→slug mapping
+  is **in-memory for the page load only**; it is deliberately never written to
+  LocalStorage, so a hand-edited cache cannot point a host at another tenant.
+- **`src/components/CustomDomainPanel.tsx`** — owner UI: save, verify, remove,
+  status pill and the exact DNS record to add.
+
+### B. Testimonials in the unified schema
+
+- `Testimonial` + `SalonData.testimonials` added to `src/types.ts` and to
+  `UNIFIED_DRAFT_FIELDS`, so they persist across refresh, step navigation and
+  publish exactly like services and team.
+- **`src/lib/testimonials.ts`** — normalisation of untrusted rows (DB JSONB or
+  a LocalStorage cache): markup characters stripped, rating clamped to 1–5,
+  list capped at 24, unusable rows dropped.
+- **`src/components/TestimonialsEditor.tsx`** — owner editor in step 4 with
+  per-field validation.
+- **`SiteReviews.tsx`** renders owner testimonials alongside genuine visitor
+  reviews, and keeps the section visible when only curated testimonials exist.
+- **M69** projects them through `private.nexora_public_testimonials`, which
+  re-sanitises server-side so a hostile config can never render.
+
+### C. Full white-label & branding isolation
+
+The reported problem: `hidePlatformBranding` existed but lived in the
+**browser-global** `brandConfig` (shared by every tenant, never persisted to
+the database), and both public footers rendered the badge **unconditionally**.
+The toggle was therefore both non-durable and non-functional.
+
+- `WhiteLabelSettings` (`hidePoweredBy`, `poweredByText`, `accentColor`,
+  `appearance`) added to `SalonData` **and** to the unified draft — so it is
+  per-tenant and database-backed.
+- **`src/lib/whiteLabel.ts`** — `resolvePoweredBy` / `resolveWhiteLabel` /
+  `normalizeWhiteLabel` / `sanitizeBrandingText` / `sanitizeAccentColor`.
+  Resolution order: tenant hides → tenant override text → platform default.
+- `TemplateRenderer.tsx` and `SiteFooter.tsx` now render the badge only when
+  `poweredBy.show`, and take their accent colour / appearance from the tenant
+  override first.
+- `BrandingWhiteLabel.tsx` writes the toggle through `setData` (database) and
+  keeps the platform default in sync for new tenants.
+- **M69** projects `whiteLabel` (plus `yearsOfExperience` / `happyCustomers`,
+  which the templates already rendered but the projection never sent).
+
+> **Projection gotcha worth remembering:** `get_public_salon_website` uses an
+> explicit **allowlist** of `config` keys. Any new business field must be added
+> there *and* to `PUBLIC_WEBSITE_FIELDS` in `publicSalonResolver.ts`, or it
+> will save in the builder and silently vanish on the live site.
+
+### Tests
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| White-label SaaS transformation | `npm run test:white-label` | 42/42 |
+| Media upload pipeline | `npm run test:media-upload` | 33/33 |
+| Autosave + draft persistence | `npm run test:autosave` | 25/25 |
+| Dynamic published link (slug) | `npm run test:dynamic-slug` | 18/18 |
+| Save-feedback wiring | `npm run test:save-feedback` | 10/10 |
+| All of the above | `npm run test:builder-fixes` | ✅ (last step of `npm run test`) |
 
 ## Gallery upload & preview, autosave, complete draft persistence, dynamic slug — 2026-09-01 (current PR)
 

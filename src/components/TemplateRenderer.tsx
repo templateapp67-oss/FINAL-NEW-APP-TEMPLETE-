@@ -43,6 +43,7 @@ import { publicWebsiteHref, slugifySalonName } from '../lib/publicWebsiteUrl';
 import { Sparkles, Phone, MessageCircle, CalendarCheck, MapPin, Clock, Navigation, Instagram, Facebook, Youtube, Video, Heart, ExternalLink, CreditCard, Play } from 'lucide-react';
 import { OWNER_PREVIEW_EMPTY, ownerPreviewData } from '../lib/ownerPreview';
 import { SiteRenderModeProvider, type SiteRenderMode } from './SiteRenderContext';
+import { resolveWhiteLabel } from '../lib/whiteLabel';
 
 interface Props {
   data: SalonData;
@@ -168,8 +169,14 @@ export default function TemplateRenderer({ data: sourceData, mode, renderMode = 
     cardBg: 'bg-white border-gray-100 text-gray-900',
     footerBg: 'bg-[#1a1c1c] text-white',
   };
-  const brandColor = data.brandColor || config.accentColor;
-  const isDark = data.websiteAppearance === 'dark';
+  // WHITE-LABEL ISOLATION — resolve the tenant's branding once and thread it
+  // through the whole template. A tenant that has hidden the platform badge
+  // renders no badge at all, and their accent/appearance overrides win over the
+  // template defaults.
+  const whiteLabel = resolveWhiteLabel(data);
+  const poweredBy = whiteLabel.poweredBy;
+  const brandColor = whiteLabel.accentColor || data.brandColor || config.accentColor;
+  const isDark = (whiteLabel.appearance || data.websiteAppearance) === 'dark';
   const brandButtonStyle = {
     backgroundColor: brandColor,
     color: getReadableTextColor(brandColor),
@@ -650,7 +657,11 @@ export default function TemplateRenderer({ data: sourceData, mode, renderMode = 
         <footer id="section-footer" className={`px-6 py-8 text-center text-xs border-t border-gray-800 ${config.footerBg}`}>
           <p className="font-bold text-sm mb-1" style={getSalonNameStyle(data)}>{data.salonName || 'Your Salon'}</p>
           <p className="opacity-70 mb-4">{data.tagline || copy.footerTagline}</p>
-          <p className="opacity-50 text-[10px]">© {new Date().getFullYear()} {data.salonName || 'Salon'}. {DEFAULT_BRAND_CONFIG.platform.poweredByText}.</p>
+          {poweredBy.show && (
+            <p data-testid="template-powered-by" className="opacity-50 text-[10px]">
+              © {new Date().getFullYear()} {data.salonName || 'Salon'}. {poweredBy.text}.
+            </p>
+          )}
         </footer>
 
         {/* M41 — shared booking modal for all Book CTAs (database-backed). */}

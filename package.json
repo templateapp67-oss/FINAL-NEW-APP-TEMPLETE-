@@ -215,7 +215,8 @@
     "test:media-upload": "tsx scripts/test-media-upload-pipeline.mjs",
     "test:autosave": "tsx scripts/test-autosave-persistence.mjs",
     "test:dynamic-slug": "tsx scripts/test-dynamic-slug.mjs",
-    "test:builder-fixes": "npm run test:media-upload && npm run test:autosave && npm run test:dynamic-slug && tsx scripts/test-save-feedback.mjs"
+    "test:white-label": "tsx scripts/test-white-label-and-domains.mjs",
+    "test:builder-fixes": "npm run test:media-upload && npm run test:autosave && npm run test:dynamic-slug && npm run test:white-label && tsx scripts/test-save-feedback.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

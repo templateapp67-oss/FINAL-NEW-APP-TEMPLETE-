@@ -26,6 +26,7 @@ import { reviewCountLabel, reviewsText } from '../lib/siteReviewsI18n';
 import { reviewVisuals } from '../lib/siteReviewsTheme';
 import { SectionStatePanel, structureCopyFrom } from './SiteSectionStates';
 import { useSiteLocale, useThemeAppearance } from './SiteHeader';
+import { normalizeTestimonials } from '../lib/testimonials';
 
 interface Props {
   themeId: SiteHeaderThemeId;
@@ -60,7 +61,13 @@ export default function SiteReviews({ themeId, data, mode }: Props) {
   void tick;
   const pendingMine = mine.filter((review) => review.status === 'pending');
   const summary = ratingSummary(approved);
-  const state = resolveSectionState('reviews', approved);
+  // Owner-authored testimonials are curated business content from the unified
+  // draft: they always publish, and they keep the section visible even before
+  // any visitor has submitted a review.
+  const ownerTestimonials = normalizeTestimonials(data.testimonials);
+  const state = ownerTestimonials.length > 0
+    ? 'ready'
+    : resolveSectionState('reviews', approved);
   const sectionId = siteSectionDomId(themeId, 'reviews');
   const title = S.reviewsTitle || S.testimonialsTitle || R.write;
   const eyebrow = S.reviewsEyebrow || S.testimonialsEyebrow || S['common.reviewsEyebrow'];
@@ -289,6 +296,39 @@ export default function SiteReviews({ themeId, data, mode }: Props) {
                   <p className="text-xs font-bold" style={{ color: visual.textStrong }}>{review.customerName}</p>
                   {review.serviceName && (
                     <p className="text-[10px] uppercase tracking-[0.14em] mt-0.5" style={{ color: visual.accent }}>{review.serviceName}</p>
+                  )}
+                </div>
+              </article>
+            ))}
+
+            {ownerTestimonials.map((testimonial) => (
+              <article
+                key={testimonial.id}
+                data-testid="site-owner-testimonial-card"
+                data-testimonial-id={testimonial.id}
+                data-theme={themeId}
+                className={`border p-5 flex flex-col gap-3 min-w-0 ${visual.radius}`}
+                style={{ borderColor: visual.cardLine, backgroundColor: visual.cardBg }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-0.5" aria-label={`${testimonial.rating}`}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        className="w-3.5 h-3.5"
+                        style={{ color: visual.star, fill: star <= testimonial.rating ? visual.star : 'transparent' }}
+                      />
+                    ))}
+                  </div>
+                  <Quote className="w-5 h-5" style={{ color: visual.accent }} />
+                </div>
+                <p className="text-xs leading-relaxed italic flex-1 break-words" style={{ color: visual.text }}>
+                  “{testimonial.body}”
+                </p>
+                <div className="pt-3 border-t" style={{ borderColor: visual.cardLine }}>
+                  <p className="text-xs font-bold" style={{ color: visual.textStrong }}>{testimonial.name}</p>
+                  {testimonial.role && (
+                    <p className="text-[10px] uppercase tracking-[0.14em] mt-0.5" style={{ color: visual.accent }}>{testimonial.role}</p>
                   )}
                 </div>
               </article>

@@ -28,6 +28,7 @@ import {
 import { SalonData } from '../types';
 import { useBrandConfig, updateBrandConfig, applyBrandConfigToDocument } from '../config/brandConfig';
 import { compressImageToMaxFileSize } from '../lib/imageCompression';
+import { normalizeWhiteLabel } from '../lib/whiteLabel';
 import {
   createPreviewUrl,
   readImageAsDataUrl,
@@ -60,7 +61,11 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
   const { config } = useBrandConfig();
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(data.logoUrl || config.defaultSalon.ownerPhotoUrl || null);
   const [faviconDataUrl, setFaviconDataUrl] = useState<string | null>(config.platform.faviconUrl || null);
-  const [hideBranding, setHideBranding] = useState(config.platform.hidePlatformBranding || false);
+  // Per-tenant white-label: the tenant's own persisted setting wins; the
+  // platform config is only the default for tenants that never chose.
+  const [hideBranding, setHideBranding] = useState(
+    data.whiteLabel?.hidePoweredBy ?? config.platform.hidePlatformBranding ?? false,
+  );
   const [brandName, setBrandName] = useState(data.salonName || config.defaultSalon.name || 'Nexora Lumina');
   const [brandTagline, setBrandTagline] = useState(data.tagline || config.defaultSalon.tagline || 'Premium Salon & Spa Experience');
   const [brandEmail, setBrandEmail] = useState(data.email || config.defaultSalon.email || '');
@@ -179,6 +184,9 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
   const handleSave = () => {
     setSavedTick(true);
 
+    // Keep the deployment-wide default in sync too, so new tenants inherit the
+    // operator's choice — but the authoritative, per-tenant value below is what
+    // the published website actually renders.
     const updatedConfig = {
       ...config,
       platform: {
@@ -714,9 +722,18 @@ export default function BrandingWhiteLabel({ data, setData, onNotify }: Props) {
                 <input
                   type="checkbox"
                   checked={hideBranding}
+                  data-testid="white-label-toggle"
                   onChange={(e) => {
-                    setHideBranding(e.target.checked);
-                    notify(e.target.checked ? 'White-label mode enabled' : 'White-label mode disabled');
+                    const next = e.target.checked;
+                    setHideBranding(next);
+                    // Persist per TENANT (travels to the database) — the old
+                    // code only wrote the browser-global platform config, so
+                    // the badge came back on refresh and on every other device.
+                    setData?.((prev) => ({
+                      ...prev,
+                      whiteLabel: normalizeWhiteLabel({ ...prev.whiteLabel, hidePoweredBy: next }),
+                    }));
+                    notify(next ? 'White-label mode enabled' : 'White-label mode disabled');
                   }}
                   className="sr-only peer"
                 />

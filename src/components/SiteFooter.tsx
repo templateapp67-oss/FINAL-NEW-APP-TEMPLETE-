@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { SalonData } from '../types';
 import { getSalonNameStyle } from '../lib/brandIdentity';
+import { resolvePoweredBy } from '../lib/whiteLabel';
 import { dayLabel, siteText } from '../lib/siteI18n';
 import { chromeText } from '../lib/siteChromeI18n';
 import {
@@ -198,6 +199,10 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
   const footerAccess = resolveSiteContactAccess(data, themeId);
   const services = activeCatalogItems(data.services).slice(0, 5);
   const hours = data.openingHours ? Object.entries(data.openingHours) : [];
+  // WHITE-LABEL ISOLATION — the platform badge is hidden entirely when this
+  // tenant asked for it; otherwise their override text (or the locale-aware
+  // platform default) is used.
+  const poweredBy = resolvePoweredBy(data, S['common.poweredBy']);
   const [legal, setLegal] = useState<LegalKey | null>(null);
 
   const legalCopy: Record<LegalKey, { title: string; body: string }> = {
@@ -382,9 +387,15 @@ export default function SiteFooter({ themeId, data }: { themeId: SiteHeaderTheme
             </button>
           ))}
         </div>
-        <p data-testid="site-footer-copyright" className={skin.legalClass}>
-          © 2026 {name}. {C['chrome.copyright']} {S['common.poweredBy']}
-        </p>
+        {poweredBy.show ? (
+          <p data-testid="site-footer-copyright" className={skin.legalClass}>
+            © 2026 {name}. {C['chrome.copyright']} {poweredBy.text}
+          </p>
+        ) : (
+          <p data-testid="site-footer-copyright" className={skin.legalClass}>
+            © 2026 {name}. {C['chrome.copyright']}
+          </p>
+        )}
       </div>
 
       {legal && (

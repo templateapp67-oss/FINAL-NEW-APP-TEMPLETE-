@@ -68,9 +68,13 @@ export const UNIFIED_DRAFT_FIELDS = [
   'salonNameColor',
   'brandColor',
   'heroPosition',
+  // Social proof (owner-authored testimonials)
+  'testimonials',
   // AI review + white-label copy + SEO
   'reviewedContent',
   'websiteCopy',
+  // White-label branding isolation (per-tenant platform badge + theme overrides)
+  'whiteLabel',
   'metaDescription',
   'metaKeywords',
   'metaTitle',
@@ -86,6 +90,10 @@ export const DRAFT_EXCLUDED_FIELDS = [
   'publishedUrl',
   'websiteSlug',
   'lastCompletedStep',
+  // M69 — routing state. The custom domain is verified server-side and held in
+  // its own columns; a browser cache must never be able to claim a hostname.
+  'customDomain',
+  'customDomainStatus',
 ] as const satisfies readonly (keyof SalonData)[];
 
 const UNIFIED_DRAFT_FIELD_SET = new Set<string>(UNIFIED_DRAFT_FIELDS);

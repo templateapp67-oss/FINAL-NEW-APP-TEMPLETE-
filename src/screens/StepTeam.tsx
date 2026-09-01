@@ -8,6 +8,7 @@ import PreviewPane from '../components/PreviewPane';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, FormEvent, useRef, DragEvent } from 'react';
 import { compressImageToMaxFileSize } from '../lib/imageCompression';
+import TestimonialsEditor from '../components/TestimonialsEditor';
 import {
   createPreviewUrl,
   readImageAsDataUrl,
@@ -1184,6 +1185,13 @@ export default function StepTeam({ data, setData, onNext, onPrev, onSave, onOpen
                 </button>
               )}
             </div>
+
+            {/* Owner-authored testimonials — part of the unified draft, so they
+                persist across refresh, step navigation and publish. */}
+            <TestimonialsEditor
+              data={data}
+              onChange={(next) => setData({ ...data, testimonials: next })}
+            />
 
           </div>
         </div>

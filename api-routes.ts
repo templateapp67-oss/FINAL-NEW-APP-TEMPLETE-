@@ -18,6 +18,13 @@ import { setupPrivacyRoutes } from './server/privacyRoutes';
 import { setupSeoRoutes } from './server/seoRoutes';
 import { observabilityMiddleware } from './server/observability';
 import { requireAuthenticatedUser, getSupabaseAdmin } from './server/supabaseAdmin';
+import {
+  isValidCustomDomain,
+  isReservedHost,
+  normalizeCustomDomain,
+  validateCustomDomain,
+} from './src/lib/customDomain';
+import { probeCustomDomainDns } from './server/dnsVerification';
 import { callNominatim } from './server/geocoding';
 
 /* ------------------------------------------------------------------ *
@@ -834,6 +841,219 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
     } catch (err: any) {
       console.error('Error in /api/owner/save-website-draft:', err);
       res.status(500).json({ error: err.message || 'Draft save failed' });
+    }
+  });
+
+  // ==========================================================================
+  // CUSTOM DOMAIN (CNAME) ROUTING — see supabase migration M69.
+  //
+  // Two endpoints, deliberately split by trust level:
+  //   * /api/owner/custom-domain       — authenticated owner writes (RPC-scoped)
+  //   * /api/public/resolve-domain     — anonymous read used by the edge/router
+  //
+  // Verification is performed here, on the server, with Node's DNS resolver:
+  // PostgreSQL cannot do DNS lookups, and a browser must never be able to mark
+  // its own domain verified. Only after the probe passes does the server call
+  // `mark_custom_domain_status` with the service-role key.
+  // ==========================================================================
+
+  /**
+   * GET /api/public/resolve-domain?host=www.artsbyuma.com
+   * Anonymous, read-only host -> published-site resolution.
+   *
+   * Returns `{ slug, templateKey }` on a verified+published match, or
+   * `{ slug: null }` otherwise. Never leaks why resolution failed.
+   */
+  app.get('/api/public/resolve-domain', async (req, res) => {
+    try {
+      const rawHost = typeof req.query?.host === 'string' ? req.query.host : '';
+      const host = normalizeCustomDomain(rawHost);
+
+      if (!host || !isValidCustomDomain(host) || isReservedHost(host)) {
+        return res.json({ slug: null, templateKey: null, reason: 'invalid-host' });
+      }
+
+      const admin = getSupabaseAdmin();
+      const { data, error } = await admin.rpc('resolve_public_salon_by_domain', {
+        p_host: host,
+      });
+
+      if (error) {
+        console.error('resolve_public_salon_by_domain failed:', error.message);
+        return res.json({ slug: null, templateKey: null, reason: 'lookup-failed' });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.slug) {
+        return res.json({ slug: null, templateKey: null, reason: 'not-verified' });
+      }
+
+      res.json({
+        slug: row.slug,
+        templateKey: row.template_key ?? null,
+        customDomain: row.custom_domain ?? host,
+        salonId: row.salon_id ?? null,
+      });
+    } catch (err: any) {
+      console.error('Error in GET /api/public/resolve-domain:', err);
+      res.status(500).json({ slug: null, templateKey: null, error: 'Domain resolution failed' });
+    }
+  });
+
+  /** Ownership guard shared by the owner custom-domain endpoints. */
+  async function authorizeOwnerSalon(userId: string, salonId: string) {
+    const admin = getSupabaseAdmin();
+    const { data: salon } = await admin
+      .from('salons')
+      .select('id, organization_id')
+      .eq('id', salonId)
+      .maybeSingle();
+
+    if (!salon) return { ok: false as const, status: 404, error: 'Salon not found' };
+
+    const { data: member } = await admin
+      .from('organization_members')
+      .select('role')
+      .eq('organization_id', salon.organization_id)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!member) return { ok: false as const, status: 403, error: 'Not authorized for this salon' };
+    return { ok: true as const, salonId };
+  }
+
+  /**
+   * POST /api/owner/custom-domain
+   * Body: { salonId, domain } — `domain: '' | null` clears the mapping.
+   *
+   * Always routes through the owner-scoped `set_owner_custom_domain` /
+   * `clear_owner_custom_domain` RPCs, so an owner can only ever touch a salon
+   * they actually own. Setting or changing a domain resets it to 'pending'.
+   */
+  app.post('/api/owner/custom-domain', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonId = (req.body?.salonId || '').trim();
+      const rawDomain = req.body?.domain;
+
+      if (!salonId) {
+        return res.status(400).json({ error: 'Missing salonId' });
+      }
+
+      const auth = await authorizeOwnerSalon(user.id, salonId);
+      if (!auth.ok) {
+        return res.status(auth.status).json({ error: auth.error });
+      }
+
+      // Empty / null clears the mapping.
+      const normalized = normalizeCustomDomain(rawDomain);
+      const admin = getSupabaseAdmin();
+
+      if (!normalized) {
+        const { data, error } = await admin.rpc('clear_owner_custom_domain', {
+          p_salon_id: salonId,
+        });
+        if (error) {
+          return res.status(400).json({ error: error.message || 'Could not remove the domain' });
+        }
+        const row = Array.isArray(data) ? data[0] : data;
+        return res.json({
+          salonId,
+          domain: null,
+          status: row?.custom_domain_status || 'not_configured',
+        });
+      }
+
+      // Presentation-only pre-check so the owner gets a friendly message; the
+      // RPC re-validates and the unique index remains the final invariant.
+      const problems = validateCustomDomain(normalized);
+      if (problems.length > 0) {
+        return res.status(400).json({ error: problems[0].message });
+      }
+
+      const { data, error } = await admin.rpc('set_owner_custom_domain', {
+        p_domain: normalized,
+        p_salon_id: salonId,
+      });
+
+      if (error) {
+        // Surface the RPC's own, already user-safe message.
+        return res.status(400).json({ error: error.message || 'Could not save that domain' });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      res.json({
+        salonId,
+        domain: row?.custom_domain ?? normalized,
+        status: row?.custom_domain_status || 'pending',
+      });
+    } catch (err: any) {
+      console.error('Error in POST /api/owner/custom-domain:', err);
+      res.status(500).json({ error: err.message || 'Could not save that domain' });
+    }
+  });
+
+  /**
+   * POST /api/owner/custom-domain/verify
+   * Body: { salonId }
+   *
+   * Probes DNS from the server and flips the status via the service-role-only
+   * `mark_custom_domain_status` RPC. A tenant must prove control of the host
+   * with either:
+   *   - a CNAME/A record pointing at the platform base host, or
+   *   - a TXT record `nexora-verify=<salonId>`.
+   */
+  app.post('/api/owner/custom-domain/verify', async (req, res) => {
+    try {
+      const user = await requireAuthenticatedUser(req);
+      const salonId = (req.body?.salonId || '').trim();
+
+      if (!salonId) {
+        return res.status(400).json({ error: 'Missing salonId' });
+      }
+
+      const auth = await authorizeOwnerSalon(user.id, salonId);
+      if (!auth.ok) {
+        return res.status(auth.status).json({ error: auth.error });
+      }
+
+      const admin = getSupabaseAdmin();
+      const { data: site, error: readErr } = await admin
+        .from('salon_public_websites')
+        .select('custom_domain, custom_domain_status')
+        .eq('salon_id', salonId)
+        .maybeSingle();
+
+      if (readErr) {
+        return res.status(500).json({ error: 'Could not read your website settings' });
+      }
+
+      const domain = normalizeCustomDomain(site?.custom_domain);
+      if (!domain) {
+        return res.status(400).json({ error: 'No custom domain is configured yet' });
+      }
+
+      const probe = await probeCustomDomainDns(domain, salonId);
+
+      const { data, error } = await admin.rpc('mark_custom_domain_status', {
+        p_salon_id: salonId,
+        p_status: probe.verified ? 'verified' : 'failed',
+      });
+
+      if (error) {
+        return res.status(500).json({ error: 'Could not update the domain status' });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      res.json({
+        salonId,
+        domain,
+        status: row?.custom_domain_status || (probe.verified ? 'verified' : 'failed'),
+        detail: probe.detail,
+      });
+    } catch (err: any) {
+      console.error('Error in POST /api/owner/custom-domain/verify:', err);
+      res.status(500).json({ error: err.message || 'Domain verification failed' });
     }
   });
 

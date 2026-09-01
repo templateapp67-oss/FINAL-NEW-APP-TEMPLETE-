@@ -18,6 +18,7 @@ import {
 } from './publishReadiness';
 import { isOwnerTemplateKey } from './ownerProvisioning';
 import { unifiedDraftFromSalonData } from './unifiedSalonDraft';
+import { normalizeCustomDomain } from './customDomain';
 import {
   activeTemplateConfigFromSalon,
   normalizeTemplateConfigs,
@@ -180,6 +181,10 @@ export async function loadOwnerWebsiteDraft(): Promise<{
   templateKey: string | null;
   config: Partial<SalonData>;
   isPublished: boolean;
+  /** M69 — the connected custom domain, or null. Database-owned. */
+  customDomain: string | null;
+  /** M69 — verification status of `customDomain`. */
+  customDomainStatus: 'not_configured' | 'pending' | 'verified' | 'failed';
 } | null> {
   const resolution = await resolveOwnerSalonId();
   if (resolution.status !== 'resolved') {
@@ -194,11 +199,27 @@ export async function loadOwnerWebsiteDraft(): Promise<{
     }
     return null;
   }
-  const { data, error } = await requireSupabase()
+  // M69: `custom_domain` / `custom_domain_status` are database-owned routing
+  // state, never part of the owner-editable draft. The select tolerates a
+  // deployment where M69 has not been applied yet by retrying without them.
+  const WEBSITE_FIELDS = 'salon_id,slug,template_key,config,is_published';
+  const WEBSITE_FIELDS_WITH_DOMAIN =
+    'salon_id,slug,template_key,config,is_published,custom_domain,custom_domain_status';
+
+  let { data, error } = await requireSupabase()
     .from(SALON_PUBLIC_WEBSITES_TABLE)
-    .select('salon_id,slug,template_key,config,is_published')
+    .select(WEBSITE_FIELDS_WITH_DOMAIN)
     .eq('salon_id', resolution.salonId)
     .maybeSingle();
+
+  if (error && /custom_domain.*(does not exist|column)/i.test(error.message || '')) {
+    ({ data, error } = await requireSupabase()
+      .from(SALON_PUBLIC_WEBSITES_TABLE)
+      .select(WEBSITE_FIELDS)
+      .eq('salon_id', resolution.salonId)
+      .maybeSingle());
+  }
+
   if (error) {
     const diagnostic = diagnosticFromError({
       operation: 'workspace.website_read',
@@ -215,6 +236,8 @@ export async function loadOwnerWebsiteDraft(): Promise<{
     templateKey: null,
     config: {},
     isPublished: false,
+    customDomain: null,
+    customDomainStatus: 'not_configured' as const,
   };
   const rawConfig = data.config && typeof data.config === 'object' && !Array.isArray(data.config)
     ? data.config as Partial<SalonData>
@@ -232,7 +255,20 @@ export async function loadOwnerWebsiteDraft(): Promise<{
       templateConfigs: normalizeTemplateConfigs(rawConfig.templateConfigs),
     },
     isPublished: data.is_published === true,
+    customDomain: normalizeCustomDomain((data as Record<string, unknown> | null)?.custom_domain),
+    customDomainStatus: normalizeDomainStatus(
+      (data as Record<string, unknown> | null)?.custom_domain_status,
+    ),
   };
+}
+
+/** Coerces an untrusted `custom_domain_status` column into the known enum. */
+function normalizeDomainStatus(
+  value: unknown,
+): 'not_configured' | 'pending' | 'verified' | 'failed' {
+  return value === 'pending' || value === 'verified' || value === 'failed'
+    ? value
+    : 'not_configured';
 }
 
 /**

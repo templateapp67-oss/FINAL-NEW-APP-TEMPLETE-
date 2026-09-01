@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { GalleryImage } from '../types';
+import { slugifySalonName } from './publicWebsiteUrl';
 
 export interface PublicSalonProjection {
   salon_id: string;
@@ -67,6 +68,68 @@ const PUBLIC_WEBSITE_FIELDS = [
 
 function firstRow<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+/**
+ * THE canonical public-slug normaliser. Every public entry point — the router
+ * (`RootRouter`), the public view (`PublicSalonView`) and the resolver itself
+ * — must run a requested address through this one function, so
+ * `/Arts-By-Uma`, `/arts-by-uma/`, `/ARTS%20BY%20UMA` and the subdomain
+ * `arts-by-uma.<base-host>` all resolve to exactly the same tenant and there
+ * is never a second, subtly different slug lookup.
+ *
+ * It accepts a raw path (`/Arts-By-Uma/`), a bare segment or an already
+ * canonical slug and mirrors `private.normalize_website_slug` in the database
+ * (via {@link slugifySalonName}). An address that cannot produce a slug
+ * returns `''` — never a default tenant.
+ */
+export function canonicalPublicSlug(value: string | null | undefined): string {
+  let raw = (value || '').trim();
+  if (!raw) return '';
+  // Tolerate a full path or a URL-encoded segment.
+  raw = raw.split('?')[0].split('#')[0];
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* keep the raw value when it is not valid percent-encoding */
+  }
+  const segment = raw.replace(/^\/+|\/+$/g, '').split('/')[0] || '';
+  if (!segment || !/[a-z0-9]/i.test(segment)) return '';
+  return slugifySalonName(segment);
+}
+
+/**
+ * Outcome of a public resolution attempt.
+ *
+ * `not-found` means the database answered and no published tenant owns the
+ * slug. `unavailable` means the request itself failed (offline, RPC/permission
+ * error, 5xx) — the visitor must NOT be told the salon does not exist, and a
+ * default tenant must never be substituted.
+ */
+export type PublicSalonResolution =
+  | { status: 'found'; slug: string; website: PublicSalonProjection }
+  | { status: 'not-found'; slug: string; website: null }
+  | { status: 'unavailable'; slug: string; website: null; error: unknown };
+
+/**
+ * Canonical resolution used by BOTH the router and the public view. Never
+ * throws: a transport/RPC failure is reported as `unavailable` so the caller
+ * can distinguish it from a genuinely missing or unpublished salon.
+ */
+export async function resolvePublicSalonWebsiteResult(
+  client: SupabaseClient,
+  slug: string,
+): Promise<PublicSalonResolution> {
+  const normalizedSlug = canonicalPublicSlug(slug);
+  if (!normalizedSlug) return { status: 'not-found', slug: '', website: null };
+  try {
+    const website = await resolvePublicSalonWebsite(client, normalizedSlug);
+    return website
+      ? { status: 'found', slug: normalizedSlug, website }
+      : { status: 'not-found', slug: normalizedSlug, website: null };
+  } catch (error) {
+    return { status: 'unavailable', slug: normalizedSlug, website: null, error };
+  }
 }
 
 function isMissingPublicRpc(error: { code?: string; message?: string } | null): boolean {
@@ -176,12 +239,23 @@ export async function resolvePublicSalonWebsite(
   client: SupabaseClient,
   slug: string,
 ): Promise<PublicSalonProjection | null> {
-  const normalizedSlug = slug.trim().toLowerCase();
+  const normalizedSlug = canonicalPublicSlug(slug);
   if (!normalizedSlug) return null;
 
   const rpcResult = await client.rpc('get_public_salon_website', { p_slug: normalizedSlug });
   if (!rpcResult.error) {
-    return firstRow(rpcResult.data as PublicSalonProjection | PublicSalonProjection[] | null);
+    const projection = firstRow(rpcResult.data as PublicSalonProjection | PublicSalonProjection[] | null);
+    if (!projection) return null;
+    // Projects on deployments where the companion `get_public_salon_services`
+    // RPC is not (yet) applied: the published config already carries the
+    // owner's service list, so the live site never renders an empty catalogue.
+    const configuredServices = asObject(projection.public_config)?.services;
+    return {
+      ...projection,
+      fallback_services: Array.isArray(projection.fallback_services)
+        ? projection.fallback_services
+        : (Array.isArray(configuredServices) ? configuredServices : []),
+    };
   }
   if (!isMissingPublicRpc(rpcResult.error)) throw rpcResult.error;
 

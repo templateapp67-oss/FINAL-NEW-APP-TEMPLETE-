@@ -74,7 +74,8 @@
     "20260831000101_m66_owner_photo_public_parity.sql",
     "20260831000201_m67_saved_service_upsert_revive.sql",
     "20260901000101_m68_public_media_projection.sql",
-    "20260901000201_m69_custom_domain_white_label.sql"
+    "20260901000201_m69_custom_domain_white_label.sql",
+    "20260902000101_m70_public_slug_resolution_repair.sql"
   ],
   "excludedFiles": [
     "20260811000101_m01_extensions_enums.sql through 20260815000101_m27_social_video_likes_weekly.sql",

@@ -10,9 +10,24 @@ import {
   matchesBrandFallbackSlug,
 } from '../lib/salonRouting';
 import { applyPublicTemplateConfiguration } from '../lib/publicSalonPresentation';
-import { publicGalleryItems, resolvePublicSalonWebsite } from '../lib/publicSalonResolver';
+import {
+  canonicalPublicSlug,
+  publicGalleryItems,
+  resolvePublicSalonWebsite,
+  resolvePublicSalonWebsiteResult,
+  type PublicSalonProjection,
+} from '../lib/publicSalonResolver';
 
-interface Props { slug: string }
+interface Props {
+  slug: string;
+  /**
+   * Tenant already resolved by `RootRouter` through the SAME canonical
+   * resolver. Passing it through avoids a second, duplicate slug lookup on
+   * every public page load (and guarantees router and view can never disagree
+   * about which tenant owns the address).
+   */
+  resolved?: PublicSalonProjection | null;
+}
 
 type PublicState = { status: 'loading' | 'ready' | 'not-found' | 'error'; data: SalonData };
 
@@ -63,9 +78,12 @@ function localDraft(slug: string): SalonData {
   return { ...initialData, websiteSlug: slug };
 }
 
-async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> {
+async function loadCanonicalPublicData(
+  slug: string,
+  preresolved?: PublicSalonProjection | null,
+): Promise<SalonData | null> {
   const client = requireSupabase();
-  const website = await resolvePublicSalonWebsite(client, slug);
+  const website = preresolved ?? await resolvePublicSalonWebsite(client, slug);
   if (!website?.salon_id || !website.slug || !website.business_name) return null;
 
   const { data: serviceRows, error: serviceError } = await client
@@ -151,8 +169,8 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
   }, config, website.template_key);
 }
 
-export default function PublicSalonView({ slug }: Props) {
-  const normalizedSlug = slug.trim().toLowerCase();
+export default function PublicSalonView({ slug, resolved }: Props) {
+  const normalizedSlug = canonicalPublicSlug(slug);
   const [state, setState] = useState<PublicState>(() => isSupabaseConfigured
     ? { status: 'loading', data: emptyPublicData(normalizedSlug) }
     : (matchesBrandFallbackSlug(slug)
@@ -163,25 +181,44 @@ export default function PublicSalonView({ slug }: Props) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    setState({ status: 'loading', data: emptyPublicData(slug) });
-    void loadCanonicalPublicData(normalizedSlug)
-      .then((data) => {
+    setState({ status: 'loading', data: emptyPublicData(normalizedSlug) });
+    void (async () => {
+      // ONE canonical resolution path. When the router already resolved the
+      // tenant we reuse that projection instead of querying the same slug
+      // twice; otherwise we resolve here through the identical helper.
+      const resolution = resolved
+        ? ({ status: 'found', slug: normalizedSlug, website: resolved } as const)
+        : await resolvePublicSalonWebsiteResult(requireSupabase(), normalizedSlug);
+      if (!active) return;
+      if (resolution.status === 'unavailable') {
+        // Transport/RPC failure. NEVER "Salon not found", never a default
+        // tenant — the address may be perfectly valid.
+        console.error('Public salon resolution is unavailable:', resolution.error);
+        setState({ status: 'error', data: emptyPublicData(normalizedSlug) });
+        return;
+      }
+      if (resolution.status === 'not-found') {
+        setState({ status: 'not-found', data: emptyPublicData(normalizedSlug) });
+        return;
+      }
+      try {
+        const data = await loadCanonicalPublicData(normalizedSlug, resolution.website);
         if (!active) return;
         // The database projection is the ONLY source of a public business.
         // A missing/unpublished/inactive-template record is "Salon not found"
         // — never a default or fallback business.
         setState(data
           ? { status: 'ready', data }
-          : { status: 'not-found', data: emptyPublicData(slug) });
-      })
-      .catch((error) => {
+          : { status: 'not-found', data: emptyPublicData(normalizedSlug) });
+      } catch (error) {
         console.error('Failed to load public salon:', error);
         if (!active) return;
         // Network/permission failure must never substitute a default salon.
-        setState({ status: 'error', data: emptyPublicData(slug) });
-      });
+        setState({ status: 'error', data: emptyPublicData(normalizedSlug) });
+      }
+    })();
     return () => { active = false; };
-  }, [normalizedSlug]);
+  }, [normalizedSlug, resolved]);
 
   useEffect(() => {
     const handleResize = () => setMode(window.innerWidth < 768 ? 'mobile' : 'desktop');
@@ -202,8 +239,8 @@ export default function PublicSalonView({ slug }: Props) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#fcfcfc] p-6 text-center">
         <section>
-          <h1 className="text-xl font-bold">{state.status === 'loading' ? 'Loading salon…' : state.status === 'not-found' ? 'Salon not found' : 'Salon unavailable'}</h1>
-          <p className="mt-2 text-sm text-gray-600">{state.status === 'error' ? 'Please try again shortly.' : 'Only published backend records are shown here.'}</p>
+          <h1 className="text-xl font-bold">{state.status === 'loading' ? 'Loading salon…' : state.status === 'not-found' ? 'Salon not found' : 'Salon temporarily unavailable'}</h1>
+          <p className="mt-2 text-sm text-gray-600">{state.status === 'error' ? 'We could not reach the salon directory. This address may still be valid — please try again shortly.' : 'Only published backend records are shown here.'}</p>
         </section>
       </main>
     );

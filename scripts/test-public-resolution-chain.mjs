@@ -455,9 +455,9 @@ const [main, publicView, resolver, m52] = await Promise.all([
   read('20260825000301_m52_public_resolution_hardening.sql'),
 ]);
 assert.match(main, /const normalizedPath = subdomainSlug \|\| normalizeRouteSlug\(pathname\)/);
-assert.match(main, /resolvePublicSalonWebsite\(supabase, normalizedPath\)/);
+assert.match(main, /resolvePublicSalonWebsiteResult\(supabase, normalizedPath\)/);
 assert.match(main, /setRoute\('not_found'\)/);
-assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)/);
+assert.match(publicView, /resolvePublicSalonWebsite\(client, slug\)|resolvePublicSalonWebsiteResult\(requireSupabase\(\), normalizedSlug\)/);
 assert.match(resolver, /\.rpc\('get_public_salon_website', \{ p_slug: normalizedSlug \}\)/);
 assert.match(publicView, /\.rpc\('get_public_salon_services', \{ p_slug: slug \}\)/);
 assert.match(publicView, /applyPublicTemplateConfiguration\([\s\S]*, config, website\.template_key\)/);
@@ -470,7 +470,7 @@ const fallbackUsages = publicView.match(/buildBrandFallbackSalonData/g) || [];
 assert.equal(fallbackUsages.length, 2, 'brand fallback = import + offline initializer only');
 assert.match(publicView, /isSupabaseConfigured\s*\?\s*\{ status: 'loading'[\s\S]{0,200}buildBrandFallbackSalonData\(slug\)/);
 assert.match(publicView, /setState\(data\s*\?\s*\{ status: 'ready', data \}\s*:\s*\{ status: 'not-found'/);
-assert.match(publicView, /setState\(\{ status: 'error', data: emptyPublicData\(slug\) \}\)/);
+assert.match(publicView, /setState\(\{ status: 'error', data: emptyPublicData\(normalizedSlug\) \}\)/);
 assert.doesNotMatch(publicView, /if \(matchesBrandFallbackSlug\(slug\)\) \{/);
 ok('client resolves only by slug, no hardcoded business id, and never falls back to a default business');
 

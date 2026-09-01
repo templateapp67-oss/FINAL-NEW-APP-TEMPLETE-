@@ -1,6 +1,11 @@
 import type { SalonData } from '../types';
 import { resolveOwnerSalonId } from './ownerSalon';
-import { isValidWebsiteSlug, suggestedWebsiteSlug, slugifySalonName } from './publicWebsiteUrl';
+import {
+  generateSalonSlug,
+  isValidWebsiteSlug,
+  suggestedWebsiteSlug,
+  slugifySalonName,
+} from './publicWebsiteUrl';
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
 import { DEFAULT_THEME_ID, normalizeThemeId } from './themeServices';
 import {
@@ -12,6 +17,7 @@ import {
   type PublishReadiness,
 } from './publishReadiness';
 import { isOwnerTemplateKey } from './ownerProvisioning';
+import { unifiedDraftFromSalonData } from './unifiedSalonDraft';
 import {
   activeTemplateConfigFromSalon,
   normalizeTemplateConfigs,
@@ -43,56 +49,24 @@ function optionalString(value: unknown): string | undefined {
  * UI cache) is included. It is JSON-serializable (it round-trips through the
  * database) and deliberately contains no auth tokens, user ids or salon ids
  * beyond the row's own salon_id.
+ *
+ * The field list itself lives in `unifiedSalonDraft` — the SINGLE source of
+ * truth — so a newly added step field can never be silently dropped again.
  */
 export function websiteConfigFromSalonData(data: SalonData): Partial<SalonData> {
+  const unified = unifiedDraftFromSalonData(data);
   return {
-    templateId: data.templateId,
-    salonName: data.salonName,
-    tagline: data.tagline,
-    ownerName: data.ownerName,
-    ownerRole: data.ownerRole,
-    ownerPhotoUrl: data.ownerPhotoUrl,
-    yearsOfExperience: data.yearsOfExperience,
-    happyCustomers: data.happyCustomers,
-    about: data.about,
-    phone: data.phone,
-    email: data.email,
-    whatsappPhone: data.whatsappPhone,
+    ...unified,
     // Keep an unconfigured owner unconfigured. In particular, never serialize
     // the demonstration salon's contact/deposit policy into a new tenant just
     // because runtime booking code has safe operational defaults.
     ...(data.contactOptions ? { contactOptions: data.contactOptions } : {}),
     ...(data.bookingRules ? { bookingRules: data.bookingRules } : {}),
-    logoUrl: data.logoUrl,
-    heroImageUrl: data.heroImageUrl,
-    heroPosition: data.heroPosition,
-    gallery: data.gallery,
-    socialProfiles: data.socialProfiles,
-    socialVideos: data.socialVideos,
-    disabledThemeVideoIds: data.disabledThemeVideoIds,
-    address: data.address,
-    openingHours: data.openingHours,
-    announcements: data.announcements,
-    holidays: data.holidays,
-    services: data.services,
-    packages: data.packages,
-    offers: data.offers,
-    team: data.team,
-    websiteAppearance: data.websiteAppearance,
     templateConfig: sanitizeTemplateConfigForTemplate(
       activeTemplateConfigFromSalon(data),
       data.templateId,
     ),
     templateConfigs: normalizeTemplateConfigs(data.templateConfigs),
-    brandColor: data.brandColor,
-    salonNameFont: data.salonNameFont,
-    salonNameColor: data.salonNameColor,
-    reviewedContent: data.reviewedContent,
-    websiteCopy: data.websiteCopy,
-    metaDescription: data.metaDescription,
-    socialShareImageUrl: data.socialShareImageUrl,
-    metaTitle: data.metaTitle,
-    metaKeywords: data.metaKeywords,
     lastCompletedStep: data.lastCompletedStep,
   };
 }
@@ -261,6 +235,27 @@ export async function loadOwnerWebsiteDraft(): Promise<{
   };
 }
 
+/**
+ * The address this salon should advertise right now.
+ *
+ * A published address is permanently allocated (`published_at` is the
+ * allocation marker) — renaming the business must never break links the owner
+ * has already shared, so it is returned unchanged. An UNPUBLISHED salon tracks
+ * its business name instead: provisioning runs before the owner ever types the
+ * real name, which is how drafts ended up advertising the placeholder
+ * `/my-salon-3` instead of `/arts-by-uma`.
+ */
+export function draftSlugForSalonName(data: SalonData, currentSlug?: string | null, isPublished?: boolean): string | null {
+  if (isPublished === true && isValidWebsiteSlug(currentSlug || '')) {
+    return (currentSlug || '').trim().toLowerCase();
+  }
+  const desired = generateSalonSlug(data.salonName);
+  if (!isValidWebsiteSlug(desired)) return null;
+  const existing = (currentSlug || '').trim().toLowerCase();
+  if (existing === desired) return null; // nothing to sync
+  return desired;
+}
+
 export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
   salonId: string;
   slug: string;
@@ -281,16 +276,32 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
       .maybeSingle();
 
     if (!readError && existing) {
+      const isPublished = existing.is_published === true;
+      // Keep the draft address in step with the business name while the site is
+      // still unpublished. A unique-violation simply keeps the allocated slug —
+      // the database allocator remains the collision authority.
+      const slugSync = draftSlugForSalonName(data, existing.slug, isPublished);
+      const payload: Record<string, unknown> = { config };
+      if (slugSync) payload.slug = slugSync;
+
       const { data: saved, error } = await client
         .from(SALON_PUBLIC_WEBSITES_TABLE)
         // Template selection has one write authority: set_owner_salon_template.
         // A delayed business autosave must never overwrite a newer selection.
-        .update({ config })
+        .update(payload)
         .eq('salon_id', resolution.salonId)
         .select('slug,is_published')
         .maybeSingle();
 
       if (!error) {
+        if (slugSync && saved?.slug === slugSync) {
+          // Mirror the address onto the canonical salon row so public routing
+          // and the owner dashboard agree on one slug.
+          void client.from('salons').update({ slug: slugSync }).eq('id', resolution.salonId).then(
+            () => undefined,
+            () => undefined,
+          );
+        }
         return {
           salonId: resolution.salonId,
           slug: saved?.slug || existing.slug || data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
@@ -301,7 +312,7 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
       const slug =
         data.websiteSlug?.trim().toLowerCase() ||
         suggestedWebsiteSlug(data) ||
-        slugifySalonName(data.salonName) ||
+        generateSalonSlug(data.salonName) ||
         `salon-${resolution.salonId.slice(0, 8)}`;
       if (isValidWebsiteSlug(slug)) {
         const { data: saved, error } = await client
@@ -340,7 +351,8 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
         body: JSON.stringify({
           salonId: resolution.salonId,
           config,
-          slug: data.websiteSlug,
+          slug: data.websiteSlug?.trim().toLowerCase() || generateSalonSlug(data.salonName),
+          salonName: data.salonName,
           templateKey,
         }),
       });

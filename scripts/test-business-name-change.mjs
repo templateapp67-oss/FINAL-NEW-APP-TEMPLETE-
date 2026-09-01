@@ -313,8 +313,20 @@ const [service, setup, success, migrations, app] = await Promise.all([
   read('20260824000501_m48_template_switch_isolation.sql'),
   readRoot('src/App.tsx'),
 ]);
-assert.match(service, /\.update\(\{ config \}\)/);
-assert.doesNotMatch(service, /\.update\(\{[^}]*slug/i, 'draft save must never update the slug column');
+// Dynamic published link: an UNPUBLISHED draft keeps its slug in step with the
+// business name (that is what replaces the placeholder `/my-salon-3`), while a
+// PUBLISHED slug is permanently allocated and must never be rewritten.
+assert.match(service, /\.update\(payload\)/);
+assert.match(service, /export function draftSlugForSalonName\(/);
+assert.match(service, /if \(isPublished === true && isValidWebsiteSlug\(currentSlug \|\| ''\)\)/,
+  'a published slug is returned unchanged (shared links survive a rename)');
+assert.match(service, /if \(slugSync\) payload\.slug = slugSync;/,
+  'the slug is only written when it actually changed');
+assert.match(
+  service,
+  /const payload: Record<string, unknown> = \{ config \};[\s\S]{0,160}if \(slugSync\) payload\.slug = slugSync;/,
+  'the website row is updated with config, and a slug ONLY through the published/renamed gate',
+);
 assert.match(setup, /publishState === 'published' && data\.websiteSlug\) return data\.websiteSlug/);
 assert.match(success, /const url = data\.publishedUrl \|\| ''/);
 assert.match(app, /websiteSlug: draft\?\.slug \|\| provisioned\.slug \|\| ''/);
@@ -325,6 +337,13 @@ for (const bodyCut of ['set_owner_salon_template', 'set_owner_salon_visual_confi
   assert.doesNotMatch(body, /set\s+slug|slug\s*=\s*[^t]/, `${bodyCut} must never write the slug`);
   assert.doesNotMatch(body, /set\s+name\b/, `${bodyCut} must never write the business name`);
 }
-ok('client + M48 guards: draft save, template switch and visual config never touch slug/name');
+// The server-side draft fallback must apply the same published/renamed rule.
+const apiRoutes = await readRoot('api-routes.ts');
+assert.match(apiRoutes, /function resolveDraftSlug\(/);
+assert.match(apiRoutes, /if \(input\.isPublished && isValidSlug\(input\.existingSlug\)\) return input\.existingSlug;/,
+  'the server never rewrites an allocated published slug');
+assert.match(apiRoutes, /const fromName = draftSlugFromName\(input\.salonName\);/,
+  'an unpublished draft slug is generated from the business name');
+ok('client + server + M48 guards: a published slug is immutable, a draft slug tracks the business name');
 
 console.log(`\nBusiness name change after publishing: ${passed}/${passed} checks PASS`);

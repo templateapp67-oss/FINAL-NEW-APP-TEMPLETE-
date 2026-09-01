@@ -10,7 +10,7 @@ import {
   matchesBrandFallbackSlug,
 } from '../lib/salonRouting';
 import { applyPublicTemplateConfiguration } from '../lib/publicSalonPresentation';
-import { resolvePublicSalonWebsite } from '../lib/publicSalonResolver';
+import { publicGalleryItems, resolvePublicSalonWebsite } from '../lib/publicSalonResolver';
 
 interface Props { slug: string }
 
@@ -119,10 +119,14 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     }));
 
   const location = typeof website.address === 'string' ? website.address : '';
-  // Fallback to config logo/hero when media table has no active record
-  // (e.g. offline/base64 logos or hero images stored directly in config)
+  // M68 — owner media parity. The published projection now carries the owner's
+  // logo / hero / gallery. Storage media (signed URLs) wins when present, then
+  // the config values, and finally the saved gallery from the draft config —
+  // so nothing the owner saved in step 5 is dropped on the live site.
   const configLogoUrl = typeof config.logoUrl === 'string' ? config.logoUrl.trim() : '';
   const configHeroUrl = typeof config.heroImageUrl === 'string' ? config.heroImageUrl.trim() : '';
+  const configGallery = publicGalleryItems(config.gallery);
+  const mergedGallery = gallery.length > 0 ? gallery : configGallery;
   return applyPublicTemplateConfiguration({
     ...emptyPublicData(slug),
     salonId: website.salon_id,
@@ -139,7 +143,7 @@ async function loadCanonicalPublicData(slug: string): Promise<SalonData | null> 
     whatsappPhone: typeof config.whatsappPhone === 'string' ? config.whatsappPhone : '',
     logoUrl: logo?.signedUrl || configLogoUrl || '',
     heroImageUrl: hero?.signedUrl || configHeroUrl || '',
-    gallery,
+    gallery: mergedGallery,
     services,
     address: location || website.city
       ? { ...initialData.address!, fullAddress: location, city: website.city || '' }

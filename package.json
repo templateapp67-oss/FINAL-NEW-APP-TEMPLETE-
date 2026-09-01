@@ -209,8 +209,13 @@
     "test:profiles-rls": "tsx scripts/test-profiles-rls-column-isolation.mjs",
     "validate:all": "npm run validate:migrations && npm run validate:migration-manifests",
     "verify:bundle-integrity": "node scripts/verify-suspense-coverage.mjs && node scripts/verify-dynamic-imports.mjs",
-    "test": "npm run lint && npm run validate:all && npm run test:workspace-init && npm run test:m63-owner-provisioning && npm run test:profiles-rls && npm run test:auth-flow && npm run test:auth-provisioning && tsx scripts/test-m54-workspace-bootstrap-compatibility.mjs",
-    "test:auth-provisioning": "tsx scripts/test-auth-redirect-origin.mjs && tsx scripts/test-workspace-error-sanitization.mjs && tsx scripts/test-cache-clear-auth-recovery.mjs && tsx scripts/test-auth-intent-routing.mjs && tsx scripts/test-auth-modal.mjs"
+    "test": "npm run lint && npm run validate:all && npm run test:workspace-init && npm run test:m63-owner-provisioning && npm run test:profiles-rls && npm run test:auth-flow && npm run test:auth-provisioning && tsx scripts/test-m54-workspace-bootstrap-compatibility.mjs && npm run test:builder-fixes",
+    "test:save-feedback": "tsx scripts/test-save-feedback.mjs",
+    "test:auth-provisioning": "tsx scripts/test-auth-redirect-origin.mjs && tsx scripts/test-workspace-error-sanitization.mjs && tsx scripts/test-cache-clear-auth-recovery.mjs && tsx scripts/test-auth-intent-routing.mjs && tsx scripts/test-auth-modal.mjs",
+    "test:media-upload": "tsx scripts/test-media-upload-pipeline.mjs",
+    "test:autosave": "tsx scripts/test-autosave-persistence.mjs",
+    "test:dynamic-slug": "tsx scripts/test-dynamic-slug.mjs",
+    "test:builder-fixes": "npm run test:media-upload && npm run test:autosave && npm run test:dynamic-slug && tsx scripts/test-save-feedback.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

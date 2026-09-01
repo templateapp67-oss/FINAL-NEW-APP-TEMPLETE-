@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import HeroSplit from './screens/HeroSplit';
 
 // The post-launch owner workspace (screens 18–25). It renders only behind
@@ -37,11 +37,12 @@ const OwnerDashboard = lazy(() => import('./components/OwnerDashboard'));
 import TopBar from './components/TopBar';
 import { initialData, SalonData } from './types';
 import { normalizeThemeId, type ThemeId } from './lib/themeServices';
-import { publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
+import { currentSalonSlug, publicWebsiteUrl, suggestedWebsiteSlug } from './lib/publicWebsiteUrl';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ArrowRight, Loader2, TriangleAlert } from 'lucide-react';
 import { useUsageTracking } from './hooks/useUsageTracking';
 import { useLocationSync } from './hooks/useLocationSync';
+import { useAutosave, AUTOSAVE_DEBOUNCE_MS } from './hooks/useAutosave';
 import { redirectToOwnerLoginForSessionLoss, useAuth } from './lib/useAuth';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { loadOwnerWebsiteDraft, saveOwnerWebsiteVisualConfig } from './lib/salonWebsiteService';
@@ -60,6 +61,15 @@ import {
 import { templateSwitchProtectedRevision, templateVisualConfigRevision } from './lib/templateSwitchInvariants';
 import { safeSetItem, safeGetItem, safeRemoveItem } from './lib/safeStorage';
 import { ownerSalonNameFromMetadata, resumeWizardStep } from './lib/ownerSession';
+import { unifiedDraftFromSalonData } from './lib/unifiedSalonDraft';
+import {
+  clearAllDraftCaches,
+  clearDraftCache,
+  hasDraftContent,
+  readDraftCache,
+  restoreDraftCache,
+  writeDraftCache,
+} from './lib/salonDraftStorage';
 import { emptyOwnerSalonData } from './lib/ownerPreview';
 import OwnerWorkspaceSelector from './components/OwnerWorkspaceSelector';
 import {
@@ -224,6 +234,9 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     setBackendHydratedUser(null);
     setData(emptyOwnerSalonData());
     clearOwnerBrowserWorkspaceCache();
+    // Tenant-scoped draft caches must never survive a sign-out on a shared
+    // browser: they belong to the previous account only.
+    clearDraftCache(user?.id ?? null);
     setActiveModule('wizard');
     setStep(0);
     setShowResumeBanner(false);
@@ -321,10 +334,37 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         || baseline.templateId
         || 'barber_mens_grooming';
       const restored = restoreSavedTemplatePresentation(merged, authoritativeTemplate);
-      const hydrated = restored
+      const serverHydrated = restored
         || (normalizeThemeId(configTemplate) !== normalizeThemeId(authoritativeTemplate)
           ? switchSalonTemplatePresentation(merged, authoritativeTemplate)
           : applyTemplateConfigToSalon(merged, {}));
+
+      // DRAFT-LOSS SAFETY NET. The database is the refresh authority, but a
+      // brand-new website row, an interrupted draft write, or a transient read
+      // failure must never wipe the owner's work. When the server draft has no
+      // real content and this browser holds a newer tenant-scoped cache for the
+      // SAME user, the cached draft is restored on top of the server record
+      // (identity/publish fields stay server-owned).
+      const cache = readDraftCache(user.id);
+      let hydrated = serverHydrated;
+      if (cache && !hasDraftContent(draftConfig) && hasDraftContent(cache.draft)) {
+        hydrated = restoreDraftCache(serverHydrated, cache);
+        console.warn('Owner draft restored from the local fallback cache.');
+      }
+
+      // DYNAMIC PUBLISHED LINK. An unpublished salon advertises the slug built
+      // from its business name, so the placeholder allocated during
+      // provisioning (`my-salon-3`) becomes the real address (`arts-by-uma`).
+      // A published address is permanently allocated and never rewritten.
+      const dynamicSlug = currentSalonSlug({
+        salonName: hydrated.salonName,
+        websiteSlug: hydrated.websiteSlug,
+        published: hydrated.publishState === 'published',
+        publishedUrl: hydrated.publishedUrl,
+      });
+      if (dynamicSlug && dynamicSlug !== hydrated.websiteSlug) {
+        hydrated = { ...hydrated, websiteSlug: dynamicSlug };
+      }
 
       setData(hydrated);
       if (!(hydrated.publishState === 'published' && hydrated.publishedUrl)) {
@@ -369,93 +409,132 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     } catch {}
   }, [dashboardTab]);
 
-  // Auto save state to localStorage whenever step or data changes.
-  // In configured deployments this cache is never read (hydrate-from-Supabase
-  // invariant) and must never become the refresh authority — so it is not
-  // written at all, and the backend business autosave below owns the save
-  // indicator. Unconfigured mode keeps the localStorage persistence path.
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    if (isSupabaseConfigured) return;
+  // ---------------------------------------------------------------------
+  // UNIFIED AUTOSAVE (every builder step 1–14)
+  //
+  // One debounced (1.8s) pipeline that writes BOTH destinations:
+  //   1. the tenant-scoped LocalStorage draft cache (fallback; survives a
+  //      refresh, a dropped connection and a failed API call);
+  //   2. the backend (`salons` + `salon_public_websites.config`) through
+  //      `persistOwnerBusinessSetup`.
+  //
+  // The header indicator reflects the REAL backend result: "Saving…" while the
+  // debounce/request runs, "Saved ✓" after the server confirms, and
+  // "Save failed — check connection" when it does not. Transient failures are
+  // retried automatically with backoff; nothing is ever silently dropped.
+  // ---------------------------------------------------------------------
+  const autosaveFingerprint = useCallback(
+    (snapshot: SalonData) => JSON.stringify({
+      draft: unifiedDraftFromSalonData(snapshot),
+      lastCompletedStep: snapshot.lastCompletedStep ?? 0,
+    }),
+    [],
+  );
 
-    setSaveStatus('saving');
-    const timer = setTimeout(() => {
+  const writeLocalDraftMirror = useCallback((snapshot: SalonData, currentStep: number) => {
+    const lastCompletedStep = Math.max(snapshot.lastCompletedStep || 0, currentStep > 0 ? currentStep - 1 : 0);
+    // Tenant-scoped fallback cache (never shared between accounts).
+    writeDraftCache(user?.id ?? null, { ...snapshot, lastCompletedStep }, currentStep);
+    // Unconfigured/demo mode keeps the original onboarding cache so an offline
+    // builder still restores its progress on refresh.
+    if (!isSupabaseConfigured) {
       try {
-        const lastCompletedStep = Math.max(data.lastCompletedStep || 0, step > 0 ? step - 1 : 0);
         safeSetItem(
           STORAGE_KEY,
           JSON.stringify({
-            step,
-            data: { ...data, lastCompletedStep },
+            step: currentStep,
+            data: { ...snapshot, lastCompletedStep },
             activeModule,
             dashboardTab,
             lastSaved: new Date().toISOString(),
-            onboarding_progress: `Step ${step + 1} of ${TOTAL_STEPS}`,
+            onboarding_progress: `Step ${currentStep + 1} of ${TOTAL_STEPS}`,
             lastCompletedStep,
-            selectedTemplate: data.templateId,
-            websiteAppearance: data.websiteAppearance,
-            reviewedContent: data.reviewedContent,
-            currentStep: step + 1
-          })
+            selectedTemplate: snapshot.templateId,
+            websiteAppearance: snapshot.websiteAppearance,
+            reviewedContent: snapshot.reviewedContent,
+            currentStep: currentStep + 1,
+          }),
         );
       } catch (e) {
         console.error('Failed to save onboarding state', e);
       }
+    }
+  }, [user?.id, activeModule, dashboardTab]);
+
+  const autosave = useAutosave<SalonData>({
+    value: data,
+    delay: AUTOSAVE_DEBOUNCE_MS,
+    enabled: !isSupabaseConfigured || (!!user && backendHydratedUser === user.id),
+    fingerprint: autosaveFingerprint,
+    persistLocally: (snapshot) => writeLocalDraftMirror(snapshot, step),
+    save: async (snapshot) => {
+      if (!isSupabaseConfigured || !user) {
+        // Offline/demo mode: the LocalStorage mirror is the only store.
+        return { salonId: snapshot.salonId || '', slug: snapshot.websiteSlug };
+      }
+      const saved = await persistOwnerBusinessSetup(snapshot);
+      if ('error' in saved) return { error: saved.error };
+      return saved;
+    },
+    onSaved: (result) => {
+      saveFailureToastShown.current = false;
+      setData((current) => {
+        const nextSlug = result.slug || current.websiteSlug;
+        if (result.salonId === current.salonId && nextSlug === current.websiteSlug) return current;
+        return { ...current, salonId: result.salonId || current.salonId, websiteSlug: nextSlug };
+      });
+      // Purge an older unconfigured-mode cache after a confirmed backend write.
+      if (isSupabaseConfigured) safeRemoveItem(STORAGE_KEY);
       setSaveStatus('saved');
-    }, 400);
+    },
+    onError: () => {
+      if (!saveFailureToastShown.current) {
+        saveFailureToastShown.current = true;
+        showToast('Could not save your changes. Check your connection — retrying automatically.', 'error');
+      }
+      setSaveStatus('error');
+    },
+  });
 
-    return () => clearTimeout(timer);
-  }, [step, data, activeModule, dashboardTab]);
-
-  // Business autosave is keyed only by protected business/content data. A
-  // template transition cannot cancel a pending business save or start a new
-  // one, and therefore cannot touch salons, organizations, hours, or location.
+  // Mirror the autosave status into the TopBar indicator ("Saving…" / "Saved ✓"
+  // / "Save failed"), so every step 1–14 shows live, honest save feedback.
   useEffect(() => {
-    if (!isSupabaseConfigured || !user || backendHydratedUser !== user.id) return;
-    const timer = window.setTimeout(() => {
-      setSaveStatus('saving');
-      // Serialize draft, visual, and template writes in one client queue so a
-      // delayed full-draft save cannot overwrite a newer per-template map.
-      const save = templateSwitchQueue.current.then(() => (
-        persistOwnerBusinessSetup(latestData.current)
-      ));
-      templateSwitchQueue.current = save.then(() => undefined, () => undefined);
-      void save
-        .then((saved) => {
-          if ('error' in saved) {
-            // The backend rejected the write (network / RLS / validation).
-            // Fail loud instead of claiming "Saved": surface the error state
-            // and one toast; the next autosave tick retries automatically.
-            if (!saveFailureToastShown.current) {
-              saveFailureToastShown.current = true;
-              showToast('Could not save your changes. Check your connection and try again.', 'error');
-            }
-            setSaveStatus('error');
-            return;
-          }
-          saveFailureToastShown.current = false;
-          setData((current) => current.salonId === saved.salonId
-            ? current
-            : { ...current, salonId: saved.salonId, websiteSlug: saved.slug || current.websiteSlug });
-          setSaveStatus('saved');
-        })
-        .catch((error) => {
-          console.error('Backend business autosave failed:', error);
-          if (!saveFailureToastShown.current) {
-            saveFailureToastShown.current = true;
-            showToast('Could not save your changes. Check your connection and try again.', 'error');
-          }
-          setSaveStatus('error');
-        });
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [protectedDataRevision, user, backendHydratedUser]);
+    if (autosave.status === 'idle') return;
+    setSaveStatus(autosave.status === 'saved' ? 'saved' : autosave.status === 'saving' ? 'saving' : 'error');
+  }, [autosave.status]);
+
+  // DYNAMIC PUBLISHED LINK (step 2 onwards).
+  // The slug is generated from the ACTUAL salon name ("Arts By Uma" →
+  // "/arts-by-uma"). It stays in step with the business name while the site is
+  // unpublished — that is what replaces the placeholder `/my-salon-3` handed
+  // out by provisioning before the owner ever typed a name. Once published the
+  // address is permanently allocated, so renaming the salon can never break a
+  // link the owner already shared.
+  useEffect(() => {
+    const published = data.publishState === 'published' && !!data.publishedUrl;
+    if (published) return;
+    // Wait for a real business name: an empty field (first render) must never
+    // downgrade an allocated slug to the generic `salon` placeholder.
+    if (!(data.salonName || '').trim()) return;
+    const generated = currentSalonSlug({
+      salonName: data.salonName,
+      websiteSlug: data.websiteSlug,
+      published: false,
+    });
+    if (!generated || generated === data.websiteSlug) return;
+    setData((current) => (current.websiteSlug === generated ? current : { ...current, websiteSlug: generated }));
+  }, [data.salonName, data.websiteSlug, data.publishState, data.publishedUrl]);
+
+  // Flush the local mirror on refresh/close so a mid-debounce edit is never
+  // stranded. The backend flush below handles the authoritative store.
+  useEffect(() => {
+    const flush = () => autosave.flushLocal();
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [autosave.flushLocal]);
 
   // Flush the authoritative draft on refresh/close so a mid-step edit is not
-  // stranded in the 1.2s debounce. Session tokens stay in Supabase Auth.
+  // stranded in the 1.8s autosave debounce. Session tokens stay in Supabase Auth.
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const flush = () => {

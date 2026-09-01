@@ -341,6 +341,72 @@ export function setupApiRoutes(app: express.Express): void {
     }
   };
 
+  // ------------------------------------------------------------------ *
+  // Published-link slug resolution (server half of the dynamic salon URL)
+  // ------------------------------------------------------------------ *
+
+  /** Slugs owned by platform routes — never usable as a business address. */
+  const RESERVED_SLUGS = new Set([
+    'dashboard', 'builder', 'nearby', 'auth', 'login', 'signup', 'register',
+    'reset-password', 'api', 'admin', 'www', 'app', 'static', 'assets',
+  ]);
+
+  /**
+   * Mirrors `private.normalize_website_slug` / `private.nexora_business_slug`:
+   * lowercase, strip accents, collapse every run of non-alphanumeric
+   * characters into one hyphen, clamp to 50 chars.
+   */
+  function normalizeSlug(value: string): string {
+    return (value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50)
+      .replace(/-+$/g, '');
+  }
+
+  function isValidSlug(value: string): boolean {
+    return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) && value.length >= 3 && value.length <= 60;
+  }
+
+  function draftSlugFromName(name: string): string {
+    let slug = normalizeSlug(name);
+    if (!slug) slug = 'salon';
+    if (slug.length < 3) slug = `${slug}-salon`.slice(0, 50).replace(/-+$/g, '');
+    if (RESERVED_SLUGS.has(slug)) slug = `${slug}-salon`.slice(0, 50).replace(/-+$/g, '');
+    return slug;
+  }
+
+  /**
+   * The address a salon advertises after a draft save:
+   *   - PUBLISHED  → the allocated slug is permanent (shared links survive a
+   *                  business rename), so it is returned unchanged.
+   *   - UNPUBLISHED → derived from the business name so the placeholder
+   *                   `my-salon-3` allocated at provisioning is replaced by
+   *                   `arts-by-uma` as soon as the real name is entered.
+   * The database unique index stays the collision authority: a rejected slug
+   * simply keeps the previously allocated one.
+   */
+  function resolveDraftSlug(input: {
+    requestedSlug: string;
+    salonName: string;
+    existingSlug: string;
+    isPublished: boolean;
+    fallback: string;
+  }): string {
+    if (input.isPublished && isValidSlug(input.existingSlug)) return input.existingSlug;
+    const fromName = draftSlugFromName(input.salonName);
+    if (isValidSlug(fromName) && !RESERVED_SLUGS.has(fromName)) return fromName;
+    if (isValidSlug(input.requestedSlug) && !RESERVED_SLUGS.has(input.requestedSlug)) return input.requestedSlug;
+    if (isValidSlug(input.existingSlug)) return input.existingSlug;
+    return input.fallback;
+  }
+
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', screens: 25, timestamp: new Date().toISOString() });
@@ -666,13 +732,20 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
   });
 
   // Owner website draft persistence fallback
+  //
+  // Also the server-side half of the dynamic published link: an UNPUBLISHED
+  // salon re-derives its slug from the business name on every draft save, so
+  // the placeholder address allocated at provisioning (`my-salon-3`) becomes
+  // the real one (`arts-by-uma`) as soon as the owner types the salon name.
+  // A published address is permanently allocated and never rewritten.
   app.post('/api/owner/save-website-draft', async (req, res) => {
     try {
       const user = await requireAuthenticatedUser(req);
       const salonId = (req.body?.salonId || '').trim();
       const config = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
       const templateKey = (req.body?.templateKey || 'hair').trim();
-      const slug = (req.body?.slug || '').trim();
+      const requestedSlug = (req.body?.slug || '').trim().toLowerCase();
+      const salonName = typeof req.body?.salonName === 'string' ? req.body.salonName : '';
 
       if (!salonId) {
         return res.status(400).json({ error: 'Missing salonId' });
@@ -702,7 +775,20 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
         return res.status(403).json({ error: 'Not authorized for this salon' });
       }
 
-      const finalSlug = slug || salon.slug || `salon-${salonId.slice(0, 8)}`;
+      const { data: existingSite } = await admin
+        .from('salon_public_websites')
+        .select('slug, is_published, published_at')
+        .eq('salon_id', salonId)
+        .maybeSingle();
+
+      const isPublished = existingSite?.is_published === true;
+      const finalSlug = resolveDraftSlug({
+        requestedSlug,
+        salonName,
+        existingSlug: existingSite?.slug || salon.slug || '',
+        isPublished,
+        fallback: `salon-${salonId.slice(0, 8)}`,
+      });
 
       // Upsert website draft
       const { data: website, error: upsertErr } = await admin
@@ -712,13 +798,20 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
           slug: finalSlug,
           template_key: templateKey,
           config,
-          is_published: false,
+          is_published: isPublished,
         } as any, { onConflict: 'salon_id' })
         .select('slug, is_published')
         .maybeSingle();
 
+      // Keep the canonical salon row on the same address so public routing and
+      // the owner workspace agree on one slug.
+      if (finalSlug && finalSlug !== (salon.slug || '')) {
+        await admin.from('salons').update({ slug: finalSlug } as any).eq('id', salonId);
+      }
+
       if (upsertErr) {
-        // If upsert fails, try update
+        // If upsert fails, try update (config only — never overwrite a slug we
+        // could not verify as free).
         const { data: updated } = await admin
           .from('salon_public_websites')
           .update({ config } as any)
@@ -728,7 +821,7 @@ Do not include conversational filler, meta-comments, introductory greetings, or 
 
         return res.json({
           salonId,
-          slug: updated?.slug || finalSlug,
+          slug: updated?.slug || existingSite?.slug || finalSlug,
           isPublished: updated?.is_published === true,
         });
       }

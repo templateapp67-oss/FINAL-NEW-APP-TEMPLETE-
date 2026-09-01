@@ -56,7 +56,7 @@ function SafeHeaderLogo({
   logoUrl: string;
   alt: string;
   className: string;
-  fallback: React.ReactNode;
+  fallback: ReactNode;
 }) {
   const [errored, setErrored] = useState(false);
   // Reset error when URL changes (new upload)

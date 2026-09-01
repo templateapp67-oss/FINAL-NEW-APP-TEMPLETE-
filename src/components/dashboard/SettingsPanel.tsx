@@ -3,10 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { useEffect } from 'react';
 import { motion } from 'motion/react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { SalonData } from '../../types';
+import type { BookingRules, SalonData } from '../../types';
+import { initialData } from '../../types';
 import HomeServiceSettingsCard from '../HomeServiceSettingsCard';
+import { useAutoSaveStore } from '../../hooks/useAutoSaveStore';
 
 export interface SettingsPanelProps {
   data: SalonData;
@@ -22,7 +25,60 @@ export interface SettingsPanelProps {
  * `src/screens/Landing.tsx`.
  */
 
+/** The slice of `bookingRules` this panel owns in the settings store. */
+type SalonRulesStore = {
+  minNotice: string;
+  allowStaffSelection: boolean;
+};
+
+/** Product defaults, used only when this salon has no booking rules yet. */
+const BASE_RULES: BookingRules = initialData.bookingRules;
+
 export default function SettingsPanel({ data, setData, onNotify }: SettingsPanelProps) {
+  /**
+   * CENTRAL STATE + DEBOUNCED AUTO-SAVE (600 ms) — see
+   * `src/hooks/useAutoSaveStore.ts`. Booking rules are tenant settings, so
+   * they live in the canonical `salon_public_websites.config` jsonb under the
+   * `bookingRules` key and are merged (never replaced) with the rest of the
+   * website draft.
+   */
+  const rules = useAutoSaveStore<SalonRulesStore>(
+    {
+      minNotice: data.bookingRules?.minNotice || BASE_RULES.minNotice,
+      allowStaffSelection: data.bookingRules?.allowStaffSelection ?? BASE_RULES.allowStaffSelection,
+    },
+    { configKey: 'bookingRules' },
+  );
+
+  // Keep the CENTRAL edit state (and therefore the live preview, which is bound
+  // to it by props) in sync the instant a field changes — the database write is
+  // debounced, the UI is not.
+  const applyToCentralState = (patch: Partial<SalonRulesStore>) => {
+    setData((previous) => ({
+      ...previous,
+      bookingRules: { ...(previous.bookingRules ?? BASE_RULES), ...patch } as BookingRules,
+    }));
+  };
+
+  // Hydration: when the draft loads (or another screen edits the same rules),
+  // adopt the external values WITHOUT triggering a save.
+  useEffect(() => {
+    rules.hydrate({
+      minNotice: data.bookingRules?.minNotice || BASE_RULES.minNotice,
+      allowStaffSelection: data.bookingRules?.allowStaffSelection ?? BASE_RULES.allowStaffSelection,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.bookingRules?.minNotice, data.bookingRules?.allowStaffSelection]);
+
+  const autosaveLabel =
+    rules.status === 'saving'
+      ? 'Saving…'
+      : rules.status === 'saved'
+        ? 'Saved ✓'
+        : rules.status === 'error'
+          ? 'Save failed'
+          : 'Autosave on';
+
   return (
     <>
               <motion.div 
@@ -43,12 +99,10 @@ export default function SettingsPanel({ data, setData, onNotify }: SettingsPanel
                       <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Minimum Notice Period</label>
                       <input 
                         type="text" 
-                        value={data.bookingRules?.minNotice || '1 hour'}
+                        value={rules.data.minNotice}
                         onChange={(e) => {
-                          setData(prev => ({
-                            ...prev,
-                            bookingRules: { ...prev.bookingRules!, minNotice: e.target.value }
-                          }));
+                          rules.updateField('minNotice', e.target.value);
+                          applyToCentralState({ minNotice: e.target.value });
                         }}
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold"
                       />
@@ -61,12 +115,11 @@ export default function SettingsPanel({ data, setData, onNotify }: SettingsPanel
                     <div>
                       <label className="block text-xs font-bold text-gray-700 uppercase mb-2">Allow Staff Selection</label>
                       <select
-                        value={data.bookingRules?.allowStaffSelection ? 'yes' : 'no'}
+                        value={rules.data.allowStaffSelection ? 'yes' : 'no'}
                         onChange={(e) => {
-                          setData(prev => ({
-                            ...prev,
-                            bookingRules: { ...prev.bookingRules!, allowStaffSelection: e.target.value === 'yes' }
-                          }));
+                          const next = e.target.value === 'yes';
+                          rules.updateField('allowStaffSelection', next);
+                          applyToCentralState({ allowStaffSelection: next });
                         }}
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold"
                       >
@@ -90,10 +143,27 @@ export default function SettingsPanel({ data, setData, onNotify }: SettingsPanel
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t border-gray-100 flex justify-end gap-2">
+                  <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
+                    {/* AUTO-SAVE STATUS — the settings are written automatically
+                        (debounced 600 ms); this only reports it. */}
+                    <span
+                      className={`mr-auto text-[11px] font-semibold ${
+                        rules.status === 'saved'
+                          ? 'text-emerald-600'
+                          : rules.status === 'saving'
+                            ? 'text-[#ac0053]'
+                            : rules.status === 'error'
+                              ? 'text-red-600'
+                              : 'text-gray-400'
+                      }`}
+                      aria-live="polite"
+                    >
+                      {autosaveLabel}
+                    </span>
                     <button 
-                      onClick={() => {
-                        onNotify('Saved Salon Rules!');
+                      onClick={async () => {
+                        const saved = await rules.saveNow();
+                        onNotify(saved ? 'Saved Salon Rules!' : 'Could not save salon rules. Please retry.');
                       }}
                       className="px-6 py-2 rounded-xl bg-[#ac0053] hover:bg-[#ba005b] text-white font-bold text-xs"
                     >

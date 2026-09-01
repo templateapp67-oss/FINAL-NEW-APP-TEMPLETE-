@@ -81,6 +81,14 @@ The app contains:
   `/preview-frame`) streams the same state with origin-validated `postMessage`
   (`src/lib/previewBridge.ts`). `npm run test:service-autosave` (29 checks);
   full write-up in `docs/service-autosave-live-preview.md`.
+- **Central settings store (2026-09-01)** — `useAutoSaveStore`
+  (`src/hooks/useAutoSaveStore.ts`) is a central state store that updates
+  instantly via `updateField()` and syncs to the canonical
+  `salon_public_websites.config` jsonb after a 600 ms debounce
+  (`src/lib/storeSettings.ts`): jsonb MERGE (optionally namespaced by
+  `configKey`), session-verified salon, serialized writes, `hydrate()` for
+  loads, `saveNow()`/`retry()`. Wired into the owner **Settings** panel
+  (salon booking rules). `npm run test:autosave-store` (19 checks).
 
 There is **no README**; `AGENTS.md` + `docs/HANDOFF.md` are the orientation docs.
 
@@ -113,6 +121,7 @@ npm run validate:migrations # source-check M18 + apply M01–M27 twice + tests A
 npm run test:theme-catalog # verify five-theme DB/RPC/UI read boundaries
 npm run test:service-saving # verify saved-service CRUD/tenant/persistence flow
 npm run test:service-autosave # service autosave + live preview bridge (29 checks)
+npm run test:autosave-store # central state store autosave (18 checks)
 npm run test:service-management # Phase 8.1 management E2E on real PostgreSQL
 npm run test:service-security # Phase 8.2 adversarial security/validation suite
 npm run test:acceptance     # Phase 8.3 five-theme acceptance (data + integration)

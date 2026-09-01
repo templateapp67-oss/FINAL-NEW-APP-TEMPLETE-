@@ -36,8 +36,17 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isSupabaseConfigured, requireSupabase } from './supabase';
-import { fetchAuthenticatedOwnerSalonIds } from './ownerSalon';
+import {
+  isUuid as isUuidValue,
+  resolveAutosaveSalonId,
+  type SalonResolution,
+} from './autosaveTenant';
 import type { Service } from '../types';
+
+// Tenant resolution lives in `./autosaveTenant` so the service autosave and the
+// store autosave share ONE implementation. Re-exported so existing importers
+// (and the test suite) keep working unchanged.
+export { resolveAutosaveSalonId, type SalonResolution } from './autosaveTenant';
 
 /** Canonical table. One service source — shared by builder, dashboard, site. */
 export const SERVICE_TABLE = 'services';
@@ -48,14 +57,8 @@ export const SERVICE_AUTOSAVE_DEBOUNCE_MS = 800;
 /** Composite unique index backing `upsert({ onConflict: 'id,salon_id' })`. */
 export const SERVICE_UPSERT_CONFLICT = 'id,salon_id';
 
-const OWNER_SALON_IDS_RPC = 'owner_salon_ids';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /** True only for a real database UUID (local/temp ids are not, by design). */
-export function isUuid(value: unknown): value is string {
-  return typeof value === 'string' && UUID_RE.test(value.trim());
-}
+export const isUuid = isUuidValue;
 
 /**
  * The editable payload of one service. Prices are RUPEES here (the builder
@@ -265,57 +268,6 @@ export function serviceAutosaveErrorMessage(error: unknown): string {
     return 'Network error. Your change is kept here — it will retry automatically.';
   }
   return 'Unable to save this service right now. Please try again.';
-}
-
-/** Salon ids the signed-in user may write, from the authoritative RPC. */
-async function ownerSalonIdsFromClient(client: SupabaseClient): Promise<string[] | null> {
-  try {
-    const { data, error } = await client.rpc(OWNER_SALON_IDS_RPC);
-    if (error) return null;
-    const rows = Array.isArray(data) ? data : data === null || data === undefined ? [] : [data];
-    return Array.from(
-      new Set(
-        rows
-          .map((row) =>
-            typeof row === 'string'
-              ? row
-              : (row as Record<string, unknown>)?.salon_id ?? (row as Record<string, unknown>)?.id,
-          )
-          .filter((value): value is string => typeof value === 'string' && value.length > 0),
-      ),
-    );
-  } catch {
-    return null;
-  }
-}
-
-export type SalonResolution = { salonId: string } | { error: string };
-
-/**
- * Resolves the salon an autosave may write.
- *
- * A caller-suggested id is VERIFIED against the server-derived ownership list;
- * it is never trusted on its own (M40: "A client-supplied salon id is never
- * accepted").
- */
-export async function resolveAutosaveSalonId(
-  client: SupabaseClient,
-  candidate?: string | null,
-): Promise<SalonResolution> {
-  let owned = await ownerSalonIdsFromClient(client);
-  if (!owned) owned = await fetchAuthenticatedOwnerSalonIds();
-
-  if (!owned || owned.length === 0) {
-    return { error: 'No salon is linked to this account yet.' };
-  }
-  if (candidate) {
-    if (!owned.includes(candidate)) {
-      return { error: 'You do not have access to this salon.' };
-    }
-    return { salonId: candidate };
-  }
-  if (owned.length === 1) return { salonId: owned[0] };
-  return { error: 'Multiple shops are linked to your account. Please select a shop first.' };
 }
 
 /**

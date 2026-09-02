@@ -7,6 +7,24 @@
 > Read `AGENTS.md` first; read `docs/database-migrations-plan.md` before touching
 > any database work.
 
+## M72 — Owner provisioning trusted membership gate — 2026-09-02 (current PR)
+
+- Live read-only introspection confirmed the P0001 failure occurs in
+  `private.protect_organization_membership_fields()`: the M54/M63 private helper
+  inserts the first owner membership as active, but does not use the guard's
+  existing transaction-local `app.membership_rpc_trusted` contract.
+- M72 replaces M63's trigger-DDL workaround with the guard's reviewed trusted
+  RPC path. Trust is opened only around the idempotent private membership
+  upsert and the previous value is restored on success or error. The trigger,
+  RLS, invitation rules, uniqueness and tenant data remain intact.
+- The legacy `provision_owner_salon(uuid,text)` overload is revoked from browser
+  roles. Current frontend code already calls only auth.uid()-derived signatures.
+- Regression coverage reproduces the exact live P0001 before M72, then verifies
+  successful provisioning, retry idempotency, 6/6 verifier checks, and continued
+  denial of direct active-membership, anonymous and cross-user calls. Run
+  `npm run test:m72`.
+- Live apply remains a separate operation: `npm run db:apply:live:m72`.
+
 ## Public slug resolution — `/arts-by-uma` "Salon Not Found" fix — 2026-09-02 (current PR)
 
 **Live root cause** (read-only anon audit of project `qwaehqsmodekbgvnaavz`):

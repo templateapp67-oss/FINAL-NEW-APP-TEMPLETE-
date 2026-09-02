@@ -17,6 +17,7 @@
     "test:phase1-header": "tsx scripts/test-phase1-header.mjs",
     "test:arts-by-uma-seed": "tsx scripts/test-arts-by-uma-seed.mjs",
     "test:arts-by-uma-journey": "tsx scripts/test-arts-by-uma-journey.mjs",
+    "test:phase2-auto-init": "tsx scripts/test-phase2-auto-init.mjs",
     "test:boot": "tsx scripts/test-app-boot.mjs",
     "test:favicon": "tsx scripts/test-dynamic-favicon.mjs",
     "test:customization": "tsx scripts/test-website-customization.mjs",

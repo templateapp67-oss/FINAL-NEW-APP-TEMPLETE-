@@ -78,6 +78,7 @@
     "test:phase-3b": "npm run validate:migrations && npm run test:phase-3a && node scripts/test-phase3b.mjs",
     "test:phase-4": "npm run validate:migrations && npm run test:phase-3b && tsx scripts/test-phase4-final.mjs",
     "test:phase4": "tsx scripts/test-phase4-final.mjs",
+    "test:phase4-e2e": "tsx scripts/test-phase4-e2e-user-sim.mjs",
     "test:phase-1a-audit": "node scripts/test-phase1a-audit.mjs",
     "test:phase-1b": "node scripts/test-phase1b-owner-flow.mjs && node scripts/test-phase1b-owner-auth.mjs && node scripts/test-phase1b-business-setup.mjs && node scripts/test-phase1b-template-architecture.mjs && node scripts/test-phase1b-scope.mjs && tsx scripts/test-phase1b-regression.mjs && tsx scripts/test-owner-template-sequence.mjs",
     "test:phase1b-scope": "node scripts/test-phase1b-scope.mjs",

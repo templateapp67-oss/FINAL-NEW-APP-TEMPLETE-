@@ -3,7 +3,7 @@
  *
  * Verifies against a real PostgreSQL (PGlite) + the full migration chain:
  *   1. `seed_demo_salon_content('nexora-demo-salon')` auto-seeds sample
- *      content for a salon with none: 5 active services, 2 combo packages,
+ *      content for a salon with none: 6 active services, 2 combo packages,
  *      7 business hours, 4 video feeds, 6 gallery media — each keyed to the
  *      tenant (adaptive salon_id/business_id).
  *   2. Re-running is IDEMPOTENT — nothing is duplicated.
@@ -94,14 +94,14 @@ const HT = await hoursTable();
 let r = await asOwner(`select public.seed_demo_salon_content('nexora-demo-salon') as out`);
 const summary = r[0].out;
 assert.equal(summary.salon_id, salDemo, 'seeder addressed the demo salon');
-assert.equal(summary.seeded.services, 5, `services seeded: ${JSON.stringify(summary)}`);
+assert.equal(summary.seeded.services, 6, `services seeded: ${JSON.stringify(summary)}`);
 assert.equal(summary.seeded.packages, 2, 'packages seeded');
 assert.equal(summary.seeded.social_videos, 4, 'video feeds seeded');
 assert.equal(summary.seeded.business_media, 6, 'gallery media seeded');
 assert.equal(summary.seeded.business_hours ?? summary.seeded.salon_hours, 7, 'hours seeded');
 ok('seed_demo_salon_content seeded services/packages/hours/videos/media');
 
-assert.equal(await countFor(salDemo, 'services'), 5, 'services count');
+assert.equal(await countFor(salDemo, 'services'), 6, 'services count');
 assert.equal(await countFor(salDemo, 'packages'), 2, 'packages count');
 assert.equal(await countFor(salDemo, 'social_videos'), 4, 'videos count');
 assert.equal(await countFor(salDemo, HT), 7, 'hours count');
@@ -111,12 +111,12 @@ ok('exact seeded counts confirmed against the live tenant');
 const tcolSvc = await tenantCol('services');
 const tvalSvc = await tenantVal(salDemo, 'services');
 const actN = (await q(`select count(*)::int as n from public.services where ${tcolSvc} = $1 and status = 'active'`, [tvalSvc]))[0].n;
-assert.equal(actN, 5, 'all seeded services are active');
+assert.equal(actN, 6, 'all seeded services are active');
 ok('seeded services are all status=active');
 
 // ---------- 2. Idempotency ----------
 await asOwner(`select public.seed_demo_salon_content('nexora-demo-salon') as out`);
-assert.equal(await countFor(salDemo, 'services'), 5, 'services not duplicated');
+assert.equal(await countFor(salDemo, 'services'), 6, 'services not duplicated');
 assert.equal(await countFor(salDemo, 'packages'), 2, 'packages not duplicated');
 assert.equal(await countFor(salDemo, 'social_videos'), 4, 'videos not duplicated');
 assert.equal(await countFor(salDemo, HT), 7, 'hours not duplicated');
@@ -148,7 +148,7 @@ ok('RLS enabled on services/packages/hours/videos/media');
 await db.exec('set role anon');
 const anonSees = (await db.query(`select count(*)::int as n from public.services where status = 'active'`)).rows[0].n;
 await db.exec('reset role');
-assert.ok(anonSees >= 5, `anon can read public services (saw ${anonSees})`);
+assert.ok(anonSees >= 6, `anon can read public services (saw ${anonSees})`);
 ok('guests (anon) can read active public services');
 
 // ---------- 5. Payment gateway (25% advance) ----------
@@ -197,7 +197,7 @@ ok('Razorpay 25% advance locked at 25.00 by booking_settings CHECK');
   const tval = (await db2.query(`select private.phase2_tenant_value($1::uuid, 'services') as v`, [salDemo])).rows[0].v;
   const autoSvc = (await db2.query(`select count(*)::int as n from public.services where ${tcol} = $1`, [tval])).rows[0].n;
   const autoVids = (await db2.query(`select count(*)::int as n from public.social_videos where ${tcol} = $1`, [tval])).rows[0].n;
-  assert.equal(autoSvc, 5, `automatic backfill seeded services (got ${autoSvc})`);
+  assert.equal(autoSvc, 6, `automatic backfill seeded services (got ${autoSvc})`);
   assert.equal(autoVids, 4, 'automatic backfill seeded video feeds');
   ok('M71 automatically seeded an existing demo salon on apply (no manual call)');
   await db2.close();

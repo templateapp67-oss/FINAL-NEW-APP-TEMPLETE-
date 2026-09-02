@@ -61,6 +61,7 @@ export function buildDemoSeedSalonData(slug: string): SalonData | null {
       { id: 'au-3', name: 'Ammonia-Free Hair Colour', category: 'Colour', description: 'Full colour or root touch-up with ammonia-free, organic colour products.', price: 1499, duration: 90, status: 'active' },
       { id: 'au-4', name: 'Hair Spa & Scalp Therapy', category: 'Treatment', description: 'Deep-conditioning scalp massage and spa treatment to restore shine and softness.', price: 899, duration: 45, status: 'active' },
       { id: 'au-5', name: 'Clean Shave & Face Polish', category: 'Grooming', description: 'A classic barbershop shave with a gentle face-polish finish.', price: 249, duration: 30, status: 'active' },
+      { id: 'au-6', name: 'HydraFacial', category: 'Facial', description: 'A deep-cleansing, hydrating 4-step facial that brightens and de-stresses your skin in under an hour.', price: 1799, duration: 60, status: 'active', featured: true },
     ],
     packages: [
       { id: 'au-p1', name: 'Grooming Ritual Combo', description: 'Haircut + beard sculpting + hot-towel shave in one visit.', price: 899, duration: 90, status: 'active' },

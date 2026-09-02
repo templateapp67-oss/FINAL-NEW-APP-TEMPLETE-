@@ -155,16 +155,18 @@ begin
       || '  (%L, %L, 29900::bigint, 30, %L, true, 2),'
       || '  (%L, %L, 149900::bigint, 90, %L, false, 3),'
       || '  (%L, %L, 89900::bigint, 45, %L, false, 4),'
-      || '  (%L, %L, 24900::bigint, 30, %L, false, 5)'
+      || '  (%L, %L, 24900::bigint, 30, %L, false, 5),'
+      || '  (%L, %L, 179900::bigint, 60, %L, true, 6)'
       || ') as v(name, category, price_paise, duration_minutes, short_description, is_featured, display_order)',
       v_col,
       'Signature Haircut & Styling','Haircut','A tailored cut and finish shaped to your face, hair type and lifestyle.',
       'Beard Sculpting & Hot Towel','Grooming','Precision beard shaping with a relaxing hot-towel finish.',
       'Ammonia-Free Hair Colour','Colour','Full colour or root touch-up with ammonia-free, organic colour products.',
       'Hair Spa & Scalp Therapy','Treatment','Deep-conditioning scalp massage and spa treatment to restore shine and softness.',
-      'Clean Shave & Face Polish','Grooming','A classic barbershop shave with a gentle face-polish finish.'
+      'Clean Shave & Face Polish','Grooming','A classic barbershop shave with a gentle face-polish finish.',
+      'HydraFacial','Facial','A deep-cleansing, hydrating 4-step facial that brightens and de-stresses your skin.'
     ) using v_tenant;
-    v_seeded := v_seeded || '{"services":5}'::jsonb;
+    v_seeded := v_seeded || '{"services":6}'::jsonb;
   else
     v_skipped := v_skipped || '{"services":"exists"}'::jsonb;
   end if;

@@ -91,9 +91,9 @@ const TARGETS = {
     file: '20260831000201_m67_saved_service_upsert_revive.sql',
     verifier: 'verify_m67_saved_service_upsert',
   },
-  m72: {
-    file: '20260902000301_m72_owner_provisioning_trusted_membership.sql',
-    verifier: 'verify_m72_owner_provisioning_membership_gate',
+  m75: {
+    file: '20260902080501_m75_owner_provisioning_trusted_membership.sql',
+    verifier: 'verify_m75_owner_provisioning_membership_gate',
   },
 };
 

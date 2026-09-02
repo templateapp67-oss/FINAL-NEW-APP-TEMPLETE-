@@ -1,5 +1,5 @@
 -- ============================================================================
--- M72 — canonical owner provisioning through the existing trusted membership gate
+-- M75 — canonical owner provisioning through the existing trusted membership gate
 -- ============================================================================
 --
 -- Live introspection (2026-08-29) confirmed that
@@ -20,7 +20,7 @@
 
 begin;
 
-do $m72_preflight$
+do $m75_preflight$
 declare
   v_guard_definition text;
 begin
@@ -28,7 +28,7 @@ begin
      or to_regprocedure('private.nexora_upsert_owner_membership(uuid,uuid)') is null
      or to_regprocedure('public.provision_owner_salon(text,text,text)') is null then
     raise exception
-      'M72 preflight: canonical owner provisioning is missing. Apply M54 first.';
+      'M75 preflight: canonical owner provisioning is missing. Apply M54 first.';
   end if;
 
   select pg_get_functiondef(p.oid)
@@ -44,10 +44,10 @@ begin
   if v_guard_definition is not null
      and position('app.membership_rpc_trusted' in v_guard_definition) = 0 then
     raise exception
-      'M72 preflight: the membership guard does not expose the reviewed trusted RPC contract.';
+      'M75 preflight: the membership guard does not expose the reviewed trusted RPC contract.';
   end if;
 end
-$m72_preflight$;
+$m75_preflight$;
 
 create or replace function private.nexora_upsert_owner_membership(
   p_organization_id uuid,
@@ -159,7 +159,7 @@ revoke all on function private.nexora_upsert_owner_membership(uuid, uuid)
 -- The legacy overload trusts p_user_id and predates the canonical auth.uid()
 -- architecture. Keep it only for explicitly trusted server compatibility;
 -- browser roles must never be able to invoke it.
-do $m72_lock_legacy_overload$
+do $m75_lock_legacy_overload$
 begin
   if to_regprocedure('public.provision_owner_salon(uuid,text)') is not null then
     revoke all on function public.provision_owner_salon(uuid, text)
@@ -168,7 +168,7 @@ begin
       to service_role;
   end if;
 end
-$m72_lock_legacy_overload$;
+$m75_lock_legacy_overload$;
 
 -- Re-assert the canonical boundary explicitly.
 revoke all on function public.provision_owner_salon(text, text, text)
@@ -176,7 +176,7 @@ revoke all on function public.provision_owner_salon(text, text, text)
 grant execute on function public.provision_owner_salon(text, text, text)
   to authenticated;
 
-create or replace function public.verify_m72_owner_provisioning_membership_gate()
+create or replace function public.verify_m75_owner_provisioning_membership_gate()
 returns table (check_name text, ok boolean, detail text)
 language plpgsql
 security definer
@@ -268,9 +268,9 @@ begin
 end;
 $$;
 
-revoke all on function public.verify_m72_owner_provisioning_membership_gate()
+revoke all on function public.verify_m75_owner_provisioning_membership_gate()
   from public, anon, authenticated;
-grant execute on function public.verify_m72_owner_provisioning_membership_gate()
+grant execute on function public.verify_m75_owner_provisioning_membership_gate()
   to service_role;
 
 commit;

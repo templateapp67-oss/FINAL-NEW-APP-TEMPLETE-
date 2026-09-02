@@ -77,7 +77,7 @@
     "20260901000201_m69_custom_domain_white_label.sql",
     "20260902000101_m70_public_slug_resolution_repair.sql",
     "20260902000201_m71_phase2_auto_initialization.sql",
-    "20260902000301_m72_owner_provisioning_trusted_membership.sql"
+    "20260902080501_m75_owner_provisioning_trusted_membership.sql"
   ],
   "excludedFiles": [
     "20260811000101_m01_extensions_enums.sql through 20260815000101_m27_social_video_likes_weekly.sql",

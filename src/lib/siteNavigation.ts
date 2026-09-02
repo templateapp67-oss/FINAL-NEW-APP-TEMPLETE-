@@ -24,6 +24,7 @@ import type { SalonData, WebsiteAppearance } from '../types';
 import { persistLocale, readStoredLocale } from './locale';
 import type { AppLocale } from './locale';
 import { normalizeThemeId } from './themeServices';
+import { scrollSiteToTop } from './siteBooking';
 
 /** Ordered navigation keys — the canonical global header order. */
 export const SITE_NAV_KEYS = [
@@ -66,6 +67,72 @@ export const SITE_HEADER_LABELS = {
 
 /** Book Appointment always lands on the theme's contact/booking section. */
 export const BOOK_APPOINTMENT_TARGET = 'section-contact';
+
+/* ------------------------------------------------------------------ */
+/* Canonical route hashes (public-site deep links).                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Canonical address-bar hash for each nav key, matching the requested public
+ * URL mapping (`/arts-by-uma#home`, `#services`, `#offers`, `#about`,
+ * `#contact`, …). The internal DOM section ids stay `section-*`; these short
+ * hashes are what the header writes to the address bar and what the loader
+ * reads back to scroll on a deep link. See `scrollToRouteHashIfPresent`.
+ */
+export const SITE_NAV_ROUTE_HASH: Record<SiteNavKey, string> = {
+  home: 'home',
+  services: 'services',
+  offers: 'offers',
+  gallery: 'gallery',
+  videos: 'videos',
+  about: 'about',
+  team: 'team',
+  contact: 'contact',
+};
+
+/** Canonical hash for the booking surface (`/arts-by-uma#booking`). */
+export const BOOKING_ROUTE_HASH = 'booking';
+
+export function routeHashForNav(key: SiteNavKey): string {
+  return SITE_NAV_ROUTE_HASH[key] || 'home';
+}
+
+/** Update the address bar to a canonical route hash (e.g. `#services`). */
+export function pushRouteHash(hash: string): void {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return;
+  try {
+    window.history.replaceState(null, '', `#${hash}`);
+  } catch {
+    /* some preview iframes disallow history writes — ignore */
+  }
+}
+
+/**
+ * If the current URL carries a canonical route hash (`/arts-by-uma#services`),
+ * scroll to the matching section. Used on public-site load so deep links
+ * behave like the header nav. Returns true when a hash was handled.
+ */
+export function scrollToRouteHashIfPresent(themeId: string | undefined, data: SalonData): boolean {
+  if (typeof window === 'undefined' || !window.location.hash) return false;
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash) return false;
+  if (hash === BOOKING_ROUTE_HASH) {
+    // Booking is opened by the modal host via the shared event; no section scroll.
+    return false;
+  }
+  const key = (Object.keys(SITE_NAV_ROUTE_HASH) as SiteNavKey[]).find(
+    (k) => SITE_NAV_ROUTE_HASH[k] === hash,
+  );
+  if (!key) return false;
+  if (key === 'home') {
+    scrollSiteToTop();
+    return true;
+  }
+  const item = buildSiteNavItems(themeId, data).find((i) => i.key === key);
+  if (!item) return false;
+  scrollToSiteSection(item.targetId);
+  return true;
+}
 
 function nonEmpty(list: readonly unknown[] | undefined): boolean {
   return Array.isArray(list) && list.length > 0;
@@ -125,7 +192,7 @@ export function buildSiteNavItems(themeId: string | undefined, data: SalonData):
         offers: nonEmpty(data.packages) ? 'section-offers' : 'section-services',
         gallery: nonEmpty(data.gallery) ? 'section-gallery' : null,
         videos: nonEmpty(data.socialVideos) ? 'section-social' : null,
-        about: data.ownerName ? 'section-owner' : null,
+        about: data.ownerName ? 'section-about' : null,
         team: nonEmpty(data.team) ? 'section-team' : null,
         contact: 'section-contact',
       };

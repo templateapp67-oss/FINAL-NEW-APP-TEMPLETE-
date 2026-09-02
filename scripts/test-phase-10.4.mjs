@@ -12,7 +12,7 @@
  *   5. Theme-specific footer / CTA / FAB treatments (pairwise distinct)
  *   6. Existing contact numbers are used; contactOptions can hide actions
  *   7. Phase 10.1 header + 10.3 section order remain intact
- *   8. Header Book Appointment still scrolls to section-contact
+ *   8. Header Book Appointment opens the existing booking flow
  */
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
@@ -229,10 +229,15 @@ for (const config of CASES) {
     });
 
     if (mode === 'desktop') {
-      await test('header Book Appointment still scrolls to section-contact', () => {
-        scrollSpy.length = 0;
-        fireEvent.click(utils.getByTestId('site-book-cta'));
-        assert.ok(scrollSpy.includes('section-contact'), `expected scroll to section-contact, got ${scrollSpy.join(',')}`);
+      await test('header Book Appointment opens the existing booking flow', async () => {
+        assert.equal(utils.container.querySelector('[data-testid="site-booking-flow"]'), null);
+        await act(async () => { fireEvent.click(utils.getByTestId('site-book-cta')); });
+        assert.ok(utils.container.querySelector('[data-testid="site-booking-flow"]'), 'header Book Appointment did not open the booking flow');
+        // Close so later tests start clean.
+        await act(async () => {
+          const close = Array.from(utils.container.querySelectorAll('button')).find((b) => /Back to Website/i.test(b.textContent || ''));
+          if (close) fireEvent.click(close);
+        });
       });
     }
 

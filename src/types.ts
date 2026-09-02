@@ -649,7 +649,10 @@ export function getPublicStaffData(member: TeamMember) {
     id: member.id,
     name: member.name,
     role: member.role,
-    specialties: member.specialties,
+    // Default to [] so themes that render specialties unconditionally (e.g.
+    // Nail & Lash TeamCard) never crash on a member without any. Older team
+    // rows / public projections can legitimately omit this array.
+    specialties: member.specialties || [],
     imageUrl: member.imageUrl,
     bio: member.bio,
     phone: member.hidePhoneFromPublic ? undefined : member.phone,

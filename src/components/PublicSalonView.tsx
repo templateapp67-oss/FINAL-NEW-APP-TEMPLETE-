@@ -17,6 +17,7 @@ import {
   resolvePublicSalonWebsiteResult,
   type PublicSalonProjection,
 } from '../lib/publicSalonResolver';
+import { scrollToRouteHashIfPresent } from '../lib/siteNavigation';
 
 interface Props {
   slug: string;
@@ -229,6 +230,16 @@ export default function PublicSalonView({ slug, resolved }: Props) {
   useEffect(() => {
     if (state.status === 'ready' && state.data) {
       updateSalonFavicon(state.data);
+      // Deep-link navigation: `/arts-by-uma#services`, `#offers`, `#about`,
+      // `#contact`, `#home` … scroll to the matching section on load, matching
+      // the header nav behaviour. Delayed one tick so sections are laid out.
+      const t = window.setTimeout(() => {
+        scrollToRouteHashIfPresent(state.data.templateId, state.data);
+      }, 0);
+      return () => {
+        resetSalonFavicon();
+        window.clearTimeout(t);
+      };
     }
     return () => {
       resetSalonFavicon();

@@ -12,8 +12,11 @@
  *       Home → Services → Offers → Gallery → Videos → About → Team → Contact
  *       → Language → Dark Mode → Book Appointment (data-dependent links mirror
  *       the sections that actually render; family/nail have no Videos section).
- *   3.  Book Appointment is always LAST and targets the contact section.
- *   4.  Nav clicks set aria-current and scroll the matching section into view.
+ *   3.  Book Appointment is always LAST and opens the existing booking flow
+ *       (and sets the #booking route hash).
+ *   4.  Nav clicks set aria-current, scroll the matching section into view,
+ *       and mirror the canonical route hash (#services, #offers, …); Home
+ *       scrolls to the top and sets #home.
  *   5.  Language control switches EN ↔ हिन्दी instantly (labels + persisted
  *       `nexora_locale`) and flips back.
  *   6.  Dark Mode toggle flips the header's data-appearance, persists to
@@ -61,6 +64,14 @@ dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {
   scrollSpy.push(this.id || '(no-id)');
 };
 globalThis.HTMLElement.prototype.scrollIntoView = dom.window.HTMLElement.prototype.scrollIntoView;
+
+// scrollTo stub (jsdom does not implement it) — records the scrollTop so the
+// "Home scrolls to top" path (scrollSiteToTop) is observable.
+dom.window.HTMLElement.prototype.scrollTo = function scrollTo(options) {
+  if (options && typeof options === 'object' && typeof options.top === 'number') this.scrollTop = options.top;
+  else if (typeof options === 'number') this.scrollTop = options;
+};
+globalThis.HTMLElement.prototype.scrollTo = dom.window.HTMLElement.prototype.scrollTo;
 
 const React = (await import('react')).default;
 const { render, cleanup, act, fireEvent, within } = await import('@testing-library/react');
@@ -255,10 +266,33 @@ for (const config of CASES) {
       assert.ok(scrollSpy.includes(expected), `expected scroll to ${expected}, got ${scrollSpy.join(',')}`);
     });
 
-    await test('Book Appointment scrolls to the contact/booking section', () => {
+    await test('nav clicks update the canonical route hash for deep links', () => {
+      fireEvent.click(utils.getByTestId('nav-services'));
+      assert.equal(window.location.hash, '#services', `expected #services, got ${window.location.hash}`);
+      fireEvent.click(utils.getByTestId('nav-offers'));
+      assert.equal(window.location.hash, '#offers', `expected #offers, got ${window.location.hash}`);
+    });
+
+    await test('Home navigates to the top of the site', () => {
+      const scroller = utils.container.querySelector('.site-scroll');
+      if (scroller) scroller.scrollTop = 400;
       scrollSpy.length = 0;
-      fireEvent.click(utils.getByTestId('site-book-cta'));
-      assert.ok(scrollSpy.includes('section-contact'), `expected scroll to section-contact, got ${scrollSpy.join(',')}`);
+      fireEvent.click(utils.getByTestId('nav-home'));
+      assert.equal(utils.getByTestId('nav-home').getAttribute('aria-current'), 'page');
+      assert.equal(window.location.hash, '#home', `expected #home, got ${window.location.hash}`);
+      if (scroller) assert.equal(scroller.scrollTop, 0, 'Home did not scroll to the top of the site');
+    });
+
+    await test('Book Appointment opens the booking flow and sets #booking', async () => {
+      assert.equal(utils.container.querySelector('[data-testid="site-booking-flow"]'), null);
+      await act(async () => { fireEvent.click(utils.getByTestId('site-book-cta')); });
+      assert.ok(utils.container.querySelector('[data-testid="site-booking-flow"]'), 'booking flow did not open from Book Appointment');
+      assert.equal(window.location.hash, '#booking', `expected #booking, got ${window.location.hash}`);
+      // Close so later tests start clean.
+      await act(async () => {
+        const close = Array.from(utils.container.querySelectorAll('button')).find((b) => /Back to Website/i.test(b.textContent || ''));
+        if (close) fireEvent.click(close);
+      });
     });
 
     await test('language control switches to हिन्दी and persists', () => {

@@ -12,14 +12,16 @@ import {
   NAIL_LASH_STUDIO_THEME,
 } from '../lib/themeServices';
 import {
-  BOOK_APPOINTMENT_TARGET,
+  BOOKING_ROUTE_HASH,
   SITE_APPEARANCE_EVENT,
   SITE_HEADER_LABELS,
   SITE_LOCALE_EVENT,
   SITE_NAV_LABELS,
   buildSiteNavItems,
+  pushRouteHash,
   readSiteAppearance,
   readSiteLocale,
+  routeHashForNav,
   scrollToSiteSection,
   setSiteAppearance,
   setSiteLocale,
@@ -27,7 +29,7 @@ import {
 import type { SiteAppearance, SiteHeaderThemeId, SiteNavItem } from '../lib/siteNavigation';
 import { useAuth, signOut } from '../lib/useAuth';
 import { useAuthModalOptional } from './AuthModalProvider';
-import { openSiteBooking } from '../lib/siteBooking';
+import { openSiteBooking, scrollSiteToTop } from '../lib/siteBooking';
 import { OWNER_PREVIEW_EMPTY } from '../lib/ownerPreview';
 import { publicSalonAuthContinuation } from '../lib/authRedirect';
 import { useIsOwnerPreview } from './SiteRenderContext';
@@ -239,7 +241,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
         </div>
       );
     },
-    linkClass: 'px-1.5 py-2 text-[10px] font-black uppercase tracking-[0.16em] border-b-2 border-transparent transition-colors',
+    linkClass: 'px-1.5 py-2 text-[10px] font-black uppercase tracking-[0.16em] border-b-2 border-transparent transition-colors hover:opacity-70',
     linkStyle: (a, active) => ({
       color: active ? B.gold : a === 'dark' ? '#d4d4d0' : '#3a352c',
       borderColor: active ? B.gold : 'transparent',
@@ -263,7 +265,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
       backgroundColor: a === 'dark' ? '#101010' : B.cream,
       borderColor: B.gold,
     }),
-    drawerRowClass: 'w-full flex items-center justify-between px-6 py-3.5 border-b text-left text-[11px] font-black uppercase tracking-[0.2em] transition-colors',
+    drawerRowClass: 'w-full flex items-center justify-between px-6 py-3.5 border-b text-left text-[11px] font-black uppercase tracking-[0.2em] transition-colors hover:opacity-70',
     drawerRowStyle: (a, active) => ({
       borderColor: a === 'dark' ? '#232323' : 'rgba(177,145,35,0.25)',
       color: active ? B.gold : a === 'dark' ? '#d4d4d0' : '#3a352c',
@@ -324,7 +326,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
         </div>
       );
     },
-    linkClass: 'pb-1 text-[10px] font-medium uppercase tracking-[0.2em] border-b transition-colors',
+    linkClass: 'pb-1 text-[10px] font-medium uppercase tracking-[0.2em] border-b transition-colors hover:opacity-70',
     linkStyle: (a, active) => ({
       color: active ? (a === 'dark' ? H.roseBright : H.roseDeep) : a === 'dark' ? '#cfcac4' : '#6f6a65',
       borderColor: active ? (a === 'dark' ? H.roseBright : H.roseDeep) : 'transparent',
@@ -349,7 +351,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     menuButtonStyle: (a) => ({ borderColor: a === 'dark' ? H.inkSoft : H.line }),
     drawerClass: 'border-b',
     drawerStyle: (a) => ({ backgroundColor: a === 'dark' ? '#1e1c1b' : H.paper, borderColor: a === 'dark' ? H.inkSoft : H.line }),
-    drawerRowClass: 'w-full flex items-baseline gap-4 px-8 py-3.5 border-b text-left text-[10px] font-medium uppercase tracking-[0.24em] transition-colors',
+    drawerRowClass: 'w-full flex items-baseline gap-4 px-8 py-3.5 border-b text-left text-[10px] font-medium uppercase tracking-[0.24em] transition-colors hover:opacity-70',
     drawerRowStyle: (a, active) => ({
       borderColor: a === 'dark' ? '#292624' : H.line,
       color: active ? (a === 'dark' ? H.roseBright : H.roseDeep) : a === 'dark' ? '#d9d4ce' : '#4c4742',
@@ -361,7 +363,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     ),
     drawerMetaClass: 'text-[9px] font-medium uppercase tracking-[0.3em]',
     drawerMetaStyle: (a) => ({ color: a === 'dark' ? '#8f8984' : H.muted }),
-    drawerBookClass: 'w-full py-3.5 text-[10px] uppercase tracking-[0.28em] font-semibold border transition-colors',
+    drawerBookClass: 'w-full py-3.5 text-[10px] uppercase tracking-[0.28em] font-semibold border transition-colors active:scale-[0.99]',
     drawerBookStyle: (a) => ({ borderColor: a === 'dark' ? H.roseBright : H.rose, color: a === 'dark' ? H.roseBright : H.roseDeep, backgroundColor: a === 'dark' ? 'rgba(216,160,168,0.08)' : H.roseSoft }),
   },
 
@@ -413,7 +415,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
         </div>
       );
     },
-    linkClass: 'px-3 py-2 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] transition-colors',
+    linkClass: 'px-3 py-2 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] transition-colors hover:opacity-70',
     linkStyle: (a, active) => ({
       color: active ? (a === 'dark' ? '#ffffff' : S.emerald) : a === 'dark' ? 'rgba(255,255,255,0.72)' : S.muted,
       backgroundColor: active ? (a === 'dark' ? 'rgba(255,255,255,0.14)' : S.emeraldSoft) : 'transparent',
@@ -434,14 +436,14 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     menuButtonStyle: (a) => ({ backgroundColor: a === 'dark' ? 'rgba(255,255,255,0.12)' : S.emeraldSoft }),
     drawerClass: 'mx-2 mt-1 rounded-3xl border shadow-lg overflow-hidden',
     drawerStyle: (a) => ({ backgroundColor: a === 'dark' ? '#15594a' : S.cream, borderColor: a === 'dark' ? 'rgba(255,255,255,0.14)' : S.line }),
-    drawerRowClass: 'w-11/12 mx-auto text-center rounded-full py-3 text-[10px] font-semibold uppercase tracking-[0.22em] transition-colors',
+    drawerRowClass: 'w-11/12 mx-auto text-center rounded-full py-3 text-[10px] font-semibold uppercase tracking-[0.22em] transition-colors hover:opacity-70',
     drawerRowStyle: (a, active) => ({
       color: active ? (a === 'dark' ? '#15594a' : '#ffffff') : a === 'dark' ? 'rgba(255,255,255,0.78)' : S.text,
       backgroundColor: active ? (a === 'dark' ? '#e2f0ea' : S.emerald) : 'transparent',
     }),
     drawerMetaClass: 'text-[9px] font-semibold uppercase tracking-[0.28em] text-center',
     drawerMetaStyle: (a) => ({ color: a === 'dark' ? 'rgba(255,255,255,0.55)' : S.muted }),
-    drawerBookClass: 'w-full py-3.5 rounded-full text-[10px] uppercase tracking-[0.24em] font-semibold text-white transition-all hover:brightness-105',
+    drawerBookClass: 'w-full py-3.5 rounded-full text-[10px] uppercase tracking-[0.24em] font-semibold text-white transition-all hover:brightness-105 active:scale-[0.99]',
     drawerBookStyle: () => ({ backgroundColor: S.emerald }),
   },
 
@@ -496,7 +498,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
         </div>
       );
     },
-    linkClass: 'px-2.5 py-2 rounded-lg text-[10px] font-extrabold transition-colors',
+    linkClass: 'px-2.5 py-2 rounded-lg text-[10px] font-extrabold transition-colors hover:opacity-70',
     linkStyle: (a, active) => ({
       color: active ? (a === 'dark' ? F.skyDeep : F.blue) : a === 'dark' ? 'rgba(255,255,255,0.72)' : F.muted,
       backgroundColor: active ? (a === 'dark' ? 'rgba(205,234,255,0.12)' : F.sky) : 'transparent',
@@ -518,7 +520,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     menuButtonStyle: (a) => ({ backgroundColor: a === 'dark' ? 'rgba(255,255,255,0.1)' : F.sky }),
     drawerClass: 'border-b shadow-lg',
     drawerStyle: (a) => ({ backgroundColor: a === 'dark' ? '#0a2438' : '#ffffff', borderColor: a === 'dark' ? 'rgba(255,255,255,0.12)' : F.line }),
-    drawerRowClass: 'w-full flex items-center justify-between px-5 py-3 rounded-xl text-left text-[11px] font-extrabold transition-colors',
+    drawerRowClass: 'w-full flex items-center justify-between px-5 py-3 rounded-xl text-left text-[11px] font-extrabold transition-colors hover:opacity-70',
     drawerRowStyle: (a, active) => ({
       color: active ? (a === 'dark' ? '#071b2e' : F.white) : a === 'dark' ? 'rgba(255,255,255,0.82)' : F.ink,
       backgroundColor: active ? (a === 'dark' ? F.skyDeep : F.blue) : 'transparent',
@@ -526,7 +528,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     drawerRowSuffix: (a) => <ArrowRight className="w-3.5 h-3.5 opacity-70" style={{ color: a === 'dark' ? 'currentColor' : F.blue }} />,
     drawerMetaClass: 'text-[9px] font-extrabold uppercase tracking-[0.2em]',
     drawerMetaStyle: (a) => ({ color: a === 'dark' ? F.skyDeep : F.muted }),
-    drawerBookClass: 'w-full rounded-xl py-3.5 text-[10px] font-extrabold uppercase tracking-[0.16em] flex items-center justify-center gap-2 transition-all hover:brightness-105',
+    drawerBookClass: 'w-full rounded-xl py-3.5 text-[10px] font-extrabold uppercase tracking-[0.16em] flex items-center justify-center gap-2 transition-all hover:brightness-105 active:scale-[0.99]',
     drawerBookStyle: () => ({ backgroundColor: F.teal, color: F.white }),
   },
 
@@ -586,7 +588,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
         </div>
       );
     },
-    linkClass: 'px-3 py-2 rounded-full text-[9px] font-extrabold uppercase tracking-[0.14em] transition-colors',
+    linkClass: 'px-3 py-2 rounded-full text-[9px] font-extrabold uppercase tracking-[0.14em] transition-colors hover:opacity-70',
     linkStyle: (a, active) => ({
       color: active ? (a === 'dark' ? '#211b24' : '#ffffff') : a === 'dark' ? 'rgba(255,250,247,0.66)' : N.muted,
       backgroundColor: active ? (a === 'dark' ? N.pinkGlow : N.pink) : 'transparent',
@@ -613,7 +615,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     }),
     drawerClass: 'border-b shadow-lg',
     drawerStyle: (a) => ({ backgroundColor: a === 'dark' ? '#2c2330' : '#fffaf7', borderColor: a === 'dark' ? 'rgba(255,45,141,0.3)' : N.line }),
-    drawerRowClass: 'w-full flex items-center justify-between px-5 py-3 rounded-2xl text-left text-[10px] font-extrabold uppercase tracking-[0.14em] transition-colors',
+    drawerRowClass: 'w-full flex items-center justify-between px-5 py-3 rounded-2xl text-left text-[10px] font-extrabold uppercase tracking-[0.14em] transition-colors hover:opacity-70',
     drawerRowStyle: (a, active) => ({
       color: active ? '#ffffff' : a === 'dark' ? 'rgba(255,250,247,0.8)' : N.ink,
       backgroundColor: active ? N.pink : 'transparent',
@@ -623,7 +625,7 @@ const DESIGNS: Record<SiteHeaderThemeId, Design> = {
     ),
     drawerMetaClass: 'text-[8px] font-extrabold uppercase tracking-[0.24em]',
     drawerMetaStyle: (a) => ({ color: a === 'dark' ? N.pinkGlow : N.pinkDeep }),
-    drawerBookClass: 'w-full rounded-full py-3.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-white transition-all hover:brightness-110',
+    drawerBookClass: 'w-full rounded-full py-3.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-white transition-all hover:brightness-110 active:scale-[0.99]',
     drawerBookStyle: () => ({ backgroundImage: `linear-gradient(120deg, ${N.pink} 0%, ${N.pinkDeep} 100%)`, backgroundColor: N.pink }),
   },
 };
@@ -669,12 +671,24 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
   const go = useCallback((item: SiteNavItem) => {
     setActiveKey(item.key);
     setMenuOpen(false);
-    scrollToSiteSection(item.targetId);
+    // HOME scrolls to the very top of the site (not the hero) and exposes the
+    // canonical route hash (`/arts-by-uma#home`). Every other nav item smooth
+    // scrolls to its section and mirrors the address-bar hash (`#services`,
+    // `#offers`, `#about`, `#contact`, …) for shareable deep links.
+    if (item.key === 'home') {
+      scrollSiteToTop();
+    } else {
+      scrollToSiteSection(item.targetId);
+    }
+    pushRouteHash(routeHashForNav(item.key));
   }, []);
 
   const goBook = useCallback(() => {
     setMenuOpen(false);
-    scrollToSiteSection(BOOK_APPOINTMENT_TARGET);
+    // BOOK APPOINTMENT triggers the appointment booking modal (the shared
+    // SiteBookingHost flow) and exposes `/arts-by-uma#booking`.
+    openSiteBooking();
+    pushRouteHash(BOOKING_ROUTE_HASH);
   }, []);
 
   const languageControl = (testIdPrefix: string) => (
@@ -961,4 +975,3 @@ export default function SiteHeader({ themeId, data, mode }: Props) {
   );
 }
 
-export { BOOK_APPOINTMENT_TARGET };

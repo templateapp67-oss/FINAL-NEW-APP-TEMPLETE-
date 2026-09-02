@@ -23,7 +23,15 @@
   successful provisioning, retry idempotency, 6/6 verifier checks, and continued
   denial of direct active-membership, anonymous and cross-user calls. Run
   `npm run test:m75`.
-- Live apply remains a separate operation: `npm run db:apply:live:m75`.
+- **Applied live on 2026-09-02** to project `qwaehqsmodekbgvnaavz` as ledger
+  version `20260902091128` (`m75_owner_provisioning_trusted_membership`).
+- Two fresh, clearly labelled `Codex M75 Verification <timestamp>` owner
+  accounts were exercised through the real Auth + PostgREST path. Signup,
+  simultaneous provisioning, password login, refresh/retry and one active owner
+  membership per account all passed. Cross-user legacy RPC, direct privileged
+  membership insert and anonymous provisioning were denied. Final integrity:
+  zero duplicate `(organization_id,user_id)` membership pairs, RLS enabled and
+  the invitation guard enabled.
 
 ## Public slug resolution — `/arts-by-uma` "Salon Not Found" fix — 2026-09-02 (current PR)
 

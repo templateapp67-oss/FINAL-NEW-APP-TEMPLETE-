@@ -10,7 +10,7 @@ const migrationPath = join(
   root,
   'supabase',
   'migrations',
-  '20260902000301_m72_owner_provisioning_trusted_membership.sql',
+  '20260902080501_m75_owner_provisioning_trusted_membership.sql',
 );
 const migrationSql = await readFile(migrationPath, 'utf8');
 let passed = 0;
@@ -73,7 +73,7 @@ await db.exec(`
     for each row execute function private.protect_organization_membership_fields();
   grant insert, update, select on public.organization_members to authenticated;
 
-  -- Reproduce M54 before M72: compatible columns, but no trusted gate.
+  -- Reproduce M54 before M75: compatible columns, but no trusted gate.
   create or replace function private.nexora_upsert_owner_membership(p_organization_id uuid, p_user_id uuid)
   returns void language plpgsql security definer set search_path='' as $$
   begin
@@ -128,20 +128,20 @@ let reproduced = false;
 try {
   await asRole(
     'authenticated',
-    `select * from public.provision_owner_salon('Before M72','before-m72','barber_mens_grooming')`,
+    `select * from public.provision_owner_salon('Before M75','before-m75','barber_mens_grooming')`,
   );
 } catch (error) {
   reproduced = error.code === 'P0001' && /server-activated invitations/i.test(error.message);
 }
 assert.equal(reproduced, true);
-ok('live P0001 is reproduced before M72');
+ok('live P0001 is reproduced before M75');
 
 await db.exec(migrationSql);
-ok('M72 applies cleanly against the exact live guard contract');
+ok('M75 applies cleanly against the exact live guard contract');
 
 const first = (await asRole(
   'authenticated',
-  `select * from public.provision_owner_salon('After M72','after-m72','barber_mens_grooming')`,
+  `select * from public.provision_owner_salon('After M75','after-m75','barber_mens_grooming')`,
 )).rows[0];
 assert.ok(first.out_organization_id);
 const membership = (await db.query(
@@ -206,11 +206,11 @@ assert.equal(anonBlocked, true);
 ok('anonymous provisioning remains denied');
 
 const verifier = (await db.query(
-  `select * from public.verify_m72_owner_provisioning_membership_gate()`,
+  `select * from public.verify_m75_owner_provisioning_membership_gate()`,
 )).rows;
 assert.ok(verifier.length >= 6);
 assert.deepEqual(verifier.filter((row) => row.ok !== true), []);
-ok(`M72 verifier reports ${verifier.length}/${verifier.length} checks green`);
+ok(`M75 verifier reports ${verifier.length}/${verifier.length} checks green`);
 
 const clientSource = await readFile(join(root, 'src', 'lib', 'ownerProvisioning.ts'), 'utf8');
 assert.doesNotMatch(clientSource, /p_user_id\s*:/);
@@ -223,4 +223,4 @@ assert.doesNotMatch(migrationSql, /disable\s+row\s+level\s+security/i);
 ok('migration preserves the invitation trigger, RLS and all existing data');
 
 await db.close();
-console.log(`\nM72 permanent owner provisioning fix: ${passed}/${passed} checks PASS`);
+console.log(`\nM75 permanent owner provisioning fix: ${passed}/${passed} checks PASS`);

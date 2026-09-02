@@ -14,7 +14,7 @@
 import type { SalonData, SalonOpeningHours } from '../types';
 import { resolveOwnerSalonId } from './ownerSalon';
 import { requireSupabase, isSupabaseConfigured } from './supabaseClient';
-import { saveOwnerWebsiteDraft } from './salonWebsiteService';
+import { saveOwnerWebsiteDraft, getLastDraftSaveErrorMessage, describeDraftSaveFailure } from './salonWebsiteService';
 import { saveSalonLocation } from './salonLocationService';
 import {
   diagnosticFromError,
@@ -146,7 +146,9 @@ export async function persistOwnerBusinessSetup(data: SalonData): Promise<{
     .eq('id', resolution.salonId);
   if (salonError) {
     console.error('Failed to update salon profile:', salonError);
-    return { error: 'Unable to save your business name and address.' };
+    // Surface the REAL cause (expired session, permission denial, outage)
+    // instead of one catch-all sentence the owner cannot act on.
+    return { error: describeDraftSaveFailure(salonError) };
   }
 
   const { data: salonRow } = await client
@@ -169,6 +171,11 @@ export async function persistOwnerBusinessSetup(data: SalonData): Promise<{
   // otherwise the UI shows "Saved ✓" for data that will be gone on refresh.
   if (!draft) {
     console.error('persistOwnerBusinessSetup: website draft save failed.');
+    // saveOwnerWebsiteDraft records WHY it failed (session expiry, CORS/origin
+    // rejection, payload too large, storage-service outage…). Propagate that
+    // reason so the autosave toast and TopBar can show it.
+    const reason = getLastDraftSaveErrorMessage();
+    if (reason) return { error: reason };
     return { error: 'Unable to save your website details. Please try again.' };
   }
   await persistSalonHours(resolution.salonId, data.openingHours);

@@ -186,6 +186,10 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  // The specific reason behind the most recent failed save (session expiry,
+  // payload too large, CORS, storage outage…) — shown in the TopBar/toast so
+  // the owner never gets only the generic "check connection" dead end.
+  const [saveErrorDetail, setSaveErrorDetail] = useState<string | null>(null);
   // One save-failure toast per failure streak: the debounced autosave keeps
   // retrying on every edit and must not spam the user with repeated toasts.
   const saveFailureToastShown = useRef(false);
@@ -481,6 +485,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
     },
     onSaved: (result) => {
       saveFailureToastShown.current = false;
+      setSaveErrorDetail(null);
       setData((current) => {
         const nextSlug = result.slug || current.websiteSlug;
         if (result.salonId === current.salonId && nextSlug === current.websiteSlug) return current;
@@ -490,10 +495,15 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
       if (isSupabaseConfigured) safeRemoveItem(STORAGE_KEY);
       setSaveStatus('saved');
     },
-    onError: () => {
+    onError: (error) => {
+      // Prefer the SPECIFIC failure reason (expired session, payload too
+      // large, CORS/origin rejection, storage outage) surfaced by
+      // persistOwnerBusinessSetup — the generic copy is only the last resort.
+      const detail = error instanceof Error && error.message.trim() ? error.message.trim() : null;
+      setSaveErrorDetail(detail);
       if (!saveFailureToastShown.current) {
         saveFailureToastShown.current = true;
-        showToast('Could not save your changes. Check your connection — retrying automatically.', 'error');
+        showToast(detail || 'Could not save your changes. Check your connection — retrying automatically.', 'error');
       }
       setSaveStatus('error');
     },
@@ -674,10 +684,12 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         if ('error' in saved) {
           saveFailureToastShown.current = true;
           setSaveStatus('error');
-          showToast('Could not save your changes. Check your connection and try again.', 'error');
+          setSaveErrorDetail(saved.error || null);
+          showToast(saved.error || 'Could not save your changes. Check your connection and try again.', 'error');
           return;
         }
         saveFailureToastShown.current = false;
+        setSaveErrorDetail(null);
         // Update the global UI state immediately with the persisted response.
         setData((current) => current.salonId === saved.salonId
           ? current
@@ -698,6 +710,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         console.error('Backend business save failed:', error);
         saveFailureToastShown.current = true;
         setSaveStatus('error');
+        setSaveErrorDetail(error instanceof Error && error.message.trim() ? error.message.trim() : null);
         showToast('Could not save your changes. Check your connection and try again.', 'error');
       });
   };
@@ -785,6 +798,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           activeModule="wizard"
           setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
+          saveError={saveErrorDetail}
           currentScreen={1}
           onNavigate={() => setStep(0)}
         />
@@ -883,6 +897,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           activeModule={activeModule}
           setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
+          saveError={saveErrorDetail}
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
         />
@@ -934,6 +949,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           activeModule={activeModule}
           setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
+          saveError={saveErrorDetail}
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
         />
@@ -971,6 +987,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
           activeModule={activeModule}
           setActiveModule={changeActiveModule}
           saveStatus={saveStatus}
+          saveError={saveErrorDetail}
           currentScreen={currentScreen}
           onNavigate={navigateToScreen}
         />
@@ -1013,6 +1030,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         activeModule={activeModule}
         setActiveModule={changeActiveModule}
         saveStatus={saveStatus}
+          saveError={saveErrorDetail}
         currentScreen={currentScreen}
         onNavigate={navigateToScreen}
       />
@@ -1047,6 +1065,7 @@ export default function App({ initialModule = 'wizard' }: AppProps = {}) {
         activeModule={activeModule} 
         setActiveModule={changeActiveModule}
         saveStatus={saveStatus}
+          saveError={saveErrorDetail}
         currentScreen={currentScreen}
         onNavigate={navigateToScreen}
       />

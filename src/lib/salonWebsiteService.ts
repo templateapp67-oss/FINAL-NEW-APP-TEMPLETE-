@@ -38,6 +38,68 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/* ------------------------------------------------------------------ *
+ * Draft-save failure diagnostics
+ *
+ * A failed draft save used to surface only as the generic
+ * "Save failed — check connection", even when the real cause was an expired
+ * session, an RLS/permission denial, an oversized payload (Base64 gallery
+ * fallbacks from Step 5), or a CORS/origin rejection. The classifier below
+ * turns each failure into an actionable message, and the module records the
+ * most recent one so `persistOwnerBusinessSetup` can propagate it to the
+ * autosave toast + TopBar indicator.
+ * ------------------------------------------------------------------ */
+
+let lastDraftSaveError: string | null = null;
+
+/** Human-readable reason for the most recent failed draft save (or null). */
+export function getLastDraftSaveErrorMessage(): string | null {
+  return lastDraftSaveError;
+}
+
+/**
+ * Turns a raw Supabase/HTTP/network failure into a specific, actionable
+ * message. Never echoes SQL or internals to the owner.
+ */
+export function describeDraftSaveFailure(source: unknown, httpStatus?: number): string {
+  const shaped = source as { message?: unknown; error?: unknown; code?: unknown } | null | undefined;
+  const raw = (source instanceof Error
+    ? source.message
+    : typeof shaped?.message === 'string'
+      ? shaped.message
+      : typeof shaped?.error === 'string'
+        ? shaped.error
+        : typeof source === 'string'
+          ? source
+          : '').trim();
+  const lower = raw.toLowerCase();
+  const status = typeof httpStatus === 'number' ? httpStatus : undefined;
+
+  if (status === 401 || /jwt (expired|invalid)|token (is )?expired|refresh token|session (is )?(expired|missing)|not authenticated|unauthorized/i.test(lower)) {
+    return 'Your session has expired. Please log in again, then retry saving your website.';
+  }
+  if (status === 403 && /origin/.test(lower)) {
+    return 'The server rejected this request\u2019s origin (CORS). Ask your administrator to add this domain to ALLOWED_API_ORIGINS.';
+  }
+  if (status === 403 || /row-level security|rls|permission denied|not authorized/i.test(lower)) {
+    return 'Your account does not have permission to save this salon. Log in with the owner account and try again.';
+  }
+  if (status === 413 || /payload too large|entity too large|request entity|payload-too-large|too large to send/i.test(lower)) {
+    return 'This save is too large to send — usually gallery photos kept inside the draft while your media storage was unreachable. Reconnect so images upload to your media library, or remove some gallery photos, then try again.';
+  }
+  if (source instanceof TypeError || /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(lower)) {
+    return 'The save request never reached the server. Check your internet connection — if you are online, a CORS or firewall rule may be blocking the request.';
+  }
+  if ((typeof status === 'number' && status >= 500) || /\b5\d\d\b|service unavailable|bad gateway|gateway timeout|internal server error/i.test(lower)) {
+    return 'The save service is temporarily unavailable. Your changes are kept locally and will retry automatically.';
+  }
+  if (/violates|constraint|sql|relation|column|function|schema|pg_/i.test(lower)) {
+    return 'Your website details could not be saved because of a setup problem on our side. Please contact support.';
+  }
+  if (raw && raw.length <= 160) return raw;
+  return 'Unable to save your website details. Please check your connection and try again.';
+}
+
 /**
  * The full onboarding/website draft persisted to
  * `salon_public_websites.config`. This is OWNER-PRIVATE until the site is
@@ -297,8 +359,14 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
   slug: string;
   isPublished: boolean;
 } | null> {
+  lastDraftSaveError = null;
   const resolution = await resolveOwnerSalonId();
-  if (resolution.status !== 'resolved') return null;
+  if (resolution.status !== 'resolved') {
+    lastDraftSaveError = resolution.status === 'not-authenticated'
+      ? 'Your session has expired. Please log in again, then retry saving your website.'
+      : 'We could not resolve your salon workspace. Please refresh and log in again.';
+    return null;
+  }
   const client = requireSupabase();
   const config = websiteConfigFromSalonData(data);
   const templateKey = normalizeThemeId(data.templateId) || DEFAULT_THEME_ID;
@@ -310,6 +378,7 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
       .select('slug,is_published')
       .eq('salon_id', resolution.salonId)
       .maybeSingle();
+    if (readError) lastDraftSaveError = describeDraftSaveFailure(readError);
 
     if (!readError && existing) {
       const isPublished = existing.is_published === true;
@@ -338,12 +407,14 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
             () => undefined,
           );
         }
+        lastDraftSaveError = null;
         return {
           salonId: resolution.salonId,
           slug: saved?.slug || existing.slug || data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
           isPublished: saved?.is_published ?? existing.is_published ?? false,
         };
       }
+      lastDraftSaveError = describeDraftSaveFailure(error);
     } else if (!readError && !existing) {
       const slug =
         data.websiteSlug?.trim().toLowerCase() ||
@@ -365,19 +436,24 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
           .maybeSingle();
 
         if (!error && saved) {
+          lastDraftSaveError = null;
           return { salonId: resolution.salonId, slug: saved.slug, isPublished: saved.is_published };
         }
+        if (error) lastDraftSaveError = describeDraftSaveFailure(error);
       }
     }
   } catch (clientErr) {
     console.warn('Client-side saveOwnerWebsiteDraft warning:', clientErr);
+    lastDraftSaveError = describeDraftSaveFailure(clientErr);
   }
 
   // 2. Attempt server-side fallback
   try {
     const { data: sessionData } = await client.auth.getSession();
     const token = sessionData.session?.access_token;
-    if (token) {
+    if (!token) {
+      lastDraftSaveError = 'Your session has expired. Please log in again, then retry saving your website.';
+    } else {
       const resp = await fetch('/api/owner/save-website-draft', {
         method: 'POST',
         headers: {
@@ -395,21 +471,39 @@ export async function saveOwnerWebsiteDraft(data: SalonData): Promise<{
 
       if (resp.ok) {
         const result = await resp.json();
+        lastDraftSaveError = null;
         return {
           salonId: result.salonId || resolution.salonId,
           slug: result.slug || data.websiteSlug || `salon-${resolution.salonId.slice(0, 8)}`,
           isPublished: result.isPublished === true,
         };
       }
+
+      // The fallback answered with an error status — read the server's own
+      // reason when it sent JSON, then classify it (401 session, 403
+      // permission/origin, 413 payload too large, 5xx outage).
+      let serverReason: unknown = null;
+      try {
+        serverReason = await resp.json();
+      } catch {
+        /* non-JSON error page (proxy/HTML) — classify by status alone */
+      }
+      lastDraftSaveError = describeDraftSaveFailure(serverReason, resp.status);
+      console.error(
+        `Server fallback saveOwnerWebsiteDraft failed with HTTP ${resp.status}:`,
+        serverReason ?? '(no JSON body)',
+      );
     }
   } catch (serverErr) {
     console.warn('Server fallback saveOwnerWebsiteDraft warning:', serverErr);
+    lastDraftSaveError = describeDraftSaveFailure(serverErr);
   }
 
   // 3. Nothing was persisted. Return null (NOT a success-shaped fallback): a
   // draft that did not reach the database must surface as a failed save so the
   // UI can tell the owner to retry — a fake slug here would silently swallow
   // the failure and show "Saved ✓" for data that will be gone on refresh.
+  // The specific reason is retained in `getLastDraftSaveErrorMessage()`.
   console.error('saveOwnerWebsiteDraft: website draft was not persisted (client write and server fallback both failed).');
   return null;
 }

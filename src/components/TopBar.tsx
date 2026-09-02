@@ -37,11 +37,17 @@ interface Props {
   activeModule: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard';
   setActiveModule: (m: 'wizard' | 'staff-management' | 'dashboard' | 'owner-dashboard') => void;
   saveStatus?: 'saved' | 'saving' | 'error';
+  /**
+   * Specific reason for the most recent failed save (session expiry, payload
+   * too large, CORS/origin rejection, storage outage…). Shown instead of the
+   * generic "Save failed — check connection" when available.
+   */
+  saveError?: string | null;
   currentScreen?: number;
   onNavigate?: (screenId: number) => void;
 }
 
-export default function TopBar({ step, activeModule, setActiveModule, saveStatus = 'saved', currentScreen, onNavigate }: Props) {
+export default function TopBar({ step, activeModule, setActiveModule, saveStatus = 'saved', saveError = null, currentScreen, onNavigate }: Props) {
   const { platform } = useBrandConfig();
   const { openAuth } = useAuthModal();
   const { user, loading: authLoading } = useAuth();
@@ -225,8 +231,13 @@ export default function TopBar({ step, activeModule, setActiveModule, saveStatus
             </>
           ) : saveStatus === 'error' ? (
             <>
-              <TriangleAlert className="w-4 h-4 text-red-600" />
-              <span className="text-xs font-semibold text-red-700">Save failed — check connection</span>
+              <TriangleAlert className="w-4 h-4 text-red-600 shrink-0" />
+              <span
+                className="text-xs font-semibold text-red-700 max-w-[280px] truncate"
+                title={saveError || 'Save failed — check connection'}
+              >
+                {saveError || 'Save failed — check connection'}
+              </span>
             </>
           ) : (
             <>

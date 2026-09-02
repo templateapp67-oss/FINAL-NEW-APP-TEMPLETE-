@@ -276,17 +276,18 @@ export function setupApiRoutes(app: express.Express): void {
     app.use(middleware);
   }
 
-  // Preserve exact request bytes for provider webhook HMAC verification before
-  // parsing JSON. All other routes continue to receive the parsed body.
-  app.use(express.json({
-    limit: '256kb',
-    verify: (req, _res, buffer) => {
-      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
-    },
-  }));
+  /**
+   * Routes whose JSON bodies may legitimately be large. Today that is only the
+   * owner website-draft save: its `config` payload embeds Base64 image
+   * fallbacks when Supabase Storage is unreachable (Step 5 Photo Gallery).
+   */
+  const LARGE_JSON_BODY_PATHS = new Set(['/api/owner/save-website-draft']);
+  const LARGE_JSON_BODY_LIMIT = '10mb';
 
   // Same-origin by default, plus an explicit deployment allowlist. Never send
-  // wildcard origin together with credentialed CORS.
+  // wildcard origin together with credentialed CORS. Registered BEFORE body
+  // parsing so even a parser rejection (e.g. 413 payload-too-large) carries
+  // the CORS headers a cross-origin caller needs to read the error.
   const configuredOrigins = new Set(
     (process.env.ALLOWED_API_ORIGINS || process.env.APP_ORIGIN || '')
       .split(',')
@@ -320,6 +321,56 @@ export function setupApiRoutes(app: express.Express): void {
         : res.status(403).json({ error: 'Origin is not allowed.' });
     }
     next();
+  });
+
+  // Preserve exact request bytes for provider webhook HMAC verification before
+  // parsing JSON. All other routes continue to receive the parsed body.
+  //
+  // BODY-SIZE BUDGETS — two tiers on purpose:
+  //   * Default routes stay on a tight 256kb budget (webhooks, bookings,
+  //     geocoding — none of them legitimately carry big bodies).
+  //   * The owner draft save carries the FULL website config JSON. When
+  //     Supabase Storage is unreachable, Step 5 (Photo Gallery) keeps each
+  //     photo in the draft as a Base64 data URL (≤ ~1 MB apiece after
+  //     downscaling), so a real gallery draft can easily exceed 256kb. That
+  //     used to make express reject the fallback save with an HTML 413 the
+  //     client could not interpret — surfacing in the builder as the generic
+  //     "Save failed — check connection". A 5 MB image is ~6.8 MB once
+  //     Base64-encoded, so the draft route gets a 10 MB budget.
+  //     (Note: some serverless platforms, e.g. Vercel, cap request bodies at
+  //     ~4.5 MB before Express ever runs — the client still receives a 413
+  //     and now shows a descriptive message for it.)
+  const preserveRawBody = (req: express.Request, _res: express.Response, buffer: Buffer) => {
+    (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+  };
+  const standardJsonParser = express.json({ limit: '256kb', verify: preserveRawBody });
+  const largeDraftJsonParser = express.json({ limit: LARGE_JSON_BODY_LIMIT, verify: preserveRawBody });
+  app.use((req, res, next) => {
+    const parser = LARGE_JSON_BODY_PATHS.has(req.path) ? largeDraftJsonParser : standardJsonParser;
+    parser(req, res, next);
+  });
+
+  // Translate body-parser failures into actionable JSON. Without this, an
+  // oversized or malformed body produced Express's default HTML error page,
+  // which the client-side fetch fallback could not diagnose.
+  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const parseError = err as { type?: string; status?: number; message?: string } | null;
+    if (!parseError) return next();
+    if (parseError.type === 'entity.too.large' || parseError.status === 413) {
+      const limit = LARGE_JSON_BODY_PATHS.has(req.path) ? LARGE_JSON_BODY_LIMIT : '256kb';
+      return res.status(413).json({
+        error:
+          `This save is too large to send (the server accepts up to ${limit} for this request). ` +
+          'This usually means gallery photos were stored inside the draft as offline copies. ' +
+          'Reconnect so images upload to your media library, or remove some gallery photos, then try again.',
+        code: 'payload-too-large',
+        limit,
+      });
+    }
+    if (parseError.type === 'entity.parse.failed') {
+      return res.status(400).json({ error: 'The request body is not valid JSON.', code: 'invalid-json' });
+    }
+    return next(err);
   });
 
   registerBookingRoutes(app);
